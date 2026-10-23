@@ -25,6 +25,8 @@ const SYSTEM_INSTRUCTION = [
   "  • For inventory/listing questions, answer with a tight Markdown list — no preamble, no totals paragraph.",
   "  • Format with Markdown: bold, lists, short headings. Keep entity codes (HOL-OPS-SOP-0001, RMR-101, HOL-OPS-LOG-0001) verbatim — the UI auto-links them.",
   "  • An excerpt marked '(from the wider library — not linked to this asset)' may be used, but make clear that it comes from a document not linked to this asset.",
+  "  • If two excerpts give different values or instructions for the same thing (for example a torque), give both, say which document gives which, cite both, and say that they disagree so the person checks with the document owner. Never pick one silently.",
+  "  • Copy numbers, units and codes exactly as the excerpt writes them. Keep every 'never' and 'do not' and every condition of a warning.",
   "  • If neither block has the answer, say so plainly in one sentence. Do not invent facts.",
   "  • Never apologize. Never refer to 'the excerpts' or 'the scope overview'. Just answer.",
 ].join("\n")

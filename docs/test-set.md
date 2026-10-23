@@ -42,6 +42,7 @@ Each generation costs money. Run these after changing the prompt (`WIKI_SYSTEM` 
 | Q2 | Same Wiki, die bolts. | One point gives 40 Nm (changeover SOP) and 45 Nm (supplier manual) with both sources. Never only one value, never an average. |
 | Q3 | Same Wiki, warnings. | "Never reach into the haul-off or saw area while the line is only stopped" keeps "never" and the condition. Safety comes first. |
 | Q4 | A Scope too large to read in full (more than 160 passages). | Built from shows "Read in part: n of m passages" (or "Not read") for the affected documents and the intro says the Scope was too large to read in full. Nothing is silently left out. |
+| Q5 | Ask (library): "Which purge compound do I use for a changeover on line 2?" and "What torque do the die bolts need after a die change?" | PX-4400 (live v1), never PX-9917 (draft v2). The torque answer gives 40 Nm (SOP) and 45 Nm (manual), cites both and says they disagree. |
 
 ## Manual checks in the browser
 
