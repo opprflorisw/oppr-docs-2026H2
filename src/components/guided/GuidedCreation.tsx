@@ -58,6 +58,11 @@ export interface GuidedCreationProps<D> {
    * since, so the Draft can mark them.
    */
   renderDraft: (draft: D, setDraft: (next: D) => void, changed: ReadonlySet<string>) => ReactNode
+  /**
+   * Optional one-line summary of what Create will produce, shown next to the
+   * Create button so it stays visible without scrolling the Draft.
+   */
+  renderSummary?: (draft: D) => ReactNode
   /** Null when the Draft can be created, otherwise the reason it cannot. */
   blockedReason: (draft: D) => string | null
   createLabel: string
@@ -448,6 +453,10 @@ export function GuidedCreation<D>(props: GuidedCreationProps<D>) {
                 {props.renderDraft(state.draft, setDraft, changedSet)}
               </div>
               <div className="flex items-center justify-between gap-3 border-t bg-background px-4 py-3">
+                <div className="min-w-0 space-y-0.5">
+                {props.renderSummary && (
+                  <div className="text-xs" aria-live="polite">{props.renderSummary(state.draft)}</div>
+                )}
                 <p className="min-w-0 text-[11px] text-muted-foreground" aria-live="polite">
                   {state.createError ? (
                     <span className="text-destructive" role="alert">{state.createError}</span>
@@ -459,6 +468,7 @@ export function GuidedCreation<D>(props: GuidedCreationProps<D>) {
                     `Nothing is saved until you press ${props.createLabel}.`
                   )}
                 </p>
+                </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <Button size="sm" variant="ghost" onClick={requestClose} disabled={state.phase === "creating"}>
                     Cancel

@@ -103,6 +103,7 @@ export function WikiGuidedCreation({
       renderDraft={(draft, setDraft, changed) => (
         <WikiDraftFields draft={draft} onChange={setDraft} changed={changed} />
       )}
+      renderSummary={(d) => <BuiltFromSummary scope={d.scope} />}
       blockedReason={(d) =>
         !d.title.trim()
           ? "Give the Wiki a title."
@@ -241,6 +242,32 @@ function WikiDraftFields({
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * The "Built from" count in one line, next to the Create button, so it is
+ * visible at small window heights without scrolling the Draft. Same query as
+ * the full list in the Draft, so Convex serves both from one subscription.
+ */
+function BuiltFromSummary({ scope }: { scope: WikiDraft["scope"] }) {
+  const preview = useQuery(api.wikis.previewScope, { scope })
+  if (preview === undefined) return <span className="text-muted-foreground">Checking the scope…</span>
+  if (preview.empty) return <span className="text-muted-foreground">Built from: nothing chosen yet</span>
+  const n = preview.published.length
+  const skipped = preview.excluded.length
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <FileText className="h-3 w-3 text-muted-foreground" />
+      <span className={cn("font-medium", n === 0 && "text-amber-700 dark:text-amber-400")}>
+        {n === 0
+          ? "Built from 0 published documents: the Wiki would be empty"
+          : `Built from ${n} published ${n === 1 ? "document" : "documents"}`}
+      </span>
+      {skipped > 0 && (
+        <span className="text-muted-foreground">· {skipped} not published, not used</span>
+      )}
+    </span>
   )
 }
 
