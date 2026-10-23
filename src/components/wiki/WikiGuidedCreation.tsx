@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useAction, useMutation, useQuery } from "convex/react"
 import { useLocation } from "wouter"
 import { toast } from "sonner"
-import { Check, ChevronsUpDown, FileText, Info, X } from "lucide-react"
+import { Check, ChevronsUpDown, FileText, Info, Sparkles, X } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { GuidedCreation } from "@/components/guided/GuidedCreation"
@@ -35,6 +35,30 @@ export const EMPTY_WIKI_DRAFT: WikiDraft = {
   title: "",
   purpose: "",
   scope: { areas: [], disciplines: [], assetIds: [], documentIds: [] },
+}
+
+const sameSet = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && a.every((x) => b.includes(x))
+
+// Field labels, shared by "Changed in the draft" and the field highlights.
+const F = {
+  title: "Title",
+  purpose: "Purpose",
+  areas: "Areas",
+  disciplines: "Disciplines",
+  assets: "Machines",
+  documents: "Documents",
+} as const
+
+export function wikiDraftChanges(a: WikiDraft, b: WikiDraft): string[] {
+  const out: string[] = []
+  if (a.title !== b.title) out.push(F.title)
+  if (a.purpose !== b.purpose) out.push(F.purpose)
+  if (!sameSet(a.scope.areas, b.scope.areas)) out.push(F.areas)
+  if (!sameSet(a.scope.disciplines, b.scope.disciplines)) out.push(F.disciplines)
+  if (!sameSet(a.scope.assetIds, b.scope.assetIds)) out.push(F.assets)
+  if (!sameSet(a.scope.documentIds, b.scope.documentIds)) out.push(F.documents)
+  return out
 }
 
 const EXAMPLES = [
@@ -75,8 +99,9 @@ export function WikiGuidedCreation({
       examples={editing ? [] : EXAMPLES}
       initialDraft={initial ?? EMPTY_WIKI_DRAFT}
       ask={(messages, draft) => guide({ messages, draft })}
-      renderDraft={(draft, setDraft, aiTouched) => (
-        <WikiDraftFields draft={draft} onChange={setDraft} aiTouched={aiTouched} />
+      changedFields={wikiDraftChanges}
+      renderDraft={(draft, setDraft, changed) => (
+        <WikiDraftFields draft={draft} onChange={setDraft} changed={changed} />
       )}
       blockedReason={(d) =>
         !d.title.trim()
@@ -104,23 +129,14 @@ export function WikiGuidedCreation({
 function WikiDraftFields({
   draft,
   onChange,
-  aiTouched,
+  changed,
 }: {
   draft: WikiDraft
   onChange: (d: WikiDraft) => void
-  aiTouched: number
+  changed: ReadonlySet<string>
 }) {
   const options = useQuery(api.wikis.scopeOptions)
   const preview = useQuery(api.wikis.previewScope, { scope: draft.scope })
-  const [flash, setFlash] = useState(false)
-
-  // Briefly highlight the Draft whenever the AI changed it.
-  useEffect(() => {
-    if (aiTouched === 0) return
-    setFlash(true)
-    const t = setTimeout(() => setFlash(false), 900)
-    return () => clearTimeout(t)
-  }, [aiTouched])
 
   const setScope = (patch: Partial<WikiDraft["scope"]>) =>
     onChange({ ...draft, scope: { ...draft.scope, ...patch } })
@@ -128,26 +144,30 @@ function WikiDraftFields({
     list.includes(value) ? list.filter((x) => x !== value) : [...list, value]
 
   return (
-    <div className={cn("space-y-4 rounded-md transition-shadow", flash && "ring-2 ring-primary/40 ring-offset-4")}>
+    <div className="space-y-4">
       <div className="space-y-1.5">
-        <Label htmlFor="wiki-title" className="text-xs">Title</Label>
+        <Label htmlFor="wiki-title" className="flex items-center gap-1.5 text-xs">
+          Title <AiMark on={changed.has(F.title)} />
+        </Label>
         <Input
           id="wiki-title"
           value={draft.title}
           onChange={(e) => onChange({ ...draft, title: e.target.value })}
           placeholder="e.g. Line 2 changeover essentials"
-          className="h-8 text-sm"
+          className={cn("h-8 text-sm", changed.has(F.title) && "border-primary/60")}
         />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="wiki-purpose" className="text-xs">Purpose and audience</Label>
+        <Label htmlFor="wiki-purpose" className="flex items-center gap-1.5 text-xs">
+          Purpose and audience <AiMark on={changed.has(F.purpose)} />
+        </Label>
         <Textarea
           id="wiki-purpose"
           value={draft.purpose}
           onChange={(e) => onChange({ ...draft, purpose: e.target.value })}
           placeholder="Who is it for, and what do they need from it?"
           rows={2}
-          className="resize-none text-sm"
+          className={cn("resize-none text-sm", changed.has(F.purpose) && "border-primary/60")}
         />
       </div>
 
@@ -161,18 +181,21 @@ function WikiDraftFields({
 
         <ChipGroup
           label="Areas"
+          aiChanged={changed.has(F.areas)}
           options={(options?.areas ?? []).map((a) => ({ value: a.code, label: a.label }))}
           selected={draft.scope.areas}
           onToggle={(v) => setScope({ areas: toggle(draft.scope.areas, v) })}
         />
         <ChipGroup
           label="Disciplines"
+          aiChanged={changed.has(F.disciplines)}
           options={(options?.disciplines ?? []).map((d) => ({ value: d.code, label: d.label }))}
           selected={draft.scope.disciplines}
           onToggle={(v) => setScope({ disciplines: toggle(draft.scope.disciplines, v) })}
         />
         <ChipGroup
           label="Machines"
+          aiChanged={changed.has(F.assets)}
           options={(options?.assets ?? []).map((a) => ({ value: a._id, label: `${a.code} ${a.name}` }))}
           selected={draft.scope.assetIds}
           onToggle={(v) => setScope({ assetIds: toggle(draft.scope.assetIds, v as Id<"assets">) })}
@@ -180,6 +203,7 @@ function WikiDraftFields({
         <DocumentPicker
           options={options?.documents ?? []}
           selected={draft.scope.documentIds}
+          aiChanged={changed.has(F.documents)}
           onChange={(documentIds) => setScope({ documentIds })}
         />
       </div>
@@ -220,21 +244,36 @@ function WikiDraftFields({
   )
 }
 
+/** Marks a field the AI changed on its last turn. */
+function AiMark({ on }: { on: boolean }) {
+  if (!on) return null
+  return (
+    <span className="inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-px text-[10px] font-medium text-primary">
+      <Sparkles className="h-2.5 w-2.5" />
+      Just changed
+    </span>
+  )
+}
+
 function ChipGroup({
   label,
+  aiChanged,
   options,
   selected,
   onToggle,
 }: {
   label: string
+  aiChanged: boolean
   options: { value: string; label: string }[]
   selected: string[]
   onToggle: (value: string) => void
 }) {
   return (
     <div className="space-y-1.5">
-      <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
-      <div className="flex flex-wrap gap-1.5">
+      <p className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground" id={`chips-${label}`}>
+        {label} <AiMark on={aiChanged} />
+      </p>
+      <div className="flex flex-wrap gap-1.5" role="group" aria-labelledby={`chips-${label}`}>
         {options.length === 0 && <span className="text-[11px] text-muted-foreground">None available</span>}
         {options.map((o) => {
           const on = selected.includes(o.value)
@@ -264,17 +303,21 @@ function ChipGroup({
 function DocumentPicker({
   options,
   selected,
+  aiChanged,
   onChange,
 }: {
   options: { _id: Id<"documents">; namingCode: string; title: string }[]
   selected: Id<"documents">[]
+  aiChanged: boolean
   onChange: (ids: Id<"documents">[]) => void
 }) {
   const [open, setOpen] = useState(false)
   const byId = new Map(options.map((d) => [d._id, d]))
   return (
     <div className="space-y-1.5">
-      <p className="text-[11px] font-medium text-muted-foreground">Specific documents</p>
+      <p className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+        Specific documents <AiMark on={aiChanged} />
+      </p>
       <div className="flex flex-wrap gap-1.5">
         {selected.map((id) => {
           const d = byId.get(id)
