@@ -35,21 +35,79 @@ export const list = query({
     await requireUser(ctx)
     const wikis = await ctx.db.query("wikis").take(200)
     wikis.sort((a, b) => b.updatedAt - a.updatedAt)
-    return wikis.map((w) => ({
-      _id: w._id,
-      title: w.title,
-      purpose: w.purpose,
-      status: w.status,
-      sourceCount: w.sources.length,
-      pointCount: (w.content?.sections ?? []).reduce(
-        (n, s) => n + s.points.length,
-        0,
-      ),
-      generatedAt: w.generatedAt,
-      updatedAt: w.updatedAt,
-    }))
+    const out = []
+    for (const w of wikis) {
+      const { stale } = await sourceStatus(ctx, w)
+      const visible = visiblePoints(w, stale)
+      out.push({
+        _id: w._id,
+        title: w.title,
+        purpose: w.purpose,
+        status: w.status,
+        sourceCount: w.sources.length,
+        pointCount: visible.shown,
+        outdatedCount: stale.size,
+        generatedAt: w.generatedAt,
+        updatedAt: w.updatedAt,
+      })
+    }
+    return out
   },
 })
+
+type OutdatedReason = "newer_version" | "archived" | "not_published" | "deleted"
+
+/**
+ * Which sources no longer match the Published state of their Document. A
+ * source is stale when its Document published a newer version, was archived,
+ * stopped being Published or was deleted after this content was generated.
+ */
+async function sourceStatus(ctx: QueryCtx, wiki: Doc<"wikis">) {
+  const stale = new Map<string, { reason: OutdatedReason; liveVersion: number | null }>()
+  const publishedAt = new Map<string, number>()
+  for (const s of wiki.sources) {
+    const d = await ctx.db.get(s.documentId)
+    const row = await ctx.db
+      .query("documentVersions")
+      .withIndex("by_documentId_and_version", (q) =>
+        q.eq("documentId", s.documentId).eq("version", s.version),
+      )
+      .unique()
+    if (row) publishedAt.set(String(s.documentId), row.publishedAt)
+    if (!d) stale.set(String(s.documentId), { reason: "deleted", liveVersion: null })
+    else if (d.status === "archived")
+      stale.set(String(s.documentId), { reason: "archived", liveVersion: null })
+    else if (!isPublished(d))
+      stale.set(String(s.documentId), { reason: "not_published", liveVersion: null })
+    else if (d.liveVersion !== s.version)
+      stale.set(String(s.documentId), { reason: "newer_version", liveVersion: d.liveVersion as number })
+  }
+  return { stale, publishedAt }
+}
+
+/**
+ * Points whose every citation still points at the Published version of its
+ * Document. A point that leans on a superseded, archived or deleted source is
+ * withheld until the Wiki is rebuilt, so obsolete text is never shown as
+ * truth (ISO 9001 7.5.3.2 d). This also covers a failed rebuild, which keeps
+ * the previous content.
+ */
+function visiblePoints(wiki: Doc<"wikis">, stale: Map<string, unknown>) {
+  let hidden = 0
+  let shown = 0
+  const sections = (wiki.content?.sections ?? [])
+    .map((section) => {
+      const points = section.points.filter((p) => {
+        const ok = p.citations.every((c) => !stale.has(String(c.documentId)))
+        if (ok) shown += 1
+        else hidden += 1
+        return ok
+      })
+      return { ...section, points }
+    })
+    .filter((section) => section.points.length > 0)
+  return { sections, hidden, shown }
+}
 
 export const get = query({
   args: { id: v.id("wikis") },
@@ -57,19 +115,14 @@ export const get = query({
     await requireUser(ctx)
     const wiki = await ctx.db.get(args.id)
     if (!wiki) return null
-    // A source is out of date when its Document has published a newer version
-    // (or stopped being Published) since this content was generated. The UI
-    // shows that as "updating" while regeneration runs.
-    const outdated: string[] = []
-    for (const s of wiki.sources) {
-      const d = await ctx.db.get(s.documentId)
-      if (!d || !isPublished(d) || d.liveVersion !== s.version) {
-        outdated.push(s.namingCode)
-      }
-    }
+    const { stale, publishedAt } = await sourceStatus(ctx, wiki)
+    const visible = visiblePoints(wiki, stale)
+    const content = wiki.content
+      ? { intro: wiki.content.intro, sections: visible.sections }
+      : null
     // The cited passages, for hover previews and for jumping to the spot.
     const excerpts: Record<string, string> = {}
-    for (const section of wiki.content?.sections ?? []) {
+    for (const section of content?.sections ?? []) {
       for (const point of section.points) {
         for (const c of point.citations) {
           if (excerpts[c.chunkId] !== undefined) continue
@@ -80,7 +133,16 @@ export const get = query({
     }
     return {
       ...wiki,
-      outdated,
+      content,
+      sources: wiki.sources.map((s) => ({
+        ...s,
+        publishedAt: publishedAt.get(String(s.documentId)) ?? null,
+        outdated: stale.get(String(s.documentId)) ?? null,
+      })),
+      outdated: wiki.sources
+        .filter((s) => stale.has(String(s.documentId)))
+        .map((s) => s.namingCode),
+      hiddenPoints: visible.hidden,
       excerpts,
       scopeLabels: await scopeLabels(ctx, wiki.scope),
     }

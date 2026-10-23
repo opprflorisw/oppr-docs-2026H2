@@ -46,7 +46,7 @@ const F = {
   purpose: "Purpose",
   areas: "Areas",
   disciplines: "Disciplines",
-  assets: "Machines",
+  assets: "Assets",
   documents: "Documents",
 } as const
 
@@ -94,7 +94,7 @@ export function WikiGuidedCreation({
       greeting={
         editing
           ? "What should change? You can also edit the draft directly."
-          : "Who is this Wiki for, and what should it cover? Mention machines, areas or documents if you know them."
+          : "Who is this Wiki for, and what should it cover? Mention Assets, areas or documents if you know them."
       }
       examples={editing ? [] : EXAMPLES}
       initialDraft={initial ?? EMPTY_WIKI_DRAFT}
@@ -107,7 +107,7 @@ export function WikiGuidedCreation({
         !d.title.trim()
           ? "Give the Wiki a title."
           : d.scope.areas.length + d.scope.disciplines.length + d.scope.assetIds.length + d.scope.documentIds.length === 0
-            ? "Choose at least one area, discipline, machine or document."
+            ? "Choose at least one area, discipline, Asset or document."
             : null
       }
       createLabel={editing ? "Save and rebuild" : "Create Wiki"}
@@ -194,7 +194,7 @@ function WikiDraftFields({
           onToggle={(v) => setScope({ disciplines: toggle(draft.scope.disciplines, v) })}
         />
         <ChipGroup
-          label="Machines"
+          label="Assets"
           aiChanged={changed.has(F.assets)}
           options={(options?.assets ?? []).map((a) => ({ value: a._id, label: `${a.code} ${a.name}` }))}
           selected={draft.scope.assetIds}

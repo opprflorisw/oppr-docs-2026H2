@@ -28,6 +28,15 @@ import { PageHeader } from "@/components/layout/PageHeader"
 import { WikiGuidedCreation } from "@/components/wiki/WikiGuidedCreation"
 import { formatAgo } from "@/lib/time"
 
+function formatDay(at: number, withTime = false) {
+  return new Date(at).toLocaleString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    ...(withTime ? { hour: "2-digit", minute: "2-digit" } : {}),
+  })
+}
+
 export function WikiPage() {
   const [, params] = useRoute<{ id: string }>("/wiki/:id")
   const id = params?.id as Id<"wikis"> | undefined
@@ -114,10 +123,20 @@ export function WikiPage() {
                 : "Building this Wiki from published documents…"}
             </StatusBar>
           )}
-          {!building && wiki.outdated.length > 0 && (
+          {wiki.outdated.length > 0 && (
             <StatusBar tone="warn">
-              <AlertTriangle className="h-3.5 w-3.5" />
-              {wiki.outdated.join(", ")} changed since this was built. A rebuild is queued.
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                {wiki.outdated.join(", ")}{" "}
+                {wiki.outdated.length === 1 ? "has" : "have"} changed since this was built.
+                {wiki.hiddenPoints > 0 &&
+                  ` ${wiki.hiddenPoints} ${wiki.hiddenPoints === 1 ? "point that relies on it is" : "points that rely on them are"} hidden until the rebuild is done.`}
+              </span>
+              {!building && (
+                <Button size="sm" variant="outline" className="ml-auto h-6 shrink-0 text-[11px]" onClick={() => void rebuild()}>
+                  Rebuild now
+                </Button>
+              )}
             </StatusBar>
           )}
           {wiki.error && (
@@ -195,8 +214,20 @@ export function WikiPage() {
                       <span className="min-w-0">
                         <span className="block font-mono text-muted-foreground">
                           {s.namingCode} · v{s.version}
+                          {s.publishedAt ? ` · published ${formatDay(s.publishedAt)}` : ""}
                         </span>
                         <span className="block truncate">{s.title}</span>
+                        {s.outdated && (
+                          <span className="block font-medium text-amber-700 dark:text-amber-300">
+                            {s.outdated.reason === "newer_version"
+                              ? `Outdated: v${s.outdated.liveVersion} is now published`
+                              : s.outdated.reason === "archived"
+                                ? "Outdated: archived"
+                                : s.outdated.reason === "deleted"
+                                  ? "Outdated: deleted"
+                                  : "Outdated: no longer published"}
+                          </span>
+                        )}
                       </span>
                     </Link>
                   </li>
@@ -204,7 +235,9 @@ export function WikiPage() {
               </ul>
             )}
             <p className="border-t pt-2 text-[11px] text-muted-foreground">
-              {wiki.generatedAt ? `Generated ${formatAgo(wiki.generatedAt)}` : "Not generated yet"}
+              {wiki.generatedAt
+                ? `Built ${formatDay(wiki.generatedAt, true)} (${formatAgo(wiki.generatedAt)}) from the versions above`
+                : "Not built yet"}
               {wiki.droppedPoints > 0 &&
                 ` · ${wiki.droppedPoints} ${wiki.droppedPoints === 1 ? "point" : "points"} left out because ${wiki.droppedPoints === 1 ? "it" : "they"} could not be traced to a source`}
             </p>
@@ -214,10 +247,11 @@ export function WikiPage() {
             <p className="text-xs font-semibold">Scope</p>
             <ScopeLine label="Areas" items={wiki.scopeLabels.areas} />
             <ScopeLine label="Disciplines" items={wiki.scopeLabels.disciplines} />
-            <ScopeLine label="Machines" items={wiki.scopeLabels.assets} />
+            <ScopeLine label="Assets" items={wiki.scopeLabels.assets} />
             <ScopeLine label="Documents" items={wiki.scopeLabels.documents} />
             <p className="border-t pt-2 text-[11px] text-muted-foreground">
-              Rebuilt automatically when a document in scope is published, and every night.
+              Rebuilt automatically when a document in scope is published,
+              archived or deleted, and every night.
             </p>
           </div>
         </aside>

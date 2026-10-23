@@ -20,7 +20,7 @@ export function WikiListPage() {
       <PageHeader
         icon={BookOpenText}
         title="Wiki"
-        subtitle="Overviews generated from published knowledge. Never written by hand, so they stay correct."
+        subtitle="Overviews generated from published documents only. Each one shows exactly which versions it was built from."
         actions={
           <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
             <Plus className="h-3.5 w-3.5" />
@@ -72,6 +72,9 @@ export function WikiListPage() {
                           {w.pointCount} points from {w.sourceCount}{" "}
                           {w.sourceCount === 1 ? "document" : "documents"}
                         </span>
+                      )}
+                      {w.outdatedCount > 0 && w.status !== "generating" && (
+                        <span className="text-amber-600">Out of date</span>
                       )}
                       {w.generatedAt && <span className="ml-auto">{formatAgo(w.generatedAt)}</span>}
                     </div>
