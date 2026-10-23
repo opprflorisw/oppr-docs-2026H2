@@ -615,32 +615,43 @@ export const publish = mutation({
     if (!doc) throw new Error("Document not found")
     if (doc.status !== "approved")
       throw new Error("A document must be approved before publishing.")
-    const now = Date.now()
-    await ctx.db.patch(args.id, {
-      status: "published",
-      liveVersion: doc.currentVersion,
-      updatedAt: now,
-      nextReviewAt: addMonths(now, doc.reviewIntervalMonths ?? DEFAULT_REVIEW_MONTHS),
-      lastReviewedAt: now,
-    })
-    await recordSignoff(ctx, doc, "approver", userId)
-
-    // Drop chunks belonging to superseded editions — only the now-live version
-    // is served to RAG. Version bodies stay in documentVersions for history.
-    const staleChunks = await ctx.db
-      .query("chunks")
-      .withIndex("by_documentId_and_version", (q) =>
-        q.eq("documentId", args.id),
-      )
-      .collect()
-    for (const c of staleChunks) {
-      if (c.version !== doc.currentVersion) await ctx.db.delete(c._id)
-    }
-
-    // Wikis built on this Document must follow the new Published version.
-    await regenerateWikisForDocument(ctx, args.id, `published ${doc.namingCode} v${doc.currentVersion}`)
+    await publishApproved(ctx, doc, userId)
   },
 })
+
+/**
+ * approved → published. Shared by the publish mutation and the dev checks.
+ * This edition becomes the live one served to operators, QR codes, Ask and
+ * Wikis; the periodic review restarts; Wikis built on it are regenerated.
+ */
+export async function publishApproved(
+  ctx: import("./_generated/server").MutationCtx,
+  doc: Doc<"documents">,
+  userId: Id<"users">,
+) {
+  const now = Date.now()
+  await ctx.db.patch(doc._id, {
+    status: "published",
+    liveVersion: doc.currentVersion,
+    updatedAt: now,
+    nextReviewAt: addMonths(now, doc.reviewIntervalMonths ?? DEFAULT_REVIEW_MONTHS),
+    lastReviewedAt: now,
+  })
+  await recordSignoff(ctx, doc, "approver", userId)
+
+  // Drop chunks belonging to superseded editions: only the now-live version
+  // is served. Version bodies stay in documentVersions for history.
+  const staleChunks = await ctx.db
+    .query("chunks")
+    .withIndex("by_documentId_and_version", (q) => q.eq("documentId", doc._id))
+    .collect()
+  for (const c of staleChunks) {
+    if (c.version !== doc.currentVersion) await ctx.db.delete(c._id)
+  }
+
+  // Wikis built on this Document must follow the new Published version.
+  await regenerateWikisForDocument(ctx, doc._id, `published ${doc.namingCode} v${doc.currentVersion}`)
+}
 
 // Periodic review outcome "still valid": the Published version is confirmed
 // as-is and the next review moves one interval forward. Changing the content

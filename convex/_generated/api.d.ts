@@ -19,6 +19,7 @@ import type * as assets from "../assets.js";
 import type * as auth from "../auth.js";
 import type * as coverSettings from "../coverSettings.js";
 import type * as crons from "../crons.js";
+import type * as devChecks from "../devChecks.js";
 import type * as documents from "../documents.js";
 import type * as files from "../files.js";
 import type * as home from "../home.js";
@@ -63,6 +64,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   coverSettings: typeof coverSettings;
   crons: typeof crons;
+  devChecks: typeof devChecks;
   documents: typeof documents;
   files: typeof files;
   home: typeof home;
