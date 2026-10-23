@@ -28,7 +28,7 @@ export function WikiListPage() {
           </Button>
         }
       />
-      <div className="p-6">
+      <div className="mx-auto w-full max-w-6xl p-6">
         {wikis === undefined ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : wikis.length === 0 ? (

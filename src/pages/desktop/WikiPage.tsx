@@ -23,6 +23,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Skeleton } from "@/components/ui/skeleton"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { WikiGuidedCreation } from "@/components/wiki/WikiGuidedCreation"
@@ -45,6 +56,7 @@ export function WikiPage() {
   const remove = useMutation(api.wikis.remove)
   const [, navigate] = useLocation()
   const [editing, setEditing] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   if (wiki === undefined) {
     return <p className="p-6 text-sm text-muted-foreground">Loading…</p>
@@ -104,7 +116,7 @@ export function WikiPage() {
                 <DropdownMenuItem onClick={() => void rebuild()} disabled={building}>
                   <RefreshCw className="mr-2 h-3.5 w-3.5" /> Rebuild now
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void onDelete()} className="text-destructive">
+                <DropdownMenuItem onClick={() => setConfirmDelete(true)} className="text-destructive">
                   <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete Wiki
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -113,7 +125,7 @@ export function WikiPage() {
         }
       />
 
-      <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="mx-auto grid w-full max-w-6xl gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_280px]">
         <main className="min-w-0 space-y-4">
           {building && (
             <StatusBar tone="info">
@@ -165,6 +177,21 @@ export function WikiPage() {
             </Card>
           )}
 
+          {building && !content && (
+            <div className="space-y-3 rounded-lg border bg-background p-6" aria-hidden>
+              <Skeleton className="h-3 w-2/3" />
+              <Skeleton className="h-4 w-1/3" />
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-5/6" />
+              <Skeleton className="h-4 w-1/4" />
+              <Skeleton className="h-3 w-full" />
+              <p className="pt-2 text-xs text-muted-foreground">
+                This usually takes under a minute. You can leave this page; the
+                Wiki keeps building.
+              </p>
+            </div>
+          )}
+
           {content && (
             <article className="space-y-6 rounded-lg border bg-background p-6">
               <p className="text-xs text-muted-foreground">{content.intro}</p>
@@ -180,6 +207,7 @@ export function WikiPage() {
                           {point.citations.map((c) => (
                             <SourceChip
                               key={c.chunkId}
+                              wikiId={wiki._id}
                               documentId={c.documentId}
                               namingCode={c.namingCode}
                               version={c.version}
@@ -201,13 +229,15 @@ export function WikiPage() {
           <div className="space-y-2 rounded-lg border p-3">
             <p className="text-xs font-semibold">Built from</p>
             {wiki.sources.length === 0 ? (
-              <p className="text-[11px] text-muted-foreground">No sources yet.</p>
+              <p className="text-[11px] text-muted-foreground">
+                {building ? "Listed here when the build is done." : "No sources yet."}
+              </p>
             ) : (
               <ul className="space-y-1.5">
                 {wiki.sources.map((s) => (
                   <li key={s.documentId}>
                     <Link
-                      href={`/docs/${s.documentId}`}
+                      href={`/docs/${s.documentId}?wiki=${wiki._id}`}
                       className="flex items-start gap-1.5 text-[11px] hover:text-primary"
                     >
                       <FileText className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
@@ -266,6 +296,27 @@ export function WikiPage() {
         </aside>
       </div>
 
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete "{wiki.title}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The Wiki is removed for everyone. Its source documents are not
+              changed. You can create a new Wiki with the same scope later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void onDelete()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete Wiki
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <WikiGuidedCreation
         open={editing}
         onOpenChange={setEditing}
@@ -296,12 +347,14 @@ function ScopeLine({ label, items }: { label: string; items: string[] }) {
 }
 
 function SourceChip({
+  wikiId,
   documentId,
   namingCode,
   version,
   section,
   excerpt,
 }: {
+  wikiId: Id<"wikis">
   documentId: Id<"documents">
   namingCode: string
   version: number
@@ -309,7 +362,9 @@ function SourceChip({
   excerpt: string | undefined
 }) {
   const hl = excerpt ? excerpt.split(" | ")[0].slice(0, 80) : ""
-  const href = `/docs/${documentId}${hl ? `?hl=${encodeURIComponent(hl)}` : ""}`
+  const params = new URLSearchParams({ wiki: wikiId })
+  if (hl) params.set("hl", hl)
+  const href = `/docs/${documentId}?${params.toString()}`
   return (
     <HoverCard openDelay={150}>
       <HoverCardTrigger asChild>

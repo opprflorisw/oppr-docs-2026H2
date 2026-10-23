@@ -151,6 +151,11 @@ export function DocumentReadPage() {
   // ?hl=<passage start> (from a Wiki source) highlights and scrolls to the
   // cited passage once the body has rendered.
   const highlight = useMemo(() => new URLSearchParams(search).get("hl"), [search])
+  // Arriving from a Wiki citation: the breadcrumb leads back to that Wiki.
+  const wikiParam = new URLSearchParams(search).get("wiki")
+  // Only a well-formed id reaches the query; a hand-edited URL falls back to Documents.
+  const fromWikiId = wikiParam && /^[a-z0-9]{32}$/.test(wikiParam) ? (wikiParam as Id<"wikis">) : null
+  const fromWiki = useQuery(api.wikis.get, fromWikiId ? { id: fromWikiId } : "skip")
   const bodyReady = Boolean(currentVersion)
   useEffect(() => {
     if (!highlight || !bodyReady) return
@@ -204,10 +209,15 @@ export function DocumentReadPage() {
 
   return (
     <div className="flex h-full flex-col print:block">
-      <div className="print:hidden">
+      <div className="sticky top-0 z-30 print:hidden">
         <TopBar
           breadcrumb={[
-            { label: "Documents", href: "/library" },
+            ...(fromWiki
+              ? [
+                  { label: "Wiki", href: "/wiki" },
+                  { label: fromWiki.title, href: `/wiki/${fromWiki._id}` },
+                ]
+              : [{ label: "Documents", href: "/library" }]),
             { label: `${docWithAssets.naming_code} · ${docWithAssets.title}` },
           ]}
         />
@@ -244,7 +254,8 @@ export function DocumentReadPage() {
                 trigger={
                   <Button
                     size="sm"
-                    className="gap-1.5 bg-orange-600 text-white hover:bg-orange-700"
+                    variant="outline"
+                    className="gap-1.5"
                     title={`Export v${renderedVersionNumber} — the version you are viewing — as a PDF`}
                   >
                     <FileDown className="h-3.5 w-3.5" />
@@ -252,7 +263,12 @@ export function DocumentReadPage() {
                   </Button>
                 }
               />
-              <Button size="sm" onClick={handleEdit}>
+              <Button
+                size="sm"
+                // Arriving for a periodic review, the review card is the decision.
+                variant={new URLSearchParams(search).get("panel") === "review" ? "outline" : "default"}
+                onClick={handleEdit}
+              >
                 <Edit className="mr-1 h-3.5 w-3.5" />
                 {isPublished ? "New version" : "Edit"}
               </Button>
@@ -261,7 +277,7 @@ export function DocumentReadPage() {
         />
       </div>
 
-      <div className="grid flex-1 gap-6 p-6 lg:grid-cols-[1fr_240px] print:block print:p-0">
+      <div className="mx-auto grid w-full max-w-7xl flex-1 gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_240px] print:block print:max-w-none print:p-0">
         <div className="min-w-0 space-y-4">
           {hasWorkingDraft && !isViewingHistorical && !viewingDraft && (
             <Alert className="border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100 print:hidden">
@@ -379,7 +395,7 @@ export function DocumentReadPage() {
             />
           )}
           {version?.body_kind === "tiptap" && (
-            <div className="sticky top-20">
+            <div className="sticky top-28">
               <DocumentToc body={version.body_json} contentRef={contentRef} />
             </div>
           )}
@@ -409,7 +425,7 @@ export function DocumentReadPage() {
               </p>
               <ul className="list-disc space-y-0.5 pl-4 text-xs text-sky-900/90 dark:text-sky-100/90">
                 <li>Body content (copied from the live version)</li>
-                <li>Linked machines, logs &amp; references (follow the body)</li>
+                <li>Linked Assets, logs &amp; references (follow the body)</li>
                 <li>Title, reviewer and approver assignments</li>
               </ul>
             </div>
