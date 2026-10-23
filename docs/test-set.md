@@ -5,7 +5,7 @@ A fixed regression set that every later slice reruns. It runs on the Convex
 
 ```
 npx convex run seedKnowledge:run    # fresh seed
-npx convex run devChecks:run        # automated checks 3-7 and G
+npx convex run devChecks:run        # automated checks 3-7, G and B (all must pass)
 npx convex run seedKnowledge:run    # restore: check 6 publishes a document
 ```
 
@@ -17,7 +17,7 @@ npx convex run seedKnowledge:run    # restore: check 6 publishes a document
 | `MIX-OPS-SOP-0001` is a never-published draft mentioning `MT-5521`. | A never-published document must be invisible. |
 | `EXT-OPS-WI-0001` is in review and mentions `BL-7730`. | In-review text is not Knowledge; shows in the Home inbox. |
 | Review dates: `EXT-HSE-SOP-0001` overdue by 10 days, `EXT-MNT-MAN-0001` due in 20 days, `MIX-OPS-WI-0001` due in 60 days. | Periodic review window is 30 days. |
-| SOP says die bolts 40 Nm, manual says 45 Nm. | Deliberate contradiction for the Consistency check slice. |
+| SOP says die bolts 40 Nm, manual says 45 Nm. | Deliberate contradiction for the Consistency check slice. A Wiki over both must state both values, say which document gives which, and cite both. |
 | Wiki "Line 2 changeover essentials", Scope = machine EXL-201. | Regeneration check. |
 
 ## Automated checks (`devChecks:run`)
@@ -27,9 +27,21 @@ npx convex run seedKnowledge:run    # restore: check 6 publishes a document
 | 3 | Ask retrieval (`ai/ask:lookupAfterSearch`) and scope overview, for the library, every document and every asset, fed every chunk id. | Only chunks of live versions of non-archived documents are served. None of `PX-9917`, `MT-5521`, `BL-7730` appear. The library overview lists no unpublished document. |
 | 4 | A probe Wiki whose Scope includes both sentinel documents. | Status `ready`. No sentinel text. "Built from" lists `EXT-OPS-SOP-0001` at its live version (v1), and does not list `MIX-OPS-SOP-0001`. |
 | 5 | Every point of every Wiki: each citation's chunk exists, belongs to the cited document, is that document's live version and is inside the Wiki's Scope; the grounding check passes again on the stored text. | 100% of points traceable. Report the count. |
-| G | Grounding check cases: supported number, wrong number, draft-only code, unknown source key, no source, two sources. | All six behave as expected. |
+| G | Grounding check (`convex/ai/grounding.ts`), 20 fixed cases: supported number, wrong number, draft-only code, unknown source key, no source, two sources, number written as a word (right and wrong), unit swapped (40 Nm vs 40 °C), range with an en dash, range end changed, "percent" vs "%", code with a non-breaking hyphen, code one digit off, document code taken from the cited document's label, decimal comma, "never" dropped from a warning, "never" kept, a point citing an unrelated passage that happens to contain the same number, a merged claim that cites only one of its two sources. | All 20 behave as expected. Add a case here for every new way a point slips through. |
+| B | Broad Scope budget (`wikis.loadForGeneration`): split 160 passages over documents of 3, 40, 400 and 0 passages; pick 3 of 30 passages from a long document. | Small documents are read in full, the large one gets the rest (3, 40, 117, 0). The safety passage is kept, the bare heading is skipped, passages stay in document order. |
 | 7 | A Wiki whose Scope only contains never-published documents. | Status `empty`, no content. |
 | 6 | Publish the v2 draft of `EXT-OPS-SOP-0001` and time the seeded Wiki. | Rebuilt from v2 in under 60 s. The new text (`PX-9917`) now appears, because it is Published. |
+
+## Wiki answer quality (manual, uses the real model, a few runs only)
+
+Each generation costs money. Run these after changing the prompt (`WIKI_SYSTEM` in `convex/ai/wiki.ts`) or the grounding check. Inspect output with `npx convex data wikis --format jsonLines`; dropped points are logged as `dropped point (<reason>: <detail>)` in `npx convex logs`.
+
+| # | Task | Expected result |
+|---|---|---|
+| Q1 | Fresh seed, open "Line 2 changeover essentials". | 0 points left out. Every number in the text (150 °C, 20 %, 190 °C, 15 minutes, 60 rpm, 3 metres, 10 pipes, 170-220 °C, 350 bar) appears in the passage behind its source chip. |
+| Q2 | Same Wiki, die bolts. | One point gives 40 Nm (changeover SOP) and 45 Nm (supplier manual) with both sources. Never only one value, never an average. |
+| Q3 | Same Wiki, warnings. | "Never reach into the haul-off or saw area while the line is only stopped" keeps "never" and the condition. Safety comes first. |
+| Q4 | A Scope too large to read in full (more than 160 passages). | Built from shows "Read in part: n of m passages" (or "Not read") for the affected documents and the intro says the Scope was too large to read in full. Nothing is silently left out. |
 
 ## Manual checks in the browser
 

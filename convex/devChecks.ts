@@ -5,7 +5,7 @@ import { Doc, Id } from "./_generated/dataModel"
 import { checkPoint, ProvidedExcerpt } from "./ai/grounding"
 import { publishApproved } from "./documents"
 import { resolveScope } from "./lib/scope"
-import { requestGeneration } from "./wikis"
+import { allocate, MAX_WIKI_CHUNKS, pickChunks, requestGeneration } from "./wikis"
 import { publishedVersion } from "./lib/published"
 
 // Repeatable checks for slices 0 and 1 (docs/test-set.md). They exercise the
@@ -215,6 +215,8 @@ export const run = internalAction({
       )
       const after = await ctx.runQuery(internal.devChecks.snapshot, {})
       const chunkById = new Map(after.chunks.map((c) => [c._id, c]))
+      // Same label the generator gives the model (naming code, version, title).
+      const titleOf = new Map(w.sources.map((src) => [src.documentId, src.title]))
       for (const s of w.content.sections) {
         for (const p of s.points) {
           points += 1
@@ -226,7 +228,7 @@ export const run = internalAction({
               traceable = false
               continue
             }
-            provided.set(c.chunkId, { key: c.chunkId, text: chunk.text })
+            provided.set(c.chunkId, { key: c.chunkId, text: chunk.text, label: `${c.namingCode} v${c.version} ${titleOf.get(c.documentId) ?? ""}` })
           }
           const recheck = checkPoint({ text: p.text, sources: p.citations.map((c) => c.chunkId) }, provided)
           if (!traceable || !recheck.ok) ungrounded.push(`${w.title}: "${p.text.slice(0, 60)}"`)
@@ -241,26 +243,69 @@ export const run = internalAction({
         (ungrounded.length ? `; failing: ${ungrounded.slice(0, 5).join("; ")}` : ""),
     )
 
-    // ---- Grounding check self-test ----
+    // ---- Grounding check self-test (pure, see convex/ai/grounding.ts) ----
     const provided = new Map<string, ProvidedExcerpt>([
-      ["E1", { key: "E1", text: "Tighten the die bolts crosswise to 40 Nm." }],
-      ["E2", { key: "E2", text: "Purge with purge compound PX-4400 at 190 °C." }],
+      ["E1", { key: "E1", text: "Tighten the die bolts crosswise to 40 Nm.", label: "EXT-OPS-SOP-0001 v1" }],
+      ["E2", { key: "E2", text: "Purge with purge compound PX-4400 at 190 °C until the melt runs clean, about 15 minutes." }],
+      ["E3", { key: "E3", text: "Never reach into the haul-off or saw area while the line is only stopped. A stopped line can restart." }],
+      ["E4", { key: "E4", text: "Keep the melt temperature between 170 and 220 °C." }],
+      ["E5", { key: "E5", text: "Stop dosing when the hopper is below 20 %." }],
+      ["E7", { key: "E7", text: "Set the calibration gap to 0,5 mm." }],
     ])
-    const cases: [string, string[], boolean][] = [
-      ["Tighten the die bolts to 40 Nm.", ["E1"], true],
-      ["Tighten the die bolts to 45 Nm.", ["E1"], false],
-      ["Purge with PX-9917.", ["E2"], false],
-      ["Purge at 190 °C.", ["E9"], false],
-      ["Purge the barrel before a colour change.", [], false],
-      ["Use PX-4400 and tighten to 40 Nm.", ["E1", "E2"], true],
+    // [case, point text, cited keys, expected to pass]
+    const cases: [string, string, string[], boolean][] = [
+      ["supported number", "Tighten the die bolts to 40 Nm.", ["E1"], true],
+      ["wrong number", "Tighten the die bolts to 45 Nm.", ["E1"], false],
+      ["draft-only code", "Purge with PX-9917.", ["E2"], false],
+      ["unknown source key", "Purge at 190 °C.", ["E9"], false],
+      ["no source", "Purge the barrel before a colour change.", [], false],
+      ["two sources", "Use PX-4400 and tighten the die bolts to 40 Nm.", ["E1", "E2"], true],
+      ["number as word", "Tighten the die bolts crosswise to forty Nm.", ["E1"], true],
+      ["wrong number as word", "Tighten the die bolts crosswise to forty-five Nm.", ["E1"], false],
+      ["unit swapped", "Tighten the die bolts to 40 °C.", ["E1"], false],
+      ["range with en dash", "Keep the melt temperature at 170–220 °C.", ["E4"], true],
+      ["range end changed", "Keep the melt temperature between 170 and 230 °C.", ["E4"], false],
+      ["percent as word", "Stop dosing when the hopper is below 20 percent.", ["E5"], true],
+      ["code with non-breaking hyphen", "Purge with purge compound PX‑4400.", ["E2"], true],
+      ["code one digit off", "Purge with purge compound PX-4401.", ["E2"], false],
+      ["document code from the cited label", "EXT-OPS-SOP-0001 says to tighten the die bolts to 40 Nm.", ["E1"], true],
+      ["decimal comma", "Set the calibration gap to 0.5 mm.", ["E7"], true],
+      ["negation dropped", "Reach into the haul-off or saw area while the line is only stopped.", ["E3"], false],
+      ["negation kept", "Never reach into the saw area while the line is only stopped.", ["E3"], true],
+      ["wrong excerpt with the same number", "Wear heat-resistant gloves above 190 °C.", ["E2"], false],
+      ["merged claim cites one source", "Purge with PX-4400 and tighten the die bolts to 40 Nm.", ["E2"], false],
     ]
-    const wrong = cases.filter(([text, sources, expect]) => checkPoint({ text, sources }, provided).ok !== expect)
+    const wrong = cases.filter(([, text, sources, expect]) => checkPoint({ text, sources }, provided).ok !== expect)
     add(
       "G",
       "Grounding check accepts supported points and rejects unsupported ones",
       wrong.length === 0,
       wrong.length === 0 ? `${cases.length}/${cases.length} cases as expected` : `wrong: ${wrong.map((c) => c[0]).join("; ")}`,
     )
+
+    // ---- Broad Scope: the passage budget (pure, see wikis.loadForGeneration) ----
+    {
+      const sizes = [3, 40, 400, 0]
+      const got = allocate(sizes, MAX_WIKI_CHUNKS)
+      const sum = got.reduce((a, b) => a + b, 0)
+      const fair = got[0] === 3 && got[1] === 40 && got[2] === MAX_WIKI_CHUNKS - 43 && got[3] === 0 && sum <= MAX_WIKI_CHUNKS
+      const long = Array.from({ length: 30 }, (_, i) => ({
+        seq: i + 1,
+        text: i === 0 ? "Heading" : i === 25 ? "Never open the saw guard while the blade turns." : `General remark about the line, part ${"abcdefghijklmnopqrstuvwxyz"[i % 26]}.`,
+        pageOrSection: i === 0 ? "Heading" : "Body",
+      }))
+      const picked = pickChunks(long, 3, new Set<string>())
+      const keepsSafety = picked.some((c) => c.seq === 26)
+      const inOrder = picked.every((c, i) => i === 0 || picked[i - 1].seq < c.seq)
+      const skipsHeading = !picked.some((c) => c.seq === 1)
+      add(
+        "B",
+        "A broad Scope is read fairly and keeps safety passages",
+        fair && keepsSafety && inOrder && skipsHeading,
+        `budget for documents of [${sizes.join(", ")}] passages: [${got.join(", ")}] of ${MAX_WIKI_CHUNKS}; ` +
+          `3 of 30 passages: safety passage kept ${keepsSafety ? "yes" : "no"}, document order ${inOrder ? "yes" : "no"}, bare heading skipped ${skipsHeading ? "yes" : "no"}`,
+      )
+    }
 
     // ---- 7. Empty scope ----
     const neverPublished = snap.docs.filter((d) => d.liveVersion == null).map((d) => d._id)

@@ -217,6 +217,15 @@ export function WikiPage() {
                           {s.publishedAt ? ` · published ${formatDay(s.publishedAt)}` : ""}
                         </span>
                         <span className="block truncate">{s.title}</span>
+                        {s.excerptsUsed !== undefined &&
+                          s.excerptsTotal !== undefined &&
+                          s.excerptsUsed < s.excerptsTotal && (
+                            <span className="block text-muted-foreground">
+                              {s.excerptsUsed === 0
+                                ? "Not read: the Scope has more documents than one Wiki can read"
+                                : `Read in part: ${s.excerptsUsed} of ${s.excerptsTotal} passages`}
+                            </span>
+                          )}
                         {s.outdated && (
                           <span className="block font-medium text-amber-700 dark:text-amber-300">
                             {s.outdated.reason === "newer_version"

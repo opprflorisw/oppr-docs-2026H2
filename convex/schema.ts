@@ -466,6 +466,10 @@ export default defineSchema({
         namingCode: v.string(),
         title: v.string(),
         version: v.number(),
+        // How many of the version's passages the generator read. Lower than
+        // excerptsTotal when the Scope was too large to read in full.
+        excerptsUsed: v.optional(v.number()),
+        excerptsTotal: v.optional(v.number()),
       }),
     ),
     generatedAt: v.union(v.number(), v.null()),

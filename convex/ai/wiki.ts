@@ -8,7 +8,7 @@ import { requireUser } from "../lib/auth"
 import { CHAT_MODEL } from "./constants"
 import { z } from "zod"
 import { claudeConfigured, claudeJson, describeClaudeError } from "./llm"
-import { checkPoint, ProvidedExcerpt, RawPoint } from "./grounding"
+import { checkPoint, DroppedPoint, ProvidedExcerpt, RawPoint } from "./grounding"
 import { loadScopeOptions } from "../wikis"
 
 // Wiki generation and the Guided creation assistant for Wikis.
@@ -49,15 +49,24 @@ const GuideOut = z.object({
 
 const WIKI_SYSTEM = [
   "You write a Wiki inside Oppr Knowledge, a factory's controlled knowledge base.",
-  "A Wiki is an overview for a specific audience, built ONLY from the numbered EXCERPTS of published documents you are given.",
-  "Rules:",
-  "- Every point states one fact or one instruction in one short sentence, in plain language for people on the shop floor.",
-  "- Every point lists the excerpt keys it is based on in `sources` (for example [\"E3\", \"E7\"]). Only use keys that appear in EXCERPTS.",
-  "- Never add knowledge that is not in the cited excerpts. Copy numbers, units, temperatures, torques and codes exactly as written.",
-  "- Do not invent step numbers. Do not mention a number unless the cited excerpt contains it.",
-  "- If two excerpts disagree, write one point that states both values and cite both.",
-  "- Organise points into 2 to 6 sections with short, useful headings that fit the Wiki's purpose. Leave out what is irrelevant to the purpose.",
-  "- Prefer what the audience needs to act safely and correctly. Safety warnings come first where relevant.",
+  "A Wiki is an overview for the audience named in PURPOSE AND AUDIENCE, built ONLY from the numbered EXCERPTS of published documents you are given. Nothing else you know counts.",
+  "Every point is checked by code against the excerpts it cites. A point that fails the check is deleted, so a careless point is simply lost.",
+  "",
+  "Writing points:",
+  "- One fact or one instruction per point, in one or two short sentences, in plain language that fits the audience. Use the imperative for instructions.",
+  "- Stay close to the wording of the excerpt. Paraphrase only to make it shorter or clearer, never to add meaning.",
+  "- Write numbers as digits with the unit exactly as the excerpt writes it (40 Nm, 190 °C, 20 %, 170-220 °C). Copy codes such as PX-4400 or EXL-201 exactly.",
+  "- Keep every prohibition and warning as strong as the excerpt says it: never turn \"never\" or \"do not\" into a permission, and never drop a condition (\"while the line is only stopped\", \"at operating temperature\").",
+  "- Do not invent step numbers, reasons, consequences, tolerances or best practices that the excerpts do not state.",
+  "",
+  "Citing:",
+  "- `sources` lists the keys of the excerpts that state what the point says (for example [\"E3\", \"E7\"]). Only use keys that appear in EXCERPTS.",
+  "- Cite the excerpt that states the fact, not one that is merely about the same topic. If a point combines facts from several excerpts, cite every one of them.",
+  "- If two excerpts disagree (for example two documents give different values), write ONE point that states both values, says which document gives which (by document type or title, such as \"the changeover SOP\" and \"the supplier manual\"), and cites both. Do not choose between them and do not average them.",
+  "",
+  "Structure:",
+  "- Organise points into 2 to 6 sections with short headings that fit the purpose. Safety warnings come first where relevant. Within a procedure, keep the order of the excerpts.",
+  "- Leave out what does not serve the purpose. If the excerpts do not cover something the purpose asks for, leave it out rather than fill the gap.",
   "- Do not write an introduction, a conclusion or filler.",
 ].join("\n")
 
@@ -97,6 +106,8 @@ interface GenerationDoc {
   namingCode: string
   title: string
   version: number
+  /** Passages in this version; more than chunks.length when not read in full. */
+  excerptsTotal: number
   chunks: { chunkId: Id<"chunks">; text: string; section: string | null }[]
 }
 
@@ -119,6 +130,8 @@ export const generate = internalAction({
       namingCode: d.namingCode,
       title: d.title,
       version: d.version,
+      excerptsUsed: d.chunks.length,
+      excerptsTotal: d.excerptsTotal,
     }))
     const save = (fields: {
       status: "ready" | "empty" | "failed"
@@ -185,7 +198,11 @@ export const generate = internalAction({
       for (const c of doc.chunks) {
         n += 1
         const key = `E${n}`
-        provided.set(key, { key, text: c.text })
+        provided.set(key, {
+          key,
+          text: c.text,
+          label: `${doc.namingCode} v${doc.version} ${doc.title}`,
+        })
         keyMeta.set(key, { chunkId: c.chunkId, doc, section: c.section })
         const where = c.section ? ` (${c.section})` : ""
         blocks.push(`[${key}]${where} ${c.text}`)
@@ -234,7 +251,12 @@ export const generate = internalAction({
           provided,
         )
         if (!checked.ok) {
+          const why = (checked as { dropped: DroppedPoint }).dropped
           dropped += 1
+          // Visible in the Convex logs, for tuning the prompt and the check.
+          console.log(
+            `Wiki ${args.wikiId}: dropped point (${why.reason}${why.detail ? `: ${why.detail}` : ""}): ${why.text}`,
+          )
           continue
         }
         points.push({
@@ -266,11 +288,16 @@ export const generate = internalAction({
     }
 
     const docWord = withText.length === 1 ? "document" : "documents"
+    const partly = input.docs.filter((d) => d.chunks.length < d.excerptsTotal).length
+    const partlyNote =
+      partly > 0
+        ? ` The Scope was too large to read in full: ${partly} ${partly === 1 ? "document was" : "documents were"} read in part, see Built from.`
+        : ""
     await save({
       status: "ready",
       content: {
         // Written by code, not the model, so it carries no unsourced claims.
-        intro: `Generated from ${withText.length} published ${docWord}. Every point links to the passage it comes from.`,
+        intro: `Generated from ${withText.length} published ${docWord}. Every point links to the passage it comes from.${partlyNote}`,
         sections,
       },
       droppedPoints: dropped,

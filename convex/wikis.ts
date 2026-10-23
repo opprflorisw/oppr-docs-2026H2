@@ -12,6 +12,7 @@ import { Doc, Id } from "./_generated/dataModel"
 import { requireUser, requireUserId } from "./lib/auth"
 import { resolveScope, Scope, scopeIsEmpty } from "./lib/scope"
 import { isPublished } from "./lib/published"
+import { contentStems } from "./ai/grounding"
 
 // Wikis (CONTEXT.md): AI-generated overviews of Published Knowledge inside a
 // Scope. People set the title, purpose and Scope (through Guided creation);
@@ -26,6 +27,52 @@ export const scopeValidator = v.object({
 
 // Cap per generation so a broad Scope stays within one model call.
 export const MAX_WIKI_CHUNKS = 160
+// Every document that is read at all gets at least this many passages, so a
+// very broad Scope reads fewer documents properly instead of all of them
+// by one line each.
+const MIN_CHUNKS_PER_DOC = 2
+const SAFETY_RE = /\b(?:never|warning|caution|danger|must|lockout|tagout|ppe|gloves|hot|burn|isolat\w*|do not|don't)\b/i
+const FACT_RE = /\d/
+
+/**
+ * Split the chunk budget fairly: small documents are read in full and what
+ * they leave over goes to the larger ones (water-filling).
+ */
+export function allocate(sizes: number[], budget: number): number[] {
+  const out = sizes.map(() => 0)
+  const order = sizes.map((_, i) => i).sort((a, b) => sizes[a] - sizes[b])
+  let left = budget
+  order.forEach((i, pos) => {
+    const share = Math.floor(left / (order.length - pos))
+    out[i] = Math.min(sizes[i], share)
+    left -= out[i]
+  })
+  return out
+}
+
+/**
+ * Which passages of a document to read when it does not fit: those that
+ * match the Wiki's title and purpose, safety statements and passages with
+ * numbers or codes first; bare headings last. Returned in document order.
+ */
+export function pickChunks<T extends { seq: number; text: string; pageOrSection: string | null }>(
+  chunks: T[],
+  n: number,
+  topic: Set<string>,
+): T[] {
+  if (chunks.length <= n) return chunks
+  const score = (c: T) => {
+    if (c.text === c.pageOrSection) return -1
+    const overlap = contentStems(c.text).filter((s) => topic.has(s)).length
+    return overlap + (SAFETY_RE.test(c.text) ? 2 : 0) + (FACT_RE.test(c.text) ? 1 : 0)
+  }
+  return chunks
+    .map((c) => ({ c, s: score(c) }))
+    .sort((a, b) => b.s - a.s || a.c.seq - b.c.seq)
+    .slice(0, n)
+    .map((x) => x.c)
+    .sort((a, b) => a.seq - b.seq)
+}
 
 // ---- Queries ----------------------------------------------------------------
 
@@ -356,11 +403,9 @@ export const loadForGeneration = internalQuery({
     const wiki = await ctx.db.get(args.wikiId)
     if (!wiki) return null
     const { published } = await resolveScope(ctx, wiki.scope)
-    const perDoc = Math.max(
-      8,
-      Math.floor(MAX_WIKI_CHUNKS / Math.max(1, published.length)),
-    )
-    const docs = []
+    const topic = new Set(contentStems(`${wiki.title} ${wiki.purpose}`))
+    // Only the live version's passages: never a draft, never an older edition.
+    const all: { d: Doc<"documents">; version: number; chunks: Doc<"chunks">[] }[] = []
     for (const d of published) {
       const version = d.liveVersion as number
       const chunks = await ctx.db
@@ -368,21 +413,36 @@ export const loadForGeneration = internalQuery({
         .withIndex("by_documentId_and_version", (q) =>
           q.eq("documentId", d._id).eq("version", version),
         )
-        .take(perDoc)
-      docs.push({
-        documentId: d._id,
-        namingCode: d.namingCode,
-        title: d.title,
-        version,
-        chunks: chunks
-          .sort((a, b) => a.seq - b.seq)
-          .map((c) => ({
-            chunkId: c._id,
-            text: c.text,
-            section: c.pageOrSection,
-          })),
-      })
+        .take(2000)
+      all.push({ d, version, chunks: chunks.sort((a, b) => a.seq - b.seq) })
     }
+    // A Scope too broad to read every document properly reads the documents
+    // whose title fits the Wiki best. The rest are listed as not read, never
+    // silently ignored.
+    const maxDocs = Math.floor(MAX_WIKI_CHUNKS / MIN_CHUNKS_PER_DOC)
+    const readable = new Set(
+      all
+        .map((x, i) => ({ i, s: contentStems(x.d.title).filter((s) => topic.has(s)).length }))
+        .sort((a, b) => b.s - a.s || a.i - b.i)
+        .slice(0, maxDocs)
+        .map((x) => x.i),
+    )
+    const budgets = allocate(
+      all.map((x, i) => (readable.has(i) ? x.chunks.length : 0)),
+      MAX_WIKI_CHUNKS,
+    )
+    const docs = all.map((x, i) => ({
+      documentId: x.d._id,
+      namingCode: x.d.namingCode,
+      title: x.d.title,
+      version: x.version,
+      excerptsTotal: x.chunks.length,
+      chunks: pickChunks(x.chunks, budgets[i], topic).map((c) => ({
+        chunkId: c._id,
+        text: c.text,
+        section: c.pageOrSection,
+      })),
+    }))
     return {
       title: wiki.title,
       purpose: wiki.purpose,
@@ -428,6 +488,8 @@ export const saveGeneration = internalMutation({
         namingCode: v.string(),
         title: v.string(),
         version: v.number(),
+        excerptsUsed: v.optional(v.number()),
+        excerptsTotal: v.optional(v.number()),
       }),
     ),
     droppedPoints: v.number(),
