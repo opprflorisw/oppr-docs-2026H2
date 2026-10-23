@@ -164,7 +164,14 @@ function ScopeSwitcher({
   return (
     <div className="flex flex-col">
       <div className="border-b p-2">
-        <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+        <Tabs
+          value={tab}
+          onValueChange={(v) => {
+            setTab(v as typeof tab)
+            // Library needs no further choice: apply it straight away.
+            if (v === "library") onPick({ kind: "library" })
+          }}
+        >
           <TabsList className="grid w-full grid-cols-3 h-8">
             <TabsTrigger value="library" className="text-xs">
               <Globe className="mr-1 h-3 w-3" />

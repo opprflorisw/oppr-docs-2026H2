@@ -3,7 +3,6 @@ import { Link } from "wouter"
 import { useAuthActions } from "@convex-dev/auth/react"
 import { LogOut, Settings, User as UserIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,10 +13,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { api } from "../../../convex/_generated/api"
 
-// Role is a UI stub for now — every signed-in user is treated as Author.
-// When a `role` field is added to user records, swap the constant for
-// `me?.role`. Surfaced as a chip so the seam is visible in the demo.
-const STUB_ROLE = "Author" as const
+// The login account. Who is acting (Operator or Engineer) is the check-in
+// chip next to it; "author" is a role on a Document, not a kind of person.
 
 export function UserMenu() {
   const me = useQuery(api.users.me)
@@ -38,9 +35,6 @@ export function UserMenu() {
           <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-[11px] font-semibold text-primary">
             {initial}
           </span>
-          <Badge variant="outline" className="hidden text-[10px] sm:inline-flex">
-            {STUB_ROLE}
-          </Badge>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
@@ -49,7 +43,7 @@ export function UserMenu() {
           <div className="min-w-0 flex-1">
             <div className="truncate text-xs font-medium">{email || "Signed in"}</div>
             <div className="text-[10px] text-muted-foreground">
-              Role: {STUB_ROLE}
+              Login account
             </div>
           </div>
         </DropdownMenuLabel>

@@ -324,7 +324,7 @@ export function checkPoint(
     const best = Math.max(0, ...scored.map((x) => x.score))
     const supporting = scored.filter((x) => x.score >= Math.max(MIN_SUPPORT, best - 0.25)).map((x) => x.s)
     if (supporting.length === 0) continue
-    const problem = meaningFlip(own, supporting)
+    const problem = meaningFlip(own, supporting, citedText) ?? labelledValueMismatch(own, citedText)
     if (problem) return { ok: false, dropped: { text, reason: "meaning-mismatch", detail: problem } }
   }
 
@@ -339,21 +339,49 @@ const OPPOSITES: [RegExp, RegExp, string][] = [
   [/\bSTART\w*|\bSWITCH ON\b|\bTURN ON\b|\bOPEN\w*/, /\bSTOP\w*|\bSWITCH OFF\b|\bTURN OFF\b|\bCLOS\w*|\bSHUT\w*/, "start / stop"],
   [/\bON\b(?= *(?:[.,;]|$| DURING| WHILE| UNTIL| AT ALL))/, /\bOFF\b/, "on / off"],
   [/\bBEFORE\b|\bFIRST\b/, /\bAFTER\b|\bLAST\b/, "before / after"],
+  [/\bMINIMUM\b|\bMIN\b/, /\bMAXIMUM\b|\bMAX\b/, "minimum / maximum"],
+  [/\bHOT\b|\bWARM\b|\bOPERATING TEMPERATURE\b/, /\bCOLD\b|\bCOOL(?:ED)?\b|\bAMBIENT\b/, "hot / cold"],
+  [/\bSLOW\w*/, /\bFAST\w*|\bQUICK\w*/, "slow / fast"],
+]
+
+// Words that narrow or soften a statement. A point may only use one when a
+// supporting sentence does too: "at least 15 minutes" is not "about 15
+// minutes", "usually means" is not "means", "minimum" is not a bare value.
+const QUALIFIERS: [RegExp, string][] = [
+  [/\bUSUALLY\b|\bTYPICALLY\b|\bGENERALLY\b|\bOFTEN\b|\bNORMALLY\b/, "usually"],
+  [/\bLIKELY\b|\bPROBABLY\b|\bPOSSIBLY\b|\bMAY BE\b|\bMIGHT\b/, "likely"],
+  [/\bALWAYS\b/, "always"],
+  [/\bAT LEAST\b|\bMINIMUM\b|\bNO LESS THAN\b/, "at least"],
+  [/\bAT MOST\b|\bMAXIMUM\b|\bNO MORE THAN\b|\bUP TO\b/, "at most"],
+  [/\bEXACTLY\b/, "exactly"],
 ]
 const RESTRICTIONS = /\bONLY\b|\bUNLESS\b|\bEXCEPT\b/
 
-function meaningFlip(point: string, supporting: string[]): string | null {
+function meaningFlip(point: string, supporting: string[], allCited: string): string | null {
   const p = normalise(point)
   const cs = supporting.map(normalise)
+  // Added restrictions and qualifiers are checked against everything cited:
+  // a table row's "Minimum:" header sits in a neighbouring cell.
+  const all = normalise(allCited)
   for (const [a, b, label] of OPPOSITES) {
     for (const [mine, other] of [[a, b], [b, a]] as const) {
-      if (mine.test(p) && !cs.some((c) => mine.test(c)) && cs.some((c) => other.test(c))) {
+      if (mine.test(p) && !mine.test(all) && cs.some((c) => other.test(c))) {
         return `the source says the opposite (${label})`
       }
     }
   }
   if (cs.every((c) => RESTRICTIONS.test(c)) && !RESTRICTIONS.test(p)) {
     return "the point drops a restriction (only / unless / except)"
+  }
+  if (RESTRICTIONS.test(p) && !RESTRICTIONS.test(all)) {
+    return "the point adds a restriction (only / unless / except)"
+  }
+  for (const [re, label] of QUALIFIERS) {
+    if (re.test(p) && !re.test(all)) return `the point adds "${label}"`
+  }
+  // "A or B" in the source is not "A and B".
+  if (cs.some((c) => /\bOR\b/.test(c)) && !/\bOR\b/.test(p) && /\bAND\b/.test(p) && !cs.some((c) => /\bAND\b/.test(c))) {
+    return "the point turns \"or\" into \"and\""
   }
   // Order around "before" / "after": what the point puts first must also come
   // first in the source.
@@ -378,4 +406,72 @@ function meaningFlip(point: string, supporting: string[]): string | null {
 function stems4(canon: string): string[] {
   const words: string[] = canon.match(/[A-Z]+/g) ?? []
   return words.filter((w) => w.length >= 4 && !STOP.has(w)).map((w) => w.slice(0, 4))
+}
+
+
+// ---- Tables -------------------------------------------------------------------
+
+/**
+ * Table rows are stored as "cell | cell | cell", and the column headers live
+ * in the first row of the table. Without them "Barrel temperature | 170 °C |
+ * 220 °C" cannot support "minimum 170 °C". This puts each header in front of
+ * its cell ("Parameter: Barrel temperature | Minimum: 170 °C | Maximum:
+ * 220 °C"), for the model to read and for the check to verify. Input must be
+ * one document version's chunks in reading order; returns the texts in the
+ * same order.
+ */
+export function withTableHeaders(chunks: { text: string; section: string | null }[]): string[] {
+  const out: string[] = []
+  let header: string[] | null = null
+  let prevWasRow = false
+  let prevSection: string | null = null
+  for (const c of chunks) {
+    const cells = c.text.split(" | ")
+    const isRow = cells.length > 1
+    if (!isRow) {
+      header = null
+      prevWasRow = false
+      prevSection = c.section
+      out.push(c.text)
+      continue
+    }
+    if (!prevWasRow || c.section !== prevSection || !header || header.length !== cells.length) {
+      // First row of a table: it is the header.
+      header = cells.map((h) => h.trim())
+      out.push(c.text)
+    } else {
+      out.push(cells.map((cell, i) => (header![i] ? `${header![i]}: ${cell.trim()}` : cell.trim())).join(" | "))
+    }
+    prevWasRow = true
+    prevSection = c.section
+  }
+  return out
+}
+
+const LABELS = ["MINIMUM", "MAXIMUM"] as const
+
+/**
+ * A value the point labels as minimum or maximum must sit in that column of
+ * the cited table row: "170 °C maximum" fails when the row says
+ * "Maximum: 220 °C".
+ */
+export function labelledValueMismatch(point: string, cited: string): string | null {
+  const p = normalise(point)
+  const c = normalise(cited)
+  for (const label of LABELS) {
+    const cellRe = new RegExp(String.raw`\b${label}: ([^|\n]*)`, "g")
+    const cells = Array.from(c.matchAll(cellRe)).map((m) => m[1])
+    if (cells.length === 0) continue
+    const nearRe = new RegExp(
+      String.raw`\b${label}\b[^0-9|]{0,12}?(${NUM})|(${NUM})\s*[^0-9\s|,;.]{0,6}\s*${label}\b`,
+      "g",
+    )
+    for (const m of p.matchAll(nearRe)) {
+      const value = m[1] ?? m[2]
+      if (!cells.some((cell) => new RegExp(String.raw`(?<![\d.])${value.replace(".", "\\.")}(?![\d.])`).test(cell))) {
+        return `${value} is not the ${label.toLowerCase()} in the cited table`
+      }
+    }
+  }
+  return null
 }

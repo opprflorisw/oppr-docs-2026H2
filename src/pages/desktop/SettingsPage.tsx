@@ -55,7 +55,7 @@ import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { cn } from "@/lib/utils"
 
-const ROLE = "Engineer"
+const ROLE = "Login account (who acts is the check-in)"
 
 // Settings is ONE page with a flat row of tabs (CONTEXT.md: no settings nested
 // levels deep). The tab lives in ?tab= so other pages can link straight to it.

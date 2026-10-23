@@ -37,6 +37,17 @@ import { walkBodyAssetIds } from "@/lib/bodyAssets"
 import { walkBodyRefs } from "@/lib/bodyRefs"
 import { walkBodyLogs } from "@/lib/bodyLogs"
 import { cn } from "@/lib/utils"
+import { useCheckIn } from "@/lib/checkIn"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import type { DocumentType } from "@/types"
 
 const EMPTY_DOC = { type: "doc", content: [{ type: "paragraph" }] }
@@ -76,6 +87,9 @@ export function DocumentEditPage() {
   const submitForReview = useMutation(api.documents.submitForReview)
   const approveDoc = useMutation(api.documents.approve)
   const publishDoc = useMutation(api.documents.publish)
+  const { person } = useCheckIn()
+  const engineer = person?.kind === "engineer" ? person : null
+  const [signOff, setSignOff] = useState<"approve" | "publish" | null>(null)
   const revertToDraft = useMutation(api.documents.revertToDraft)
   const createTemplate = useMutation(api.templates.create)
 
@@ -337,11 +351,34 @@ export function DocumentEditPage() {
       return
     }
 
+    // Approving and publishing are sign-offs: a checked-in Engineer confirms
+    // them explicitly, and they apply to the saved version as it is.
+    if ((action === "approve" || action === "publish") && signOff !== action) {
+      if (!engineer) {
+        toast.error("Check in as an Engineer (top right) to sign this off.")
+        return
+      }
+      setSignOff(action)
+      return
+    }
+
     setRunning(action)
     try {
       if (action === "revert") {
         await revertToDraft({ id })
         toast.success("Reverted to draft")
+        return
+      }
+      if (action === "approve" || action === "publish") {
+        if (!engineer) return
+        if (action === "approve") {
+          await approveDoc({ id, personId: engineer._id })
+          toast.success(`Approved by ${engineer.name}`)
+        } else {
+          await publishDoc({ id, personId: engineer._id })
+          toast.success(`Published by ${engineer.name}`)
+          setLocation(`/docs/${id}`)
+        }
         return
       }
       const ok = await persist()
@@ -351,13 +388,6 @@ export function DocumentEditPage() {
       } else if (action === "submit") {
         await submitForReview({ id })
         toast.success("Submitted for review")
-      } else if (action === "approve") {
-        await approveDoc({ id })
-        toast.success("Approved")
-      } else if (action === "publish") {
-        await publishDoc({ id })
-        toast.success("Published")
-        setLocation(`/docs/${id}`)
       }
     } catch (err) {
       console.error(err)
@@ -597,6 +627,30 @@ export function DocumentEditPage() {
       </div>
 
       {namingCode && (
+        <>
+        <AlertDialog open={signOff !== null} onOpenChange={(o) => !o && setSignOff(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {signOff === "approve" ? "Approve" : "Publish"} {namingCode} v{doc.currentVersion}?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {signOff === "approve"
+                  ? "This records your approval of the saved version. It is not published yet."
+                  : "Publishing makes the saved version Knowledge: Operators, Ask and Wikis start using it, and the previous version stops being used."}{" "}
+                Unsaved edits are not included: save first if you changed something
+                (saving changed text sends it back to draft). The sign-off is recorded
+                in the name of {engineer?.name ?? "the checked-in Engineer"}.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => signOff && void run(signOff)}>
+                {signOff === "approve" ? "Approve" : "Publish"} as {engineer?.name.split(" ")[0] ?? "Engineer"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         <RefileDocumentDialog
           open={refileOpen}
           onOpenChange={setRefileOpen}
@@ -606,6 +660,7 @@ export function DocumentEditPage() {
           currentDiscipline={meta.discipline}
           currentType={meta.type}
         />
+        </>
       )}
     </div>
   )

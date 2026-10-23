@@ -12,6 +12,13 @@ import { Doc, Id } from "./_generated/dataModel"
 import { requireUser, requireUserId } from "./lib/auth"
 import { resolveScope, Scope, scopeIsEmpty } from "./lib/scope"
 import { isPublished } from "./lib/published"
+import { withTableHeaders } from "./ai/grounding"
+
+/** Same chunks, with table rows carrying their column headers. */
+function withHeaders(chunks: Doc<"chunks">[]): Doc<"chunks">[] {
+  const texts = withTableHeaders(chunks.map((c) => ({ text: c.text, section: c.pageOrSection })))
+  return chunks.map((c, i) => ({ ...c, text: texts[i] }))
+}
 import { contentStems } from "./ai/grounding"
 
 // Wikis (CONTEXT.md): AI-generated overviews of Published Knowledge inside a
@@ -279,9 +286,15 @@ async function scopeLabels(ctx: QueryCtx, scope: Scope) {
   const docs = (
     await Promise.all(scope.documentIds.map((id) => ctx.db.get(id)))
   ).filter((d): d is Doc<"documents"> => d !== null)
+  const areaLabel = new Map(
+    (await ctx.db.query("namingLocations").take(200)).map((a) => [a.code, a.label]),
+  )
+  const discLabel = new Map(
+    (await ctx.db.query("namingDisciplines").take(200)).map((d) => [d.code, d.label]),
+  )
   return {
-    areas: scope.areas,
-    disciplines: scope.disciplines,
+    areas: scope.areas.map((c) => areaLabel.get(c) ?? c),
+    disciplines: scope.disciplines.map((c) => discLabel.get(c) ?? c),
     assets: assets.map((a) => `${a.code} ${a.name}`),
     documents: docs.map((d) => `${d.namingCode} ${d.title}`),
   }
@@ -400,9 +413,21 @@ export async function regenerateWikisForDocument(
 export const regenerateAll = internalMutation({
   args: {},
   handler: async (ctx) => {
+    // A safety net for missed publish-time runs. A Wiki whose sources are all
+    // still the live versions of exactly the documents in its scope is
+    // already correct, so it is not rebuilt (each build is a paid AI call).
     const wikis = await ctx.db.query("wikis").take(500)
-    for (const w of wikis) await requestGeneration(ctx, w._id, "schedule")
-    return wikis.length
+    let queued = 0
+    for (const w of wikis) {
+      const { published } = await resolveScope(ctx, w.scope)
+      const want = published.map((d) => `${d._id}@${d.liveVersion}`).sort().join(",")
+      const have = w.sources.map((s) => `${s.documentId}@${s.version}`).sort().join(",")
+      const healthy = w.status === "ready" || w.status === "empty"
+      if (healthy && want === have) continue
+      await requestGeneration(ctx, w._id, "schedule")
+      queued += 1
+    }
+    return queued
   },
 })
 
@@ -448,7 +473,7 @@ export const loadForGeneration = internalQuery({
       title: x.d.title,
       version: x.version,
       excerptsTotal: x.chunks.length,
-      chunks: pickChunks(x.chunks, budgets[i], topic).map((c) => ({
+      chunks: pickChunks(withHeaders(x.chunks), budgets[i], topic).map((c) => ({
         chunkId: c._id,
         text: c.text,
         section: c.pageOrSection,

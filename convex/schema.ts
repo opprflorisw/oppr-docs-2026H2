@@ -113,6 +113,8 @@ export default defineSchema({
           ),
           userId: v.id("users"),
           at: v.number(),
+          // The checked-in Engineer who gave the sign-off (CONTEXT.md).
+          personId: v.optional(v.id("people")),
         }),
       ),
     ),

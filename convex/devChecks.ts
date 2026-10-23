@@ -2,7 +2,7 @@ import { v } from "convex/values"
 import { internalAction, internalMutation, internalQuery } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { Doc, Id } from "./_generated/dataModel"
-import { checkPoint, ProvidedExcerpt } from "./ai/grounding"
+import { checkPoint, ProvidedExcerpt, withTableHeaders } from "./ai/grounding"
 import { publishApproved } from "./documents"
 import { resolveScope } from "./lib/scope"
 import { allocate, MAX_WIKI_CHUNKS, pickChunks, requestGeneration } from "./wikis"
@@ -42,7 +42,14 @@ export const snapshot = internalQuery({
         currentVersion: d.currentVersion,
       })),
       assets: assets.map((a) => a._id),
-      chunks: chunks.map((c) => ({ _id: c._id, documentId: c.documentId, version: c.version, text: c.text })),
+      chunks: chunks.map((c) => ({
+        _id: c._id,
+        documentId: c.documentId,
+        version: c.version,
+        seq: c.seq,
+        section: c.pageOrSection,
+        text: c.text,
+      })),
       wikis,
     }
   },
@@ -108,7 +115,8 @@ export const publishWorkingDraft = internalMutation({
     if (!user) throw new Error("Needs at least one user for the sign-off trail")
     await ctx.db.patch(doc._id, { status: "approved" })
     const approved = (await ctx.db.get(doc._id)) as Doc<"documents">
-    await publishApproved(ctx, approved, user._id)
+    const engineer = (await ctx.db.query("people").take(50)).find((p) => p.kind === "engineer")
+    await publishApproved(ctx, approved, user._id, engineer?._id)
     return { version: approved.currentVersion }
   },
 })
@@ -214,7 +222,19 @@ export const run = internalAction({
         (await ctx.runQuery(internal.devChecks.wikiScopeDocs, { wikiId: id })).map((d: { _id: Id<"documents">; version: number | null }) => [d._id, d.version]),
       )
       const after = await ctx.runQuery(internal.devChecks.snapshot, {})
-      const chunkById = new Map(after.chunks.map((c) => [c._id, c]))
+      // The generator reads table rows with their column headers; recheck
+      // against exactly that text.
+      const groups = new Map<string, typeof after.chunks>()
+      for (const c of after.chunks) {
+        const k = `${c.documentId}@${c.version}`
+        groups.set(k, [...(groups.get(k) ?? []), c])
+      }
+      const chunkById = new Map<Id<"chunks">, (typeof after.chunks)[number]>()
+      for (const list of groups.values()) {
+        list.sort((a, b) => a.seq - b.seq)
+        const texts = withTableHeaders(list)
+        list.forEach((c, i) => chunkById.set(c._id, { ...c, text: texts[i] }))
+      }
       // Same label the generator gives the model (naming code, version, title).
       const titleOf = new Map(w.sources.map((src) => [src.documentId, src.title]))
       for (const s of w.content.sections) {
@@ -257,6 +277,10 @@ export const run = internalAction({
       ["E11", { key: "E11", text: "Reduce the screw speed to 60 rpm." }],
       ["E12", { key: "E12", text: "Only authorised staff may open the guarding." }],
       ["E13", { key: "E13", text: "Measure wall thickness on each of the first 15 pipes." }],
+      ["E15", { key: "E15", text: "Parameter: Barrel temperature | Minimum: 170 °C | Maximum: 220 °C" }],
+      ["E16", { key: "E16", text: "Replace the die bolts after 20 die changes or when the thread shows wear." }],
+      ["E17", { key: "E17", text: "Wear heat-resistant gloves for any contact with the die." }],
+      ["E18", { key: "E18", text: "Tighten the die bolts in a cross pattern to 45 Nm with the die at operating temperature." }],
       ["E14", { key: "E14", text: "Streaks of the old colour after 15 minutes | Purge not finished | Purge for another 5 minutes, then check again" }],
     ])
     // [case, point text, cited keys, expected to pass]
@@ -292,6 +316,16 @@ export const run = internalAction({
       ["counted noun kept", "Measure wall thickness on the first 15 pipes.", ["E13"], true],
       ["counted noun swapped", "Measure wall thickness for the first 15 minutes.", ["E13"], false],
       ["table row, one negated cell", "Streaks of the old colour after 15 minutes mean the purge is not finished. Purge for another 5 minutes, then check again.", ["E14"], true],
+      ["min and max invented on a table row", "Barrel temperature must be 170 °C maximum and 220 °C minimum.", ["E15"], false],
+      ["range from a table row kept", "Barrel temperature is 170 °C to 220 °C.", ["E15"], true],
+      ["min and max from the table header kept", "Barrel temperature: minimum 170 °C, maximum 220 °C.", ["E15"], true],
+      ["min and max swapped against the table header", "Barrel temperature: minimum 220 °C, maximum 170 °C.", ["E15"], false],
+      ["or turned into and", "Replace the die bolts after 20 die changes and when the thread shows wear.", ["E16"], false],
+      ["or kept", "Replace the die bolts after 20 die changes or when the thread shows wear.", ["E16"], true],
+      ["restriction added", "Wear heat-resistant gloves only when touching the die.", ["E17"], false],
+      ["at least instead of about", "Purge for at least 15 minutes.", ["E2"], false],
+      ["hedge added", "Streaks of the old colour after 15 minutes usually mean the purge is not finished.", ["E14"], false],
+      ["hot flipped to cold", "Tighten the die bolts to 45 Nm with the die cold.", ["E18"], false],
       ["table row, negation invented", "Streaks of the old colour after 15 minutes mean the purge is finished. Do not purge again.", ["E14"], false],
     ]
     const wrong = cases.filter(([, text, sources, expect]) => checkPoint({ text, sources }, provided).ok !== expect)

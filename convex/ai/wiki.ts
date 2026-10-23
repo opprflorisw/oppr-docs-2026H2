@@ -58,6 +58,7 @@ const WIKI_SYSTEM = [
   "- Write numbers as digits with the unit exactly as the excerpt writes it (40 Nm, 190 °C, 20 %, 170-220 °C). Copy codes such as PX-4400 or EXL-201 exactly.",
   "- Keep every prohibition and warning as strong as the excerpt says it: never turn \"never\" or \"do not\" into a permission, and never drop a condition (\"while the line is only stopped\", \"at operating temperature\").",
   "- Do not invent step numbers, reasons, consequences, tolerances or best practices that the excerpts do not state.",
+  "- Do not add qualifiers the excerpt does not use: no \"usually\", \"likely\", \"always\", \"at least\", \"at most\", \"minimum\", \"maximum\" or \"only\" unless the cited excerpt says it. Keep \"or\" as \"or\". A table row lists its values in the order of its columns; do not label them minimum or maximum unless the cited excerpt does.",
   "",
   "Citing:",
   "- `sources` lists the keys of the excerpts that state what the point says (for example [\"E3\", \"E7\"]). Only use keys that appear in EXCERPTS.",

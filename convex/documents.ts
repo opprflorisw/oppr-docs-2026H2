@@ -580,7 +580,11 @@ export const saveContent = mutation({
       })
     }
 
-    await syncDocumentAssetsFromBody(ctx, args.id, args.body)
+    // Asset links follow the Published version: while a Published document
+    // has a draft edition, its links change only when that edition publishes.
+    if (doc.liveVersion == null) {
+      await syncDocumentAssetsFromBody(ctx, args.id, args.body)
+    }
 
     await ctx.runMutation(internal.images.recomputeUsagesForVersion, {
       documentId: args.id,
@@ -602,6 +606,7 @@ async function recordSignoff(
   doc: Doc<"documents">,
   role: "author" | "reviewer" | "approver",
   userId: Id<"users">,
+  personId?: Id<"people">,
 ) {
   const version = await ctx.db
     .query("documentVersions")
@@ -612,7 +617,7 @@ async function recordSignoff(
   if (!version) return
   const signoffs = version.signoffs ?? []
   await ctx.db.patch(version._id, {
-    signoffs: [...signoffs, { role, userId, at: Date.now() }],
+    signoffs: [...signoffs, { role, userId, at: Date.now(), ...(personId ? { personId } : {}) }],
   })
 }
 
@@ -632,11 +637,23 @@ export const submitForReview = mutation({
   },
 })
 
+/** Approving and publishing are sign-offs: they need a checked-in Engineer. */
+async function requireEngineer(
+  ctx: import("./_generated/server").MutationCtx,
+  personId: Id<"people">,
+) {
+  const person = await ctx.db.get(personId)
+  if (!person || person.kind !== "engineer")
+    throw new Error("Check in as an Engineer to sign this off.")
+  return person
+}
+
 // in_review → approved. Requires an approver to be assigned; records approval.
 export const approve = mutation({
-  args: { id: v.id("documents") },
+  args: { id: v.id("documents"), personId: v.id("people") },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
+    await requireEngineer(ctx, args.personId)
     const doc = await ctx.db.get(args.id)
     if (!doc) throw new Error("Document not found")
     if (doc.status !== "in_review")
@@ -644,21 +661,22 @@ export const approve = mutation({
     if (!doc.approverId)
       throw new Error("Assign an approver before approving.")
     await ctx.db.patch(args.id, { status: "approved", updatedAt: Date.now() })
-    await recordSignoff(ctx, doc, "reviewer", userId)
+    await recordSignoff(ctx, doc, "reviewer", userId, args.personId)
   },
 })
 
 // approved → published. This edition becomes the live one served to operators,
 // QR, and RAG (liveVersion). If a previous edition was live, it is replaced here.
 export const publish = mutation({
-  args: { id: v.id("documents") },
+  args: { id: v.id("documents"), personId: v.id("people") },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
+    await requireEngineer(ctx, args.personId)
     const doc = await ctx.db.get(args.id)
     if (!doc) throw new Error("Document not found")
     if (doc.status !== "approved")
       throw new Error("A document must be approved before publishing.")
-    await publishApproved(ctx, doc, userId)
+    await publishApproved(ctx, doc, userId, args.personId)
   },
 })
 
@@ -671,6 +689,7 @@ export async function publishApproved(
   ctx: import("./_generated/server").MutationCtx,
   doc: Doc<"documents">,
   userId: Id<"users">,
+  personId?: Id<"people">,
 ) {
   const now = Date.now()
   await ctx.db.patch(doc._id, {
@@ -680,7 +699,7 @@ export async function publishApproved(
     nextReviewAt: addMonths(now, doc.reviewIntervalMonths ?? DEFAULT_REVIEW_MONTHS),
     lastReviewedAt: now,
   })
-  await recordSignoff(ctx, doc, "approver", userId)
+  await recordSignoff(ctx, doc, "approver", userId, personId)
   // The version row is created when its draft starts; stamp the real
   // publication date so history, PDF exports and Wiki provenance show when
   // this version became the truth, not when its draft was begun.
@@ -691,6 +710,8 @@ export async function publishApproved(
     )
     .unique()
   if (versionRow) await ctx.db.patch(versionRow._id, { publishedAt: now })
+  // Asset links now follow the newly Published body.
+  if (versionRow) await syncDocumentAssetsFromBody(ctx, doc._id, versionRow.bodyJson)
 
   // Drop chunks belonging to superseded editions: only the now-live version
   // is served. Version bodies stay in documentVersions for history.

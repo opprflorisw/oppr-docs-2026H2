@@ -39,7 +39,7 @@ function Summary() {
     <Card className="border-emerald-500/40 bg-emerald-500/5">
       <CardContent className="grid gap-4 p-5 md:grid-cols-3">
         <Stat label="Automated checks" value="7 of 7 pass" note="devChecks:run on the fresh seed, real AI" />
-        <Stat label="Wiki grounding" value="52 of 52 points traceable" note="0 of 24 real Claude points dropped by the stricter check" />
+        <Stat label="Wiki grounding" value="49 of 49 points traceable" note="42 adversarial cases; 1 of 23 real Claude points dropped, correctly" />
         <Stat label="Rebuild after publish" value="about 12 s" note="target was under 60 s" />
       </CardContent>
     </Card>
@@ -75,6 +75,7 @@ function Built() {
           "Renamed to Oppr Knowledge. Desktop menu is exactly six places: Home, Documents, Learn, Wiki, Assets, Settings. Settings is one page with flat tabs (?tab=); old addresses redirect.",
           "Home: an inbox (documents waiting for review or publishing, periodic reviews due within 30 days or overdue) and a Knowledge health snapshot. New document opens as a dialog, never as an extra page.",
           "Periodic review: every Published document gets a review date (12 months by default, adjustable). Confirming \"still valid\" needs a checked-in Engineer and an explicit confirm, and is recorded on the version.",
+          "Sign-offs: approving and publishing also need a checked-in Engineer and an explicit confirm; they apply to the saved version and record that Engineer. Asset links follow the Published version, not a draft.",
           "Check-in: exactly two modes, Anonymous and Checked in (useCheckIn in src/lib/checkIn.ts), picker in the top bar, People tab in Settings.",
           "Published-only everywhere: convex/lib/published.ts is the single rule. Ask (all scopes, overview, related, code links), the floor views, Wikis and Home all use it. A never-published document is invisible to Ask.",
           "Document control: changing text after review or approval sends the edition back to draft; publish dates and version history labels are true; archived and unpublished documents say so.",
@@ -105,8 +106,8 @@ function Decisions() {
           "ADR 0003: AI prepares, humans publish. Wikis and generated questions are derived output and need no approval of their own.",
           "Grounding is enforced in code, not trusted to the prompt. The check is lexical and strict: it would rather drop a correct point than show a wrong one.",
           "Wiki generation uses Claude (claude-opus-5-5) when ANTHROPIC_API_KEY is set; Gemini stays the fallback and still powers Ask (embeddings and answers). An offline stand-in (OPPR_AI_STUB=1, dev only) exists for when no key works.",
-          "Approve and publish do not check that the actor is the assigned reviewer or approver: the showcase has one login. Segregation of duties is a later step.",
-          "Asset links come from the working body, so a draft can change which Published documents an Asset-scoped Wiki includes (text never leaks). Left as is for now.",
+          "Approve and publish need a checked-in Engineer and a confirm, but do not check that this Engineer is the assigned reviewer or approver, and check-in is trusted from the browser (no PIN, by design for the showcase). Segregation of duties is a later step.",
+          "Table rows are read with their column headers, so \"minimum 170 °C\" is provable and a swapped minimum and maximum is not.",
         ]}
       />
     </Section>
@@ -116,8 +117,8 @@ function Decisions() {
 const CHECKS: [string, string, string][] = [
   ["3", "Ask never serves draft or unpublished text", "10 scopes, 169 excerpts, all live versions; no sentinel text"],
   ["4", "Wiki never uses draft text", "Built from shows live v1, not the v2 draft; never-published document not used"],
-  ["5", "Every Wiki point traceable to a Published passage in scope", "52 of 52"],
-  ["G", "Grounding check cases", "32 of 32 (numbers, units, ranges, codes, negation, meaning flips, table cells)"],
+  ["5", "Every Wiki point traceable to a Published passage in scope", "49 of 49"],
+  ["G", "Grounding check cases", "42 of 42 (numbers, units, ranges, codes, negation, meaning flips, qualifiers, or/and, table headers)"],
   ["B", "Broad scope passage budget", "[3, 40, 117, 0] of 160; safety passage kept"],
   ["7", "Scope with nothing Published", "empty Wiki, no invented content"],
   ["6", "Rebuild after a source is published", "about 12 s with real Claude"],
@@ -180,7 +181,7 @@ function Team() {
 
 function Judge() {
   return (
-    <Section title="Outside judge" description="Round 1 findings and what was done with them. Round 2 results are in the final run report.">
+    <Section title="Outside judge" description="Two cold rounds on a different model. No critical findings in either; no route leaked draft text. Findings and what was done with them.">
       <Table>
         <TableHeader>
           <TableRow>
@@ -196,9 +197,14 @@ function Judge() {
           <JudgeRow text="After a scope edit, points from a removed document stayed visible until the rebuild" fixed />
           <JudgeRow text="A Wiki could be created without a purpose" fixed />
           <JudgeRow text="/documents showed a bare Not found; seed dates out of order" fixed />
-          <JudgeRow text="Approve and publish do not check the assigned reviewer or approver" />
-          <JudgeRow text="Asset links follow the working draft" />
+          <JudgeRow text="Round 2: grounding kept added qualifiers (usually, at least, only), or turned into and, hot to cold, min and max swapped in a table" fixed />
+          <JudgeRow text="Round 2: approve and publish were single clicks without check-in" fixed />
+          <JudgeRow text="Round 2: asset links followed the working draft" fixed />
+          <JudgeRow text="Round 2: hardcoded Author badge, two-click Library scope in Ask, raw area codes, nightly rebuild paid for unchanged Wikis" fixed />
+          <JudgeRow text="Approve and publish do not check the assigned reviewer or approver; check-in is trusted from the browser" />
+          <JudgeRow text="The Guided assistant sees titles, not content, so it can say a topic is not covered when it is" />
           <JudgeRow text="Ask shows sources next to an answer that says it has no information" />
+          <JudgeRow text="previewScope shows titles of unpublished documents to every signed-in viewer" />
           <JudgeRow text="Regeneration resolves every Wiki's scope on each publish (fine at showcase size)" />
         </TableBody>
       </Table>
