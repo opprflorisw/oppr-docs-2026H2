@@ -17,6 +17,10 @@ import type { Id } from "../../../convex/_generated/dataModel"
 interface VersionHistoryDrawerProps {
   documentId: string
   currentVersion: number
+  /** The Published version in use, or null when none (never published). */
+  liveVersion: number | null
+  /** An archived Document has no version in use any more. */
+  archived?: boolean
   /** The version the parent is currently rendering (so we can highlight it). */
   selectedVersion?: number
   onSelect: (version: number) => void
@@ -35,6 +39,8 @@ function formatDate(ms: number): string {
 export function VersionHistoryDrawer({
   documentId,
   currentVersion,
+  liveVersion,
+  archived,
   selectedVersion,
   onSelect,
   open,
@@ -57,7 +63,7 @@ export function VersionHistoryDrawer({
             Version history
           </SheetTitle>
           <SheetDescription>
-            All published versions of this document, newest first.
+            Every version of this document, newest first, with its state.
           </SheetDescription>
         </SheetHeader>
         <ScrollArea className="-mx-6 mt-4 flex-1 px-6">
@@ -68,11 +74,20 @@ export function VersionHistoryDrawer({
           ) : (
             <ul className="space-y-2 pb-6">
               {versions.map((v) => {
+                // Versions are published in order, so everything up to the
+                // live version was published once; anything after is a draft.
+                const wasPublished = liveVersion != null && v.version <= liveVersion
+                const isLive = !archived && v.version === liveVersion
                 const isCurrent = v.version === currentVersion
                 const isSelected =
                   selectedVersion != null
                     ? v.version === selectedVersion
                     : isCurrent
+                const state = isLive
+                  ? { label: "Published, in use", variant: "success" as const }
+                  : wasPublished
+                    ? { label: archived && v.version === liveVersion ? "Archived" : "Superseded", variant: "secondary" as const }
+                    : { label: "Draft, not published", variant: "outline" as const }
                 return (
                   <li
                     key={v._id}
@@ -84,19 +99,19 @@ export function VersionHistoryDrawer({
                           <span className="text-sm font-semibold">
                             v{v.version}
                           </span>
-                          {isCurrent && (
-                            <Badge variant="success" className="text-[10px]">
-                              Current
-                            </Badge>
-                          )}
-                          {isSelected && !isCurrent && (
+                          <Badge variant={state.variant} className="text-[10px]">
+                            {state.label}
+                          </Badge>
+                          {isSelected && (
                             <Badge variant="secondary" className="text-[10px]">
                               Viewing
                             </Badge>
                           )}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          Published {formatDate(v.publishedAt)}
+                          {wasPublished
+                            ? `Published ${formatDate(v.publishedAt)}`
+                            : `Started ${formatDate(v.publishedAt)}`}
                         </div>
                       </div>
                       <Button

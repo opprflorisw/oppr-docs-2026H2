@@ -23,7 +23,7 @@ export function MobileAssetsPage() {
   const [query, setQuery] = useState("")
   const [globalOpen, setGlobalOpen] = useState(false)
 
-  const result = useQuery(api.assets.listForAssetsPage)
+  const result = useQuery(api.assets.listForAssetsPage, { publishedOnly: true })
   const ready = result !== undefined
 
   const assets = useMemo(

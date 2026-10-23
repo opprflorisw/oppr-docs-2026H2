@@ -83,7 +83,7 @@ export function AssetsPage() {
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null)
   const [activeLog, setActiveLog] = useState<AssetLog | null>(null)
 
-  const result = useQuery(api.assets.listForAssetsPage)
+  const result = useQuery(api.assets.listForAssetsPage, {})
   const updateAssetMut = useMutation(api.assets.update)
   const archive = useMutation(api.documents.archive)
   const remove = useMutation(api.documents.remove)

@@ -47,7 +47,9 @@ export function MobileAssetPage() {
 
   const result = useQuery(
     api.assets.getWithDocs,
-    id && idIsConvexShaped ? { id: id as Id<"assets"> } : "skip",
+    id && idIsConvexShaped
+      ? { id: id as Id<"assets">, publishedOnly: true }
+      : "skip",
   )
   const ready = idIsConvexShaped ? result !== undefined : true
   const asset = useMemo(

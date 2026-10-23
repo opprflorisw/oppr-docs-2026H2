@@ -14,6 +14,7 @@ import type * as ai_ask from "../ai/ask.js";
 import type * as ai_constants from "../ai/constants.js";
 import type * as ai_embed from "../ai/embed.js";
 import type * as ai_grounding from "../ai/grounding.js";
+import type * as ai_llm from "../ai/llm.js";
 import type * as ai_wiki from "../ai/wiki.js";
 import type * as assets from "../assets.js";
 import type * as auth from "../auth.js";
@@ -59,6 +60,7 @@ declare const fullApi: ApiFromModules<{
   "ai/constants": typeof ai_constants;
   "ai/embed": typeof ai_embed;
   "ai/grounding": typeof ai_grounding;
+  "ai/llm": typeof ai_llm;
   "ai/wiki": typeof ai_wiki;
   assets: typeof assets;
   auth: typeof auth;

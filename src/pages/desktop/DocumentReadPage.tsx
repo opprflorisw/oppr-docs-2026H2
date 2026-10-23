@@ -217,8 +217,8 @@ export function DocumentReadPage() {
             viewingDraft
               ? `v${renderedVersionNumber} · draft in progress`
               : hasWorkingDraft
-                ? `v${renderedVersionNumber} · Live`
-                : `v${renderedVersionNumber} · ${docWithAssets.status}`
+                ? `v${renderedVersionNumber} · published, in use`
+                : `v${renderedVersionNumber} · ${docWithAssets.status.replace("_", " ")}`
           }
           actions={
             <>
@@ -314,20 +314,33 @@ export function DocumentReadPage() {
             </Alert>
           )}
           {isViewingHistorical && (
-            <Alert className="print:hidden">
+            <Alert>
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription className="flex items-center justify-between gap-3">
                 <span>
-                  Viewing v{renderedVersionNumber} — not the current version (v
-                  {docWithAssets.current_version}).
+                  {liveVer != null && renderedVersionNumber < liveVer
+                    ? `You are viewing v${renderedVersionNumber}, a superseded version kept for the record. Do not work from it. The version in use is v${liveVer}.`
+                    : `You are viewing v${renderedVersionNumber}, which is not the version in use.`}
                 </span>
                 <Button
                   size="sm"
                   variant="outline"
+                  className="print:hidden"
                   onClick={() => setOverrideVersion(null)}
                 >
-                  Back to current
+                  Back to v{servingVer}
                 </Button>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {overrideVersion == null && (workingStatus === "archived" || liveVer == null) && (
+            <Alert className="border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                {workingStatus === "archived"
+                  ? "This document is archived. It is no longer valid and is not shown to Operators, Ask or Wikis."
+                  : "This document is not published yet. It does not count as knowledge: Operators, Ask and Wikis cannot see it."}
               </AlertDescription>
             </Alert>
           )}
@@ -437,9 +450,11 @@ export function DocumentReadPage() {
       <VersionHistoryDrawer
         documentId={docWithAssets.id}
         currentVersion={docWithAssets.current_version}
-        selectedVersion={overrideVersion ?? docWithAssets.current_version}
+        liveVersion={liveVer}
+        archived={workingStatus === "archived"}
+        selectedVersion={overrideVersion ?? servingVer}
         onSelect={(v) =>
-          setOverrideVersion(v === docWithAssets.current_version ? null : v)
+          setOverrideVersion(v === servingVer ? null : v)
         }
         open={historyOpen}
         onOpenChange={setHistoryOpen}

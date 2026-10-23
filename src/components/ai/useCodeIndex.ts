@@ -22,7 +22,7 @@ export interface CodeEntry {
 export type CodeIndex = Map<string, CodeEntry>
 
 export function useCodeIndex(): CodeIndex {
-  const docs = useQuery(api.documents.list, {})
+  const docs = useQuery(api.documents.list, { publishedOnly: true })
   const assets = useQuery(api.assets.list)
 
   return useMemo(() => {

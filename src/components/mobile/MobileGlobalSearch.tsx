@@ -21,7 +21,7 @@ export function MobileGlobalSearch({ open, onClose }: MobileGlobalSearchProps) {
   const [, navigate] = useLocation()
   const [query, setQuery] = useState("")
   const rawAssets = useQuery(api.assets.list, open ? undefined : "skip")
-  const rawDocs = useQuery(api.documents.list, open ? {} : "skip")
+  const rawDocs = useQuery(api.documents.list, open ? { publishedOnly: true } : "skip")
   const ready = rawAssets !== undefined && rawDocs !== undefined
 
   // Reset query each time the overlay opens.

@@ -20,7 +20,7 @@ export function MobileDocsPage() {
   const [query, setQuery] = useState("")
   const [globalOpen, setGlobalOpen] = useState(false)
 
-  const raw = useQuery(api.documents.list, {})
+  const raw = useQuery(api.documents.list, { publishedOnly: true })
   const ready = raw !== undefined
   const docs = useMemo(() => (raw ? raw.map(toLegacyDoc) : []), [raw])
 
@@ -40,7 +40,7 @@ export function MobileDocsPage() {
       <MobileHeader
         backTo={null}
         title="Documents"
-        subtitle={`${docs.length} in library`}
+        subtitle={`${docs.length} published`}
         right={
           <Button
             variant="ghost"

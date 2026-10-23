@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server"
 import { v } from "convex/values"
 import { Doc } from "./_generated/dataModel"
 import { requireUser, requireUserId } from "./lib/auth"
+import { isPublished, publishedVersion } from "./lib/published"
 
 export const list = query({
   args: {},
@@ -34,9 +35,11 @@ export const listWithLogs = query({
   },
 })
 
+// publishedOnly: floor readers (mobile Scan) see only Published Documents,
+// at their Published version. Desktop authoring lists everything.
 export const listForAssetsPage = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { publishedOnly: v.optional(v.boolean()) },
+  handler: async (ctx, args) => {
     await requireUser(ctx)
     const assets = await ctx.db.query("assets").take(500)
     assets.sort((a, b) => a.code.localeCompare(b.code))
@@ -70,12 +73,15 @@ export const listForAssetsPage = query({
     for (const da of docAssets) {
       const d = docById.get(da.documentId)
       if (!d) continue
+      if (args.publishedOnly && !isPublished(d)) continue
       const list = docsByAsset[da.assetId] ?? []
       list.push({
         id: d._id,
         naming_code: d.namingCode,
         title: d.title,
-        current_version: d.currentVersion,
+        current_version: args.publishedOnly
+          ? (publishedVersion(d) as number)
+          : d.currentVersion,
       })
       docsByAsset[da.assetId] = list
     }
@@ -143,7 +149,7 @@ export const getByQrToken = query({
 })
 
 export const getWithDocs = query({
-  args: { id: v.id("assets") },
+  args: { id: v.id("assets"), publishedOnly: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
     await requireUser(ctx)
     const asset = await ctx.db.get(args.id)
@@ -154,7 +160,10 @@ export const getWithDocs = query({
       .take(500)
     const documents = (
       await Promise.all(links.map((l) => ctx.db.get(l.documentId)))
-    ).filter((d): d is Doc<"documents"> => d !== null)
+    ).filter(
+      (d): d is Doc<"documents"> =>
+        d !== null && (!args.publishedOnly || isPublished(d)),
+    )
     documents.sort((a, b) => a.title.localeCompare(b.title))
     const logs = await ctx.db
       .query("assetLogs")

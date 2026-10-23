@@ -59,7 +59,7 @@ export function MobileHomePage() {
     assetIds.length > 0 ? { ids: assetIds } : "skip",
   )
 
-  const allDocs = useQuery(api.documents.list, {})
+  const allDocs = useQuery(api.documents.list, { publishedOnly: true })
   const allAssets = useQuery(api.assets.list)
   const docCount = allDocs?.length
   const assetCount = allAssets?.length

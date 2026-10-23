@@ -116,7 +116,7 @@ export function MobileDocPage() {
   )
   const ready = idIsConvexShaped ? docResult !== undefined : true
   const currentVersion = useQuery(
-    api.documents.getServingVersion,
+    api.documents.getPublishedVersion,
     id && idIsConvexShaped ? { documentId: id as Id<"documents"> } : "skip",
   )
   const pdfUrl = useQuery(
@@ -322,9 +322,10 @@ export function MobileDocPage() {
           <Share2 className="h-3 w-3" />
           Share
         </Button>
+        {version && (
         <PublishToPdfDialog
           documentId={doc.id}
-          version={doc.live_version ?? doc.current_version}
+          version={version.version}
           trigger={
             <Button
               variant="ghost"
@@ -336,6 +337,7 @@ export function MobileDocPage() {
             </Button>
           }
         />
+        )}
       </div>
 
       <div className="flex flex-col p-3 pb-20">
@@ -347,9 +349,11 @@ export function MobileDocPage() {
               : []
           }
         />
-        {!version ? (
+        {currentVersion === undefined ? null : !version ? (
           <div className="rounded-2xl border bg-card p-6 text-center text-sm text-muted-foreground">
-            No published version yet.
+            {doc.status === "archived"
+              ? "This document is archived. It is no longer valid, so do not work from it."
+              : "This document is not published yet, so it cannot be used on the floor."}
           </div>
         ) : version.body_kind === "pdf" ? (
           <ViewerErrorBoundary fallback={VIEWER_UNAVAILABLE}>

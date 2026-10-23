@@ -143,7 +143,7 @@ function ScopePicker({
   const [query, setQuery] = useState("")
 
   const rawAssets = useQuery(api.assets.list)
-  const rawDocs = useQuery(api.documents.list, {})
+  const rawDocs = useQuery(api.documents.list, { publishedOnly: true })
   const assets = useMemo(
     () => (rawAssets ? rawAssets.map(toLegacyAsset) : []),
     [rawAssets],

@@ -116,6 +116,11 @@ export default defineSchema({
         }),
       ),
     ),
+    // Periodic review record for this version: who confirmed it as still
+    // valid, and when. Publishing itself is the approver sign-off above.
+    reviewConfirmations: v.optional(
+      v.array(v.object({ userId: v.id("users"), at: v.number() })),
+    ),
   }).index("by_documentId_and_version", ["documentId", "version"]),
 
   // ---- Templates -----------------------------------------------------------

@@ -1,4 +1,4 @@
-import { useMutation } from "convex/react"
+import { useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
 import { CalendarClock, CheckCircle2, GitBranch } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
@@ -16,6 +16,10 @@ import { cn } from "@/lib/utils"
 const DAY = 24 * 60 * 60 * 1000
 const INTERVALS = [6, 12, 24, 36]
 
+function formatDay(at: number) {
+  return new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })
+}
+
 // Periodic review (CONTEXT.md) for a Published Document: when it is due, and
 // the two possible outcomes. "Still valid" confirms the live version and moves
 // the date one interval on; "Start revision" forks the next draft.
@@ -30,10 +34,14 @@ export function PeriodicReviewCard({
 }) {
   const confirm = useMutation(api.documents.confirmReview)
   const setInterval = useMutation(api.documents.setReviewInterval)
+  const record = useQuery(api.documents.reviewRecord, { documentId: doc._id })
 
   if (doc.liveVersion == null || doc.status === "archived") return null
 
   const months = doc.reviewIntervalMonths ?? 12
+  const intervals = INTERVALS.includes(months)
+    ? INTERVALS
+    : [...INTERVALS, months].sort((a, b) => a - b)
   const next = doc.nextReviewAt ?? null
   const daysLeft = next == null ? null : Math.ceil((next - Date.now()) / DAY)
   const due = daysLeft != null && daysLeft <= 30
@@ -80,7 +88,8 @@ export function PeriodicReviewCard({
       {revisionInProgress ? (
         <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
           <GitBranch className="mt-0.5 h-3 w-3 shrink-0" />
-          v{doc.currentVersion} is in progress. Publishing it completes the review.
+          v{doc.currentVersion} is in progress. Publishing it completes this
+          review and sets the next date. Until then v{doc.liveVersion} stays in use.
         </p>
       ) : (
         <div className="flex flex-col gap-1.5">
@@ -88,7 +97,12 @@ export function PeriodicReviewCard({
             size="sm"
             variant={due ? "default" : "outline"}
             className="h-7 justify-start gap-1.5 text-xs"
-            onClick={() => void run(confirm({ id: doc._id }), `Confirmed. Next review in ${months} months.`)}
+            onClick={() =>
+              void run(
+                confirm({ id: doc._id }),
+                `v${doc.liveVersion} confirmed as still valid. Next review in ${months} months.`,
+              )
+            }
           >
             <CheckCircle2 className="h-3.5 w-3.5" />
             Still valid, confirm v{doc.liveVersion}
@@ -105,19 +119,42 @@ export function PeriodicReviewCard({
         </div>
       )}
 
+      {record && record.events.length > 0 && (
+        <div className="space-y-1 border-t pt-2">
+          <p className="text-[11px] font-medium">Review record, v{record.version}</p>
+          <ul className="space-y-0.5">
+            {record.events.slice(0, 5).map((e, i) => (
+              <li key={i} className="text-[11px] text-muted-foreground">
+                {e.kind === "published" ? "Published" : "Confirmed still valid"}{" "}
+                {formatDay(e.at)}
+                {e.by ? ` by ${e.by}` : ""}
+              </li>
+            ))}
+          </ul>
+          {record.events.length > 5 && (
+            <p className="text-[10px] text-muted-foreground">
+              and {record.events.length - 5} earlier
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center justify-between gap-2 border-t pt-2">
         <span className="text-[11px] text-muted-foreground">Review every</span>
         <Select
           value={String(months)}
           onValueChange={(v) =>
-            void run(setInterval({ id: doc._id, months: Number(v) }), `Review interval set to ${v} months.`)
+            void run(
+              setInterval({ id: doc._id, months: Number(v) }),
+              `Review interval set to ${v} months. The due date now counts from the last review.`,
+            )
           }
         >
           <SelectTrigger className="h-7 w-[110px] text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {INTERVALS.map((m) => (
+            {intervals.map((m) => (
               <SelectItem key={m} value={String(m)} className="text-xs">
                 {m} months
               </SelectItem>

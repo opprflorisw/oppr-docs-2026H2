@@ -3,6 +3,7 @@ import { StatusBadge } from "@/components/docs/StatusBadge"
 import { TypeBadge } from "@/components/docs/TypeBadge"
 import type { Doc } from "@/types"
 import { cn } from "@/lib/utils"
+import { effectiveStatus } from "@/lib/docStatus"
 
 interface MobileDocCardProps {
   doc: Doc
@@ -12,7 +13,8 @@ interface MobileDocCardProps {
 }
 
 /**
- * Compact mobile doc card: title, naming code, type+status badges. Optional
+ * Compact mobile doc card: title, naming code, type+status badges. Shows the
+ * Published version an Operator reads, not a revision being drafted. Optional
  * pin star on the right that toggles via stopPropagation so the row tap still
  * opens the document.
  */
@@ -37,9 +39,9 @@ export function MobileDocCard({
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <TypeBadge type={doc.type} className="px-1.5 py-0 text-[10px]" />
-          <StatusBadge status={doc.status} className="px-1.5 py-0 text-[10px]" />
+          <StatusBadge status={effectiveStatus(doc)} className="px-1.5 py-0 text-[10px]" />
           <span className="font-mono text-[10px] text-muted-foreground">
-            v{doc.current_version}
+            v{doc.live_version ?? doc.current_version}
           </span>
         </div>
       </div>

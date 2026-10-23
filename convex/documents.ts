@@ -6,6 +6,7 @@ import { requireUser, requireUserId } from "./lib/auth"
 import { allocateNamingCode, parseNamingCode } from "./naming"
 import { walkBodyAssetIds } from "./lib/assetWalker"
 import { regenerateWikisForDocument } from "./wikis"
+import { isPublished, publishedVersion } from "./lib/published"
 
 // Periodic review (CONTEXT.md): every Published Document is due for review
 // this many months after it was published or last confirmed.
@@ -73,11 +74,15 @@ export const list = query({
     status: v.optional(docStatusValidator),
     type: v.optional(docTypeValidator),
     search: v.optional(v.string()),
+    // Floor readers (mobile, Ask auto-links) pass true: only Published
+    // Documents are Knowledge (convex/lib/published.ts).
+    publishedOnly: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await requireUser(ctx)
     let docs = await ctx.db.query("documents").take(500)
 
+    if (args.publishedOnly) docs = docs.filter(isPublished)
     if (args.status) docs = docs.filter((d) => effectiveStatus(d) === args.status)
     if (args.type) docs = docs.filter((d) => d.type === args.type)
     if (args.search) {
@@ -248,6 +253,27 @@ export const getServingVersion = query({
       .query("documentVersions")
       .withIndex("by_documentId_and_version", (q) =>
         q.eq("documentId", args.documentId).eq("version", serving),
+      )
+      .unique()
+  },
+})
+
+// The Published version and nothing else: null for a draft that was never
+// published and for an archived Document. Floor readers (mobile Scan and
+// reading) use this so an Operator can never mistake a draft or an obsolete
+// version for the truth (ISO 9001 7.5.3).
+export const getPublishedVersion = query({
+  args: { documentId: v.id("documents") },
+  handler: async (ctx, args) => {
+    await requireUser(ctx)
+    const doc = await ctx.db.get(args.documentId)
+    if (!doc) return null
+    const version = publishedVersion(doc)
+    if (version == null) return null
+    return await ctx.db
+      .query("documentVersions")
+      .withIndex("by_documentId_and_version", (q) =>
+        q.eq("documentId", args.documentId).eq("version", version),
       )
       .unique()
   },
@@ -638,6 +664,16 @@ export async function publishApproved(
     lastReviewedAt: now,
   })
   await recordSignoff(ctx, doc, "approver", userId)
+  // The version row is created when its draft starts; stamp the real
+  // publication date so history, PDF exports and Wiki provenance show when
+  // this version became the truth, not when its draft was begun.
+  const versionRow = await ctx.db
+    .query("documentVersions")
+    .withIndex("by_documentId_and_version", (q) =>
+      q.eq("documentId", doc._id).eq("version", doc.currentVersion),
+    )
+    .unique()
+  if (versionRow) await ctx.db.patch(versionRow._id, { publishedAt: now })
 
   // Drop chunks belonging to superseded editions: only the now-live version
   // is served. Version bodies stay in documentVersions for history.
@@ -659,16 +695,70 @@ export async function publishApproved(
 export const confirmReview = mutation({
   args: { id: v.id("documents") },
   handler: async (ctx, args) => {
-    await requireUserId(ctx)
+    const userId = await requireUserId(ctx)
     const doc = await ctx.db.get(args.id)
     if (!doc) throw new Error("Document not found")
-    if (doc.liveVersion == null || doc.status === "archived")
+    const live = publishedVersion(doc)
+    if (live == null)
       throw new Error("Only a published document has a periodic review.")
     const now = Date.now()
     await ctx.db.patch(args.id, {
       lastReviewedAt: now,
       nextReviewAt: addMonths(now, doc.reviewIntervalMonths ?? DEFAULT_REVIEW_MONTHS),
     })
+    // Audit trail: who confirmed which version, and when.
+    const row = await ctx.db
+      .query("documentVersions")
+      .withIndex("by_documentId_and_version", (q) =>
+        q.eq("documentId", args.id).eq("version", live),
+      )
+      .unique()
+    if (row) {
+      await ctx.db.patch(row._id, {
+        reviewConfirmations: [...(row.reviewConfirmations ?? []), { userId, at: now }],
+      })
+    }
+  },
+})
+
+// The periodic review record of the Published version, newest first: when it
+// was published and by whom, and every "still valid" confirmation since.
+export const reviewRecord = query({
+  args: { documentId: v.id("documents") },
+  handler: async (ctx, args) => {
+    await requireUser(ctx)
+    const doc = await ctx.db.get(args.documentId)
+    if (!doc) return null
+    const live = publishedVersion(doc)
+    if (live == null) return null
+    const row = await ctx.db
+      .query("documentVersions")
+      .withIndex("by_documentId_and_version", (q) =>
+        q.eq("documentId", args.documentId).eq("version", live),
+      )
+      .unique()
+    if (!row) return null
+    const names = new Map<string, string | null>()
+    async function nameOf(uid: Id<"users">) {
+      if (!names.has(uid)) {
+        const u = await ctx.db.get(uid)
+        names.set(uid, u ? (u.name ?? u.email ?? null) : null)
+      }
+      return names.get(uid) ?? null
+    }
+    const approval = [...(row.signoffs ?? [])].reverse().find((s) => s.role === "approver")
+    const events: { kind: "published" | "confirmed"; at: number; by: string | null }[] = [
+      {
+        kind: "published",
+        at: approval?.at ?? row.publishedAt,
+        by: approval ? await nameOf(approval.userId) : null,
+      },
+    ]
+    for (const c of row.reviewConfirmations ?? []) {
+      events.push({ kind: "confirmed", at: c.at, by: await nameOf(c.userId) })
+    }
+    events.sort((a, b) => b.at - a.at)
+    return { version: live, events }
   },
 })
 
@@ -681,11 +771,14 @@ export const setReviewInterval = mutation({
     const months = Math.round(args.months)
     if (months < 1 || months > 60)
       throw new Error("The review interval must be between 1 and 60 months.")
+    // The due date counts from the last review (publish or confirmation), so
+    // shortening the interval can make a review due or overdue at once. That
+    // is intended: the new interval applies to the version in use today.
     const base = doc.lastReviewedAt ?? null
     await ctx.db.patch(args.id, {
       reviewIntervalMonths: months,
       nextReviewAt:
-        doc.liveVersion != null && base != null ? addMonths(base, months) : doc.nextReviewAt ?? null,
+        isPublished(doc) && base != null ? addMonths(base, months) : doc.nextReviewAt ?? null,
     })
   },
 })
@@ -948,7 +1041,7 @@ export const relatedTo = query({
     const otherDocIds = Array.from(otherDocIdSet) as Id<"documents">[]
     const otherDocs = (
       await Promise.all(otherDocIds.map((id) => ctx.db.get(id)))
-    ).filter((d): d is Doc<"documents"> => d !== null)
+    ).filter((d): d is Doc<"documents"> => d !== null && isPublished(d))
     otherDocs.sort((a, b) => a.title.localeCompare(b.title))
 
     const logs: Doc<"assetLogs">[] = []
