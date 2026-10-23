@@ -442,7 +442,7 @@ export function DocumentEditPage() {
               View
             </Button>
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
               className="gap-1.5"
               disabled={savingTemplate}
@@ -454,7 +454,8 @@ export function DocumentEditPage() {
             </Button>
             <Button
               size="sm"
-              className="gap-1.5 bg-orange-600 text-white hover:bg-orange-700"
+              variant="outline"
+              className="gap-1.5"
               title="Save and publish to PDF"
               disabled={busy}
               onClick={() => void openPdf()}
@@ -521,6 +522,17 @@ export function DocumentEditPage() {
           </>
         }
       />
+
+      {(status === "in_review" || status === "approved") && (
+        <DecisionStrip
+          status={status}
+          missingApprover={status === "in_review" && !meta.approverId}
+          busy={busy}
+          running={running}
+          onAct={() => void run(status === "in_review" ? "approve" : "publish")}
+          onShowMeta={() => setMetaVisible(true)}
+        />
+      )}
 
       {recovered && (
         <div className="mx-6 mt-3 flex items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
@@ -594,6 +606,56 @@ export function DocumentEditPage() {
           currentDiscipline={meta.discipline}
           currentType={meta.type}
         />
+      )}
+    </div>
+  )
+}
+
+// The decision this document is waiting for, stated in words, with its one
+// action. People arrive here from the Home inbox; this is what they came for.
+function DecisionStrip({
+  status,
+  missingApprover,
+  busy,
+  running,
+  onAct,
+  onShowMeta,
+}: {
+  status: "in_review" | "approved"
+  missingApprover: boolean
+  busy: boolean
+  running: string | null
+  onAct: () => void
+  onShowMeta: () => void
+}) {
+  const review = status === "in_review"
+  return (
+    <div
+      role="status"
+      className="mx-6 mt-3 flex flex-wrap items-center gap-3 rounded-md border border-primary/30 bg-primary/5 px-3 py-2"
+    >
+      <div className="min-w-0 flex-1 text-sm">
+        <p className="font-medium">
+          {review ? "Waiting for review and approval" : "Approved, ready to publish"}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {review
+            ? missingApprover
+              ? "Assign an approver in the metadata panel, then approve. Approving does not publish yet."
+              : "Read it through and fix what is needed, then approve. Approving does not publish yet."
+            : "Publishing makes this version Knowledge: Operators, Ask and Wikis start using it."}
+        </p>
+      </div>
+      {review && missingApprover ? (
+        <Button size="sm" variant="outline" onClick={onShowMeta}>
+          Assign approver
+        </Button>
+      ) : (
+        <Button size="sm" disabled={busy} onClick={onAct}>
+          {review
+            ? running === "approve" ? "Approving…" : "Approve"
+            : running === "publish" ? "Publishing…" : "Publish"}
+        </Button>
       )}
     </div>
   )

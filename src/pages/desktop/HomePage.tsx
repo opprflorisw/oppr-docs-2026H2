@@ -34,14 +34,14 @@ export function HomePage() {
         title={person ? `Good to see you, ${person.name.split(" ")[0]}` : "Home"}
         subtitle="What needs a decision today, and how the knowledge base is doing."
         actions={
-          <Button size="sm" className="gap-1.5" onClick={() => navigate("/docs/new")}>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => navigate("/docs/new")}>
             <Plus className="h-3.5 w-3.5" />
             New document
           </Button>
         }
       />
 
-      <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="mx-auto grid w-full max-w-6xl gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_280px]">
         <section className="space-y-3">
           <div className="flex items-center gap-2">
             <Inbox className="h-4 w-4 text-primary" />
@@ -66,6 +66,9 @@ export function HomePage() {
                   Reviews waiting for approval and documents due for their
                   periodic review show up here.
                 </p>
+                <Button size="sm" variant="outline" className="mt-1" onClick={() => navigate("/library")}>
+                  Browse documents
+                </Button>
               </CardContent>
             </Card>
           ) : (
@@ -78,7 +81,7 @@ export function HomePage() {
                     tone="primary"
                     title={d.title}
                     code={`${d.namingCode} · v${d.version}${d.isRevision ? " revision" : ""}`}
-                    note={d.status === "in_review" ? "Waiting for review and approval" : "Approved, ready to publish"}
+                    note={d.status === "in_review" ? "Waiting for your review. Open it to approve." : "Approved. Open it to publish."}
                     action={d.status === "in_review" ? "Review" : "Publish"}
                     href={`/docs/${d._id}/edit`}
                   />
@@ -120,7 +123,6 @@ export function HomePage() {
               <Stat
                 label="Review due"
                 value={data?.health.reviewDue}
-                href="/library"
                 warn={(data?.health.overdue ?? 0) > 0}
                 hint={data?.health.overdue ? `${data.health.overdue} overdue` : undefined}
               />
@@ -191,17 +193,24 @@ function Stat({
 }: {
   label: string
   value: number | undefined
-  href: string
+  /** Omitted when the number is already listed on this page (the inbox). */
+  href?: string
   warn?: boolean
   hint?: string
 }) {
-  return (
-    <Link href={href} className="bg-card p-3 transition-colors hover:bg-muted/50">
+  const body = (
+    <>
       <div className={cn("text-xl font-semibold tabular-nums", warn && "text-red-600")}>
         {value ?? "–"}
       </div>
       <div className="text-[11px] text-muted-foreground">{label}</div>
       {hint && <div className="text-[10px] font-medium text-red-600">{hint}</div>}
+    </>
+  )
+  if (!href) return <div className="bg-card p-3">{body}</div>
+  return (
+    <Link href={href} className="bg-card p-3 transition-colors hover:bg-muted/50">
+      {body}
     </Link>
   )
 }
