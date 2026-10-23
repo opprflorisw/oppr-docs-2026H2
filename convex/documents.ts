@@ -5,6 +5,17 @@ import { Doc, Id } from "./_generated/dataModel"
 import { requireUser, requireUserId } from "./lib/auth"
 import { allocateNamingCode, parseNamingCode } from "./naming"
 import { walkBodyAssetIds } from "./lib/assetWalker"
+import { regenerateWikisForDocument } from "./wikis"
+
+// Periodic review (CONTEXT.md): every Published Document is due for review
+// this many months after it was published or last confirmed.
+export const DEFAULT_REVIEW_MONTHS = 12
+
+export function addMonths(at: number, months: number): number {
+  const d = new Date(at)
+  d.setMonth(d.getMonth() + months)
+  return d.getTime()
+}
 
 // Recompute the documentAssets links for a document from the asset pills present
 // in its body. The body is the single source of truth — there is no manual asset
@@ -604,10 +615,13 @@ export const publish = mutation({
     if (!doc) throw new Error("Document not found")
     if (doc.status !== "approved")
       throw new Error("A document must be approved before publishing.")
+    const now = Date.now()
     await ctx.db.patch(args.id, {
       status: "published",
       liveVersion: doc.currentVersion,
-      updatedAt: Date.now(),
+      updatedAt: now,
+      nextReviewAt: addMonths(now, doc.reviewIntervalMonths ?? DEFAULT_REVIEW_MONTHS),
+      lastReviewedAt: now,
     })
     await recordSignoff(ctx, doc, "approver", userId)
 
@@ -622,6 +636,46 @@ export const publish = mutation({
     for (const c of staleChunks) {
       if (c.version !== doc.currentVersion) await ctx.db.delete(c._id)
     }
+
+    // Wikis built on this Document must follow the new Published version.
+    await regenerateWikisForDocument(ctx, args.id, `published ${doc.namingCode} v${doc.currentVersion}`)
+  },
+})
+
+// Periodic review outcome "still valid": the Published version is confirmed
+// as-is and the next review moves one interval forward. Changing the content
+// goes through createNewVersion instead.
+export const confirmReview = mutation({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    await requireUserId(ctx)
+    const doc = await ctx.db.get(args.id)
+    if (!doc) throw new Error("Document not found")
+    if (doc.liveVersion == null || doc.status === "archived")
+      throw new Error("Only a published document has a periodic review.")
+    const now = Date.now()
+    await ctx.db.patch(args.id, {
+      lastReviewedAt: now,
+      nextReviewAt: addMonths(now, doc.reviewIntervalMonths ?? DEFAULT_REVIEW_MONTHS),
+    })
+  },
+})
+
+export const setReviewInterval = mutation({
+  args: { id: v.id("documents"), months: v.number() },
+  handler: async (ctx, args) => {
+    await requireUserId(ctx)
+    const doc = await ctx.db.get(args.id)
+    if (!doc) throw new Error("Document not found")
+    const months = Math.round(args.months)
+    if (months < 1 || months > 60)
+      throw new Error("The review interval must be between 1 and 60 months.")
+    const base = doc.lastReviewedAt ?? null
+    await ctx.db.patch(args.id, {
+      reviewIntervalMonths: months,
+      nextReviewAt:
+        doc.liveVersion != null && base != null ? addMonths(base, months) : doc.nextReviewAt ?? null,
+    })
   },
 })
 
@@ -812,6 +866,7 @@ export const refile = mutation({
 
     if (args.archiveOld) {
       await ctx.db.patch(args.id, { status: "archived", updatedAt: now })
+      await regenerateWikisForDocument(ctx, args.id, `archived ${doc.namingCode}`)
     }
 
     return { id: newId, namingCode }
@@ -841,6 +896,7 @@ export const archive = mutation({
       status: "archived",
       updatedAt: Date.now(),
     })
+    await regenerateWikisForDocument(ctx, args.id, `archived ${doc.namingCode}`)
   },
 })
 
@@ -953,5 +1009,8 @@ export const remove = mutation({
     for (const u of usages) await ctx.db.delete(u._id)
 
     await ctx.db.delete(args.id)
+    if (doc.liveVersion != null) {
+      await regenerateWikisForDocument(ctx, args.id, `deleted ${doc.namingCode}`)
+    }
   },
 })

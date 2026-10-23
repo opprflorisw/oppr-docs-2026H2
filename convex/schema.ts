@@ -85,6 +85,11 @@ export default defineSchema({
     approverId: v.optional(v.union(v.id("users"), v.null())),
     tags: v.array(v.string()),
     updatedAt: v.number(),
+    // Periodic review (CONTEXT.md). Set on publish to publish time plus
+    // reviewIntervalMonths (default 12); confirming a review pushes it forward.
+    nextReviewAt: v.optional(v.union(v.number(), v.null())),
+    reviewIntervalMonths: v.optional(v.number()),
+    lastReviewedAt: v.optional(v.union(v.number(), v.null())),
   })
     .index("by_namingCode", ["namingCode"])
     .index("by_ownerId", ["ownerId"]),
@@ -394,6 +399,81 @@ export default defineSchema({
   })
     .index("by_createdBy", ["createdBy"])
     .index("by_stage", ["stage"]),
+
+  // ---- People ----------------------------------------------------------------
+  // Showcase people (CONTEXT.md: Operator, Engineer). Not login accounts: a
+  // person "checks in" by picking their name; Anonymous is the default.
+  people: defineTable({
+    name: v.string(),
+    kind: v.union(v.literal("operator"), v.literal("engineer")),
+    role: v.string(),
+    area: v.union(v.string(), v.null()),
+    sortOrder: v.number(),
+  }),
+
+  // ---- Wikis -----------------------------------------------------------------
+  // AI-generated overviews of Published Knowledge inside a Scope. Never written
+  // by hand; regenerated on a schedule and when an in-scope Document publishes.
+  wikis: defineTable({
+    title: v.string(),
+    purpose: v.string(),
+    scope: v.object({
+      areas: v.array(v.string()),
+      disciplines: v.array(v.string()),
+      assetIds: v.array(v.id("assets")),
+      documentIds: v.array(v.id("documents")),
+    }),
+    status: v.union(
+      v.literal("generating"),
+      v.literal("ready"),
+      v.literal("empty"),
+      v.literal("failed"),
+    ),
+    content: v.union(
+      v.null(),
+      v.object({
+        intro: v.string(),
+        sections: v.array(
+          v.object({
+            heading: v.string(),
+            points: v.array(
+              v.object({
+                text: v.string(),
+                citations: v.array(
+                  v.object({
+                    chunkId: v.id("chunks"),
+                    documentId: v.id("documents"),
+                    namingCode: v.string(),
+                    version: v.number(),
+                    section: v.union(v.string(), v.null()),
+                  }),
+                ),
+              }),
+            ),
+          }),
+        ),
+      }),
+    ),
+    // The exact Published versions this content was built from.
+    sources: v.array(
+      v.object({
+        documentId: v.id("documents"),
+        namingCode: v.string(),
+        title: v.string(),
+        version: v.number(),
+      }),
+    ),
+    generatedAt: v.union(v.number(), v.null()),
+    // Bumped on every generation request; a run only writes if it still holds
+    // the latest ticket, so an older run can never overwrite a newer one.
+    generationTicket: v.number(),
+    requestedAt: v.union(v.number(), v.null()),
+    lastTrigger: v.union(v.string(), v.null()),
+    droppedPoints: v.number(),
+    error: v.union(v.string(), v.null()),
+    createdBy: v.union(v.id("users"), v.null()),
+    updatedAt: v.number(),
+  }),
 
   qaMessages: defineTable({
     sessionId: v.id("qaSessions"),

@@ -13,11 +13,15 @@ import type * as admin from "../admin.js";
 import type * as ai_ask from "../ai/ask.js";
 import type * as ai_constants from "../ai/constants.js";
 import type * as ai_embed from "../ai/embed.js";
+import type * as ai_grounding from "../ai/grounding.js";
+import type * as ai_wiki from "../ai/wiki.js";
 import type * as assets from "../assets.js";
 import type * as auth from "../auth.js";
 import type * as coverSettings from "../coverSettings.js";
+import type * as crons from "../crons.js";
 import type * as documents from "../documents.js";
 import type * as files from "../files.js";
+import type * as home from "../home.js";
 import type * as http from "../http.js";
 import type * as images from "../images.js";
 import type * as importer_jobs from "../importer/jobs.js";
@@ -26,16 +30,20 @@ import type * as importer_templates from "../importer/templates.js";
 import type * as lib_assetWalker from "../lib/assetWalker.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_imageWalker from "../lib/imageWalker.js";
+import type * as lib_published from "../lib/published.js";
+import type * as lib_scope from "../lib/scope.js";
 import type * as logs from "../logs.js";
 import type * as naming from "../naming.js";
 import type * as namingTypes from "../namingTypes.js";
+import type * as people from "../people.js";
 import type * as ppe from "../ppe.js";
 import type * as ppeImages from "../ppeImages.js";
 import type * as qa from "../qa.js";
-import type * as seedMinimal from "../seedMinimal.js";
+import type * as seedKnowledge from "../seedKnowledge.js";
 import type * as seedTemplates from "../seedTemplates.js";
 import type * as templates from "../templates.js";
 import type * as users from "../users.js";
+import type * as wikis from "../wikis.js";
 
 import type {
   ApiFromModules,
@@ -49,11 +57,15 @@ declare const fullApi: ApiFromModules<{
   "ai/ask": typeof ai_ask;
   "ai/constants": typeof ai_constants;
   "ai/embed": typeof ai_embed;
+  "ai/grounding": typeof ai_grounding;
+  "ai/wiki": typeof ai_wiki;
   assets: typeof assets;
   auth: typeof auth;
   coverSettings: typeof coverSettings;
+  crons: typeof crons;
   documents: typeof documents;
   files: typeof files;
+  home: typeof home;
   http: typeof http;
   images: typeof images;
   "importer/jobs": typeof importer_jobs;
@@ -62,16 +74,20 @@ declare const fullApi: ApiFromModules<{
   "lib/assetWalker": typeof lib_assetWalker;
   "lib/auth": typeof lib_auth;
   "lib/imageWalker": typeof lib_imageWalker;
+  "lib/published": typeof lib_published;
+  "lib/scope": typeof lib_scope;
   logs: typeof logs;
   naming: typeof naming;
   namingTypes: typeof namingTypes;
+  people: typeof people;
   ppe: typeof ppe;
   ppeImages: typeof ppeImages;
   qa: typeof qa;
-  seedMinimal: typeof seedMinimal;
+  seedKnowledge: typeof seedKnowledge;
   seedTemplates: typeof seedTemplates;
   templates: typeof templates;
   users: typeof users;
+  wikis: typeof wikis;
 }>;
 
 /**

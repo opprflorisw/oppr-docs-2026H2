@@ -8,11 +8,12 @@ import {
 import { internal } from "../_generated/api"
 import { Doc, Id } from "../_generated/dataModel"
 import { CHAT_MODEL, EMBEDDING_DIM, EMBEDDING_MODEL } from "./constants"
+import { isPublished, publishedVersion } from "../lib/published"
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 const SYSTEM_INSTRUCTION = [
-  "You are IDA, the Q&A assistant inside Oppr DOCS — a manufacturing knowledge base.",
+  "You are Ask, the question-answering assistant inside Oppr Knowledge, a factory's controlled knowledge base. You only know Published documents.",
   "You may receive two grounding blocks for every question:",
   "  • SCOPE OVERVIEW — a deterministic, factual summary of what exists in the current scope (only when relevant).",
   "  • EXCERPTS — the chunks that are most semantically similar to the question, numbered [1], [2], …",
@@ -144,18 +145,13 @@ export const lookupAfterSearch = internalQuery({
     ).filter((d): d is Doc<"documents"> => d !== null)
     const docById = new Map(docs.map((d) => [d._id, d]))
 
-    // Only serve the live (published) edition. A document being re-drafted keeps
-    // chunks for both the live version and the in-progress one; the draft must
-    // never leak into answers until it is published and becomes the live version.
-    // A never-published document has no live version yet, so its working version
-    // is served — that keeps drafts answerable while authoring.
-    // Archived documents are excluded from asset/library answers; asking a
-    // specific archived document directly (doc scope) still works.
+    // Only Published Knowledge is served (convex/lib/published.ts): the live
+    // edition of a non-archived document. A never-published document and the
+    // next edition being drafted are both invisible to Ask, in every scope.
     const liveChunks = filteredChunks.filter((c) => {
       const d = docById.get(c.documentId)
       if (!d) return false
-      if (args.scope.kind !== "doc" && d.status === "archived") return false
-      return c.version === (d.liveVersion ?? d.currentVersion)
+      return c.version === publishedVersion(d)
     })
 
     return liveChunks.map((c) => {
@@ -182,16 +178,18 @@ export const buildScopeOverview = internalQuery({
   },
   handler: async (ctx, args) => {
     if (args.scope.kind === "library") {
-      const docs = await ctx.db.query("documents").take(500)
+      const docs = (await ctx.db.query("documents").take(500)).filter(
+        isPublished,
+      )
       const assets = await ctx.db.query("assets").take(500)
       const lines: string[] = []
       lines.push(
-        `LIBRARY INVENTORY — ${docs.length} document${docs.length === 1 ? "" : "s"}, ${assets.length} asset${assets.length === 1 ? "" : "s"}.`,
+        `LIBRARY INVENTORY — ${docs.length} published document${docs.length === 1 ? "" : "s"}, ${assets.length} asset${assets.length === 1 ? "" : "s"}.`,
       )
       lines.push("", "Documents:")
       for (const d of docs.slice(0, 80)) {
         lines.push(
-          `- ${d.namingCode} · ${d.title} · ${d.type.toUpperCase()} · ${d.status} · v${d.currentVersion}`,
+          `- ${d.namingCode} · ${d.title} · ${d.type.toUpperCase()} · v${d.liveVersion}`,
         )
       }
       lines.push("", "Assets:")
@@ -206,6 +204,8 @@ export const buildScopeOverview = internalQuery({
     if (args.scope.kind === "doc") {
       const d = await ctx.db.get(args.scope.id)
       if (!d) return `DOCUMENT not found.`
+      if (!isPublished(d))
+        return `DOCUMENT ${d.namingCode} is not published, so it is not part of the knowledge base yet. Say that it cannot be answered from until it is published.`
       const links = await ctx.db
         .query("documentAssets")
         .withIndex("by_documentId", (q) => q.eq("documentId", d._id))
@@ -215,7 +215,7 @@ export const buildScopeOverview = internalQuery({
       ).filter((a): a is Doc<"assets"> => a !== null)
       const lines: string[] = []
       lines.push(
-        `DOCUMENT: ${d.namingCode} · ${d.title} · ${d.type.toUpperCase()} · ${d.status} · v${d.currentVersion}`,
+        `DOCUMENT: ${d.namingCode} · ${d.title} · ${d.type.toUpperCase()} · published v${d.liveVersion}`,
       )
       if (d.tags.length) lines.push(`Tags: ${d.tags.join(", ")}`)
       if (assets.length)
@@ -233,7 +233,7 @@ export const buildScopeOverview = internalQuery({
       .take(500)
     const docs = (
       await Promise.all(links.map((l) => ctx.db.get(l.documentId)))
-    ).filter((d): d is Doc<"documents"> => d !== null)
+    ).filter((d): d is Doc<"documents"> => d !== null && isPublished(d))
     const lines: string[] = []
     lines.push(
       `ASSET: ${a.code} · ${a.name}${a.location ? ` · ${a.location}` : ""}`,
@@ -243,7 +243,7 @@ export const buildScopeOverview = internalQuery({
       lines.push(`Documents linked to this asset (${docs.length}):`)
       for (const d of docs) {
         lines.push(
-          `- ${d.namingCode} · ${d.title} · ${d.type.toUpperCase()} · v${d.currentVersion}`,
+          `- ${d.namingCode} · ${d.title} · ${d.type.toUpperCase()} · v${d.liveVersion}`,
         )
       }
     }
