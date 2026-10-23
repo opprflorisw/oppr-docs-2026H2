@@ -28,24 +28,48 @@ import {
   EMBEDDING_MODEL,
 } from "../../../convex/ai/constants"
 import { toast } from "sonner"
-import { Link } from "wouter"
+import { Link, useLocation, useSearch } from "wouter"
 import {
-  FileText,
+  FileDown,
   Hash,
+  Image as ImageIcon,
+  LayoutTemplate,
   Loader2,
   LogOut,
   Moon,
   RefreshCw,
   Settings as SettingsIcon,
   ShieldCheck,
+  Sparkles,
   Sun,
   User as UserIcon,
+  Users,
 } from "lucide-react"
+import { TemplatesList } from "./TemplatesPage"
+import { NamingSettings } from "./NamingSettingsPage"
+import { ImageLibraryPage } from "./ImageLibraryPage"
+import { CoverSettingsEditor } from "@/components/docs/CoverSettingsEditor"
+import { PpeConfigurator } from "@/components/docs/PpeConfigurator"
+import { PeopleSettings } from "@/components/people/PeopleSettings"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { cn } from "@/lib/utils"
 
-const ROLE = "Author"
+const ROLE = "Engineer"
+
+// Settings is ONE page with a flat row of tabs (CONTEXT.md: no settings nested
+// levels deep). The tab lives in ?tab= so other pages can link straight to it.
+const TABS = [
+  { value: "account", label: "Account", icon: UserIcon },
+  { value: "people", label: "People", icon: Users },
+  { value: "templates", label: "Templates", icon: LayoutTemplate },
+  { value: "title-page", label: "Title page", icon: FileDown },
+  { value: "safety", label: "Safety icons", icon: ShieldCheck },
+  { value: "naming", label: "Naming", icon: Hash },
+  { value: "images", label: "Images", icon: ImageIcon },
+  { value: "ai", label: "AI", icon: Sparkles },
+] as const
+type TabValue = (typeof TABS)[number]["value"]
 
 export function SettingsPage() {
   const { signOut } = useAuthActions()
@@ -88,6 +112,13 @@ export function SettingsPage() {
     }
   }
 
+  const search = useSearch()
+  const [, navigate] = useLocation()
+  const requested = new URLSearchParams(search).get("tab")
+  const tab: TabValue = TABS.some((t) => t.value === requested)
+    ? (requested as TabValue)
+    : "account"
+
   const outstanding = embedStatus?.outstanding ?? 0
   const email = me?.email ?? ""
   const name = me?.name ?? null
@@ -98,29 +129,29 @@ export function SettingsPage() {
       <PageHeader
         icon={SettingsIcon}
         title="Settings"
-        subtitle="Your profile, document configuration, and app preferences."
+        subtitle="Everything that configures Oppr Knowledge, one tab per area."
       />
       <div className="p-6">
-        <Tabs defaultValue="user" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="user" className="gap-1.5 text-xs">
-              <UserIcon className="h-3.5 w-3.5" /> User settings
-            </TabsTrigger>
-            <TabsTrigger value="docs" className="gap-1.5 text-xs">
-              <FileText className="h-3.5 w-3.5" /> Document settings
-            </TabsTrigger>
-            <TabsTrigger value="general" className="gap-1.5 text-xs">
-              <SettingsIcon className="h-3.5 w-3.5" /> General
-            </TabsTrigger>
+        <Tabs
+          value={tab}
+          onValueChange={(v) => navigate(`/settings?tab=${v}`, { replace: true })}
+          className="space-y-4"
+        >
+          <TabsList className="h-auto flex-wrap justify-start">
+            {TABS.map((t) => (
+              <TabsTrigger key={t.value} value={t.value} className="gap-1.5 text-xs">
+                <t.icon className="h-3.5 w-3.5" /> {t.label}
+              </TabsTrigger>
+            ))}
           </TabsList>
 
           {/* ---- User settings ---- */}
-          <TabsContent value="user" className="space-y-4">
+          <TabsContent value="account" className="space-y-4">
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm">Profile</CardTitle>
                 <CardDescription className="text-xs">
-                  Your account in Oppr DOCS.
+                  Your account in Oppr Knowledge.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -165,38 +196,35 @@ export function SettingsPage() {
                 </Button>
               </CardContent>
             </Card>
+            <AccountExtras />
           </TabsContent>
 
-          {/* ---- Document settings ---- */}
-          <TabsContent value="docs" className="space-y-4">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Configuration</CardTitle>
-                <CardDescription className="text-xs">
-                  Manage the building blocks new documents draw from.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-wrap gap-2">
-                <Link href="/settings/naming">
-                  <Button size="sm" variant="outline" className="gap-1.5">
-                    <Hash className="h-3.5 w-3.5" />
-                    Naming acronyms
-                  </Button>
-                </Link>
-                <Link href="/templates">
-                  <Button size="sm" variant="outline" className="gap-1.5">
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                    Safety icons &amp; templates
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
+          <TabsContent value="people">
+            <PeopleSettings />
+          </TabsContent>
+          <TabsContent value="templates">
+            <TemplatesList />
+          </TabsContent>
+          <TabsContent value="title-page">
+            <CoverSettingsEditor />
+          </TabsContent>
+          <TabsContent value="safety">
+            <PpeConfigurator />
+          </TabsContent>
+          <TabsContent value="naming">
+            <NamingSettings />
+          </TabsContent>
+          <TabsContent value="images">
+            <ImageLibraryPage embedded />
+          </TabsContent>
 
+          {/* ---- AI ---- */}
+          <TabsContent value="ai" className="space-y-4">
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">AI retrieval (Ask IDA)</CardTitle>
+                <CardTitle className="text-sm">AI retrieval (Ask)</CardTitle>
                 <CardDescription className="text-xs">
-                  Ask IDA answers operator questions by retrieving the most
+                  Ask answers questions by retrieving the most
                   relevant passages from your published documents. On publish,
                   each document is split into text chunks and converted into
                   embedding vectors; a question is matched against those vectors
@@ -279,7 +307,7 @@ export function SettingsPage() {
                         </AlertDialogTitle>
                         <AlertDialogDescription className="text-center">
                           Every existing chunk embedding will be cleared and
-                          rebuilt from scratch. Ask IDA answers may be degraded
+                          rebuilt from scratch. Ask answers may be degraded
                           until the re-embed finishes — takes roughly 30 seconds.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
@@ -298,14 +326,20 @@ export function SettingsPage() {
               </CardContent>
             </Card>
           </TabsContent>
+        </Tabs>
+      </div>
+    </div>
+  )
+}
 
-          {/* ---- General ---- */}
-          <TabsContent value="general" className="space-y-4">
+function AccountExtras() {
+  return (
+    <>
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm">Appearance</CardTitle>
                 <CardDescription className="text-xs">
-                  How Oppr DOCS looks on this device.
+                  How Oppr Knowledge looks on this device.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -319,15 +353,19 @@ export function SettingsPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-1 rounded-md bg-muted/40 p-3 text-[11px]">
-                  <Row label="Product" value="Oppr DOCS" />
-                  <Row label="Release" value="v1.0 showcase" />
+                  <Row label="Product" value="Oppr Knowledge" />
+                  <Row label="Release" value="Internal showcase" />
                 </div>
+                <p className="mt-3 text-[11px] text-muted-foreground">
+                  Build notes for the team live under{" "}
+                  <Link href="/analysis" className="underline underline-offset-2">
+                    analysis pages
+                  </Link>
+                  .
+                </p>
               </CardContent>
             </Card>
-          </TabsContent>
-        </Tabs>
-      </div>
-    </div>
+    </>
   )
 }
 

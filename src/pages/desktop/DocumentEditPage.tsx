@@ -395,7 +395,7 @@ export function DocumentEditPage() {
     <div className="flex flex-col">
       <TopBar
         breadcrumb={[
-          { label: "Library", href: "/library" },
+          { label: "Documents", href: "/library" },
           {
             label: `${displayCode} · ${meta.title || "Untitled"}`,
             href: `/docs/${doc._id}`,

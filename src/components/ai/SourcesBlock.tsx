@@ -254,7 +254,7 @@ function OriginBadge({
           <p className="text-muted-foreground">
             <span className="font-medium text-foreground">{title}</span> isn't connected
             to this asset. The documents that are linked didn't answer the question, so
-            IDA widened the search to the whole library and this was the best match.
+            Ask widened the search to the whole library and this was the best match.
           </p>
           <p className="mt-2 text-muted-foreground">
             If this document does belong to the asset, link it on the asset page and the

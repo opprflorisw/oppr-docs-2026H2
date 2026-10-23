@@ -76,7 +76,7 @@ type ImageRow = {
   documentRefs: DocRef[]
 }
 
-export function ImageLibraryPage() {
+export function ImageLibraryPage({ embedded = false }: { embedded?: boolean }) {
   const [search, setSearch] = useState("")
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all")
   const [orphansOnly, setOrphansOnly] = useState(false)
@@ -219,6 +219,8 @@ export function ImageLibraryPage() {
 
   return (
     <div className="flex flex-col">
+      {!embedded && (
+        <>
       <TopBar
         breadcrumb={[
           { label: "Library", href: "/library" },
@@ -231,7 +233,10 @@ export function ImageLibraryPage() {
         subtitle="Every image and diagram referenced in any document. Click a row for the detail view; use the checkboxes to bulk-delete orphans."
       />
 
-      <div className="p-6">
+        </>
+      )}
+
+      <div className={embedded ? "" : "p-6"}>
         <Tabs defaultValue="images" className="space-y-4">
           <TabsList>
             <TabsTrigger value="images" className="text-xs">

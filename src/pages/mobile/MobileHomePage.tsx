@@ -108,7 +108,7 @@ export function MobileHomePage() {
           </div>
           <div>
             <div className="text-[13px] font-semibold leading-none">
-              Oppr DOCS
+              Oppr Knowledge
             </div>
             <div className="mt-0.5 text-[10px] text-muted-foreground">
               Operator app
@@ -147,7 +147,7 @@ export function MobileHomePage() {
         <ChipAction
           to="/m/ask?scope=library"
           icon={MessageSquare}
-          label="Ask IDA"
+          label="Ask"
           sub="Anywhere"
         />
         <ChipAction

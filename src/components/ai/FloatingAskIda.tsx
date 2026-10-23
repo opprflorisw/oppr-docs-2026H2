@@ -35,7 +35,7 @@ export function FloatingAskIda() {
       trigger={
         <Button
           size="icon"
-          aria-label="Ask IDA"
+          aria-label="Ask"
           className="fixed bottom-6 right-6 z-40 h-12 w-12 rounded-full shadow-lg print:hidden"
         >
           <MessageSquareText className="h-5 w-5" />

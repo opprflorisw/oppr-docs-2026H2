@@ -509,7 +509,13 @@ function stubGuide(
   ])
   const documentIds = uniq([
     ...draft.scope.documentIds,
-    ...options.documents.filter((d) => hay.includes(d.namingCode.toLowerCase())).map((d) => d._id),
+    ...options.documents
+      .filter(
+        (d) =>
+          hay.includes(d.namingCode.toLowerCase()) ||
+          words(d.title).some((w) => w.length >= 6 && hay.includes(w)),
+      )
+      .map((d) => d._id),
   ])
   const scope = { areas, disciplines, assetIds, documentIds }
   const scopeSize = areas.length + disciplines.length + assetIds.length + documentIds.length

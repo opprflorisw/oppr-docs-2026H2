@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useRoute, useSearch } from "wouter"
 import {
   AlertTriangle,
@@ -37,6 +37,7 @@ import { DocumentToc } from "@/components/docs/DocumentToc"
 import { PublishToPdfDialog } from "@/components/docs/PublishToPdfDialog"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
+import { PeriodicReviewCard } from "@/components/docs/PeriodicReviewCard"
 
 export function DocumentReadPage() {
   const [, params] = useRoute<{ id: string }>("/docs/:id")
@@ -147,6 +148,28 @@ export function DocumentReadPage() {
     }
   }
 
+  // ?hl=<passage start> (from a Wiki source) highlights and scrolls to the
+  // cited passage once the body has rendered.
+  const highlight = useMemo(() => new URLSearchParams(search).get("hl"), [search])
+  const bodyReady = Boolean(currentVersion)
+  useEffect(() => {
+    if (!highlight || !bodyReady) return
+    const needle = normaliseText(highlight).slice(0, 60)
+    if (!needle) return
+    const timer = window.setTimeout(() => {
+      const root = contentRef.current
+      if (!root) return
+      const blocks = root.querySelectorAll<HTMLElement>("p, li, td, th, h1, h2, h3, h4")
+      const hit = Array.from(blocks).find((el) => normaliseText(el.textContent ?? "").includes(needle))
+      if (!hit) return
+      const target = hit.closest<HTMLElement>("li, tr") ?? hit
+      target.scrollIntoView({ behavior: "smooth", block: "center" })
+      target.classList.add("wiki-cited-passage")
+      window.setTimeout(() => target.classList.remove("wiki-cited-passage"), 8000)
+    }, 350)
+    return () => window.clearTimeout(timer)
+  }, [highlight, bodyReady])
+
   if (!ready) {
     return (
       <div className="space-y-4 p-6">
@@ -161,7 +184,7 @@ export function DocumentReadPage() {
       <div className="space-y-3 p-6">
         <Button variant="ghost" size="sm" onClick={() => navigate("/library")} className="-ml-2">
           <ArrowLeft className="mr-1 h-4 w-4" />
-          Back to library
+          Back to documents
         </Button>
         <h1 className="text-xl font-semibold">Document not found</h1>
         <p className="text-sm text-muted-foreground">
@@ -184,7 +207,7 @@ export function DocumentReadPage() {
       <div className="print:hidden">
         <TopBar
           breadcrumb={[
-            { label: "Library", href: "/library" },
+            { label: "Documents", href: "/library" },
             { label: `${docWithAssets.naming_code} · ${docWithAssets.title}` },
           ]}
         />
@@ -335,6 +358,13 @@ export function DocumentReadPage() {
         </div>
 
         <aside className="space-y-5 print:hidden">
+          {rawDoc && (
+            <PeriodicReviewCard
+              doc={rawDoc}
+              highlight={new URLSearchParams(search).get("panel") === "review"}
+              onStartRevision={handleEdit}
+            />
+          )}
           {version?.body_kind === "tiptap" && (
             <div className="sticky top-20">
               <DocumentToc body={version.body_json} contentRef={contentRef} />
@@ -383,7 +413,7 @@ export function DocumentReadPage() {
                 <li>Type, location &amp; discipline (part of the code)</li>
                 <li>
                   v{liveVer ?? workingVer} history and sign-offs — the live
-                  version keeps serving operators, QR and IDA
+                  version keeps serving operators, QR codes, Ask and Wikis
                 </li>
               </ul>
             </div>
@@ -416,4 +446,8 @@ export function DocumentReadPage() {
       />
     </div>
   )
+}
+
+function normaliseText(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLowerCase()
 }

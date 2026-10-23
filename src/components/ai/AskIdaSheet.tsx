@@ -38,7 +38,7 @@ interface AskIdaSheetProps {
 
 export function AskIdaSheet({
   scope,
-  triggerLabel = "Ask IDA",
+  triggerLabel = "Ask",
   trigger,
   variant = "default",
   size = "sm",
@@ -64,7 +64,7 @@ export function AskIdaSheet({
         side="right"
         className="flex w-full flex-col gap-0 p-0 sm:max-w-md md:max-w-lg"
       >
-        <SheetTitle className="sr-only">Ask IDA</SheetTitle>
+        <SheetTitle className="sr-only">Ask</SheetTitle>
         <SheetDescription className="sr-only">
           Q&amp;A panel for the current document, asset, or the entire library.
         </SheetDescription>

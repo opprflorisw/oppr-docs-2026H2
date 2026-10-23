@@ -549,7 +549,7 @@ export function AskPanel({
     >
       <header className="space-y-1.5 border-b px-3 py-2.5">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">Ask IDA</h2>
+          <h2 className="text-sm font-semibold">Ask</h2>
           <div className="flex items-center gap-1.5">
             {compact && (
               <ChatSizeToggle value={chatSize} onChange={setChatSize} />

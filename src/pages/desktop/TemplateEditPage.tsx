@@ -92,7 +92,7 @@ export function TemplateEditPage() {
         })
         toast.success("Template saved")
       }
-      navigate("/templates")
+      navigate("/settings?tab=templates")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
     } finally {
@@ -143,7 +143,7 @@ export function TemplateEditPage() {
     return (
       <div className="space-y-2 p-6">
         <h1 className="text-lg font-semibold">Template not found</h1>
-        <Button variant="outline" size="sm" onClick={() => navigate("/templates")}>
+        <Button variant="outline" size="sm" onClick={() => navigate("/settings?tab=templates")}>
           Back to templates
         </Button>
       </div>
@@ -154,7 +154,7 @@ export function TemplateEditPage() {
     <div className="flex flex-col">
       <TopBar
         breadcrumb={[
-          { label: "Templates", href: "/templates" },
+          { label: "Settings", href: "/settings?tab=templates" },
           { label: isNew ? "New template" : name || "Edit template" },
         ]}
       />
@@ -163,7 +163,7 @@ export function TemplateEditPage() {
         title={isNew ? "New template" : "Edit template"}
         actions={
           <>
-            <Button variant="outline" size="sm" onClick={() => navigate("/templates")}>
+            <Button variant="outline" size="sm" onClick={() => navigate("/settings?tab=templates")}>
               Cancel
             </Button>
             <Button variant="outline" size="sm" className="gap-1.5" onClick={previewPdf}>

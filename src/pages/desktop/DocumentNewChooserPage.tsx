@@ -25,7 +25,7 @@ export function DocumentNewChooserPage() {
     <div className="flex flex-col">
       <TopBar
         breadcrumb={[
-          { label: "Library", href: "/library" },
+          { label: "Documents", href: "/library" },
           { label: "New document" },
         ]}
       />
@@ -69,7 +69,7 @@ export function DocumentNewChooserPage() {
               No templates yet. Create them under{" "}
               <button
                 className="text-primary hover:underline"
-                onClick={() => navigate("/templates")}
+                onClick={() => navigate("/settings?tab=templates")}
               >
                 Templates
               </button>

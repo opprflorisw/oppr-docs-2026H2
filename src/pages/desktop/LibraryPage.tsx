@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { useLocation } from "wouter"
+import { useLocation, useSearch } from "wouter"
 import { LayoutList, Layers, Library as LibraryIcon, PlusCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -54,7 +54,11 @@ function LoadingState() {
 export function LibraryPage() {
   const [, navigate] = useLocation()
   const [search, setSearch] = useState("")
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
+  const urlSearch = useSearch()
+  // ?status= lets Home link straight to a filtered list.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(
+    () => (new URLSearchParams(urlSearch).get("status") as StatusFilter | null) ?? "all",
+  )
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all")
   const [groupByType, setGroupByType] = useState(false)
   const { types: docTypes } = useDocTypes()
@@ -148,11 +152,11 @@ export function LibraryPage() {
 
   return (
     <div className="flex flex-col">
-      <TopBar breadcrumb={[{ label: "Library" }]} />
+      <TopBar breadcrumb={[{ label: "Documents" }]} />
       <PageHeader
         icon={LibraryIcon}
-        title="Document library"
-        subtitle="All SOPs, manuals, and work instructions"
+        title="Documents"
+        subtitle="Every controlled document. Only the published version of each counts as knowledge."
         actions={
           <Button size="sm" onClick={() => navigate("/docs/new")}>
             <PlusCircle className="mr-1.5 h-3.5 w-3.5" />

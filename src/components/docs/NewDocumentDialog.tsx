@@ -57,7 +57,7 @@ export function NewDocumentDialog({ trigger }: NewDocumentDialogProps) {
           <PickerCard
             icon={Upload}
             title="Attach PDF"
-            description="Embed an existing PDF as a scrollable attachment inside an editable document. Per-page text is extracted for IDA."
+            description="Embed an existing PDF as a scrollable attachment inside an editable document. Per-page text is extracted for Ask."
             onClick={() => pick("/docs/new/import")}
           />
           <PickerCard

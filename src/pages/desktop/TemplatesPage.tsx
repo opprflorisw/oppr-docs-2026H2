@@ -1,13 +1,12 @@
-// TemplatesPage (/templates)
-//
-// Two tabs: DB-backed document templates (create / edit / duplicate / delete)
-// and the org-wide PDF cover settings consumed by every export.
+// TemplatesList: DB-backed document templates (create / edit / duplicate /
+// delete). Rendered as the Templates tab of Settings; the PDF title page and
+// safety icons have their own Settings tabs.
 
 import { useState } from "react"
 import { useLocation } from "wouter"
 import { useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
-import { Copy, FileDown, LayoutTemplate, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react"
+import { Copy, LayoutTemplate, Pencil, Plus, Trash2 } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { Button } from "@/components/ui/button"
@@ -28,14 +27,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TypeBadge } from "@/components/docs/TypeBadge"
-import { TopBar } from "@/components/layout/TopBar"
-import { PageHeader } from "@/components/layout/PageHeader"
-import { CoverSettingsEditor } from "@/components/docs/CoverSettingsEditor"
-import { PpeConfigurator } from "@/components/docs/PpeConfigurator"
 
-export function TemplatesPage() {
+export function TemplatesList() {
   const [, navigate] = useLocation()
   const templates = useQuery(api.templates.list, {})
   const duplicate = useMutation(api.templates.duplicate)
@@ -64,36 +58,18 @@ export function TemplatesPage() {
   }
 
   return (
-    <div className="flex flex-col">
-      <TopBar breadcrumb={[{ label: "Templates" }]} />
-      <PageHeader
-        icon={LayoutTemplate}
-        title="Templates"
-        subtitle="Starting points for new documents, and the Document Title page applied to every export."
-        actions={
-          <Button size="sm" className="gap-1.5" onClick={() => navigate("/templates/new")}>
-            <Plus className="h-3.5 w-3.5" />
-            New template
-          </Button>
-        }
-      />
-      <div className="p-6">
-        <Tabs defaultValue="templates">
-          <TabsList>
-            <TabsTrigger value="templates" className="gap-1.5">
-              <LayoutTemplate className="h-3.5 w-3.5" />
-              Templates
-            </TabsTrigger>
-            <TabsTrigger value="cover" className="gap-1.5">
-              <FileDown className="h-3.5 w-3.5" />
-              Document Title page
-            </TabsTrigger>
-            <TabsTrigger value="safety" className="gap-1.5">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              Safety Icons
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="templates" className="mt-4 space-y-3">
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground">
+          Starting points for new documents.
+        </p>
+        <Button size="sm" className="gap-1.5" onClick={() => navigate("/templates/new")}>
+          <Plus className="h-3.5 w-3.5" />
+          New template
+        </Button>
+      </div>
+      <div className="space-y-3">
+
             {templates === undefined ? (
               <p className="text-sm text-muted-foreground">Loading…</p>
             ) : templates.length === 0 ? (
@@ -103,7 +79,7 @@ export function TemplatesPage() {
                   <div>
                     <p className="text-sm font-medium">No templates yet</p>
                     <p className="text-xs text-muted-foreground">
-                      Create one, or run Settings → Fresh start to seed the defaults.
+                      Create one to give authors a head start.
                     </p>
                   </div>
                   <Button size="sm" onClick={() => navigate("/templates/new")}>
@@ -166,14 +142,6 @@ export function TemplatesPage() {
                 </Card>
               ))
             )}
-          </TabsContent>
-          <TabsContent value="cover" className="mt-4">
-            <CoverSettingsEditor />
-          </TabsContent>
-          <TabsContent value="safety" className="mt-4">
-            <PpeConfigurator />
-          </TabsContent>
-        </Tabs>
       </div>
 
       <AlertDialog

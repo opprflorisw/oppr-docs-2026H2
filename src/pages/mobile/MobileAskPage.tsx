@@ -87,7 +87,7 @@ export function MobileAskPage() {
     <div className="flex h-full flex-col">
       <MobileHeader
         backTo={backTo}
-        title="Ask IDA"
+        title="Ask"
         subtitle={
           scopeLabel
             ? `${scopeLabel.kind}: ${scopeLabel.text}`

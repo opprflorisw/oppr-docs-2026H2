@@ -1,4 +1,4 @@
-// NamingSettingsPage (/settings/naming)
+// NamingSettings: the Naming tab of Settings
 //
 // Manages the three vocabularies that feed the naming code
 // {LOCATION}-{DISCIPLINE}-{TYPE}-{NNNN}: Locations, Disciplines, and Document
@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
-import { Hash, Plus, Trash2 } from "lucide-react"
+import { Plus, Trash2 } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { Button } from "@/components/ui/button"
@@ -22,8 +22,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { TopBar } from "@/components/layout/TopBar"
-import { PageHeader } from "@/components/layout/PageHeader"
 import { cn } from "@/lib/utils"
 import {
   TYPE_COLORS,
@@ -34,7 +32,7 @@ import {
 
 type Kind = "location" | "discipline"
 
-export function NamingSettingsPage() {
+export function NamingSettings() {
   const vocab = useQuery(api.naming.listVocabulary)
   const types = useQuery(api.namingTypes.list)
   const seedTypes = useMutation(api.namingTypes.seedIfEmpty)
@@ -48,23 +46,16 @@ export function NamingSettingsPage() {
   }, [types, seedTypes])
 
   return (
-    <div className="flex flex-col">
-      <TopBar
-        breadcrumb={[
-          { label: "Settings", href: "/settings" },
-          { label: "Naming acronyms" },
-        ]}
-      />
-      <PageHeader
-        icon={Hash}
-        title="Naming acronyms"
-        subtitle="The Location, Discipline, and Type options that build every document code. The sequence number is automatic."
-      />
-      <div className="grid gap-4 p-6 md:grid-cols-2">
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">
+        The area, discipline and type options that build every document code.
+        The sequence number is automatic.
+      </p>
+      <div className="grid gap-4 md:grid-cols-2">
         <VocabCard
           kind="location"
-          title="Locations"
-          description="Site or plant. First token of the code, e.g. HOL."
+          title="Areas"
+          description="Plant area. First token of the code, e.g. EXT."
           rows={vocab?.locations}
         />
         <VocabCard

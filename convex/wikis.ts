@@ -67,7 +67,23 @@ export const get = query({
         outdated.push(s.namingCode)
       }
     }
-    return { ...wiki, outdated, scopeLabels: await scopeLabels(ctx, wiki.scope) }
+    // The cited passages, for hover previews and for jumping to the spot.
+    const excerpts: Record<string, string> = {}
+    for (const section of wiki.content?.sections ?? []) {
+      for (const point of section.points) {
+        for (const c of point.citations) {
+          if (excerpts[c.chunkId] !== undefined) continue
+          const chunk = await ctx.db.get(c.chunkId)
+          if (chunk) excerpts[c.chunkId] = chunk.text
+        }
+      }
+    }
+    return {
+      ...wiki,
+      outdated,
+      excerpts,
+      scopeLabels: await scopeLabels(ctx, wiki.scope),
+    }
   },
 })
 

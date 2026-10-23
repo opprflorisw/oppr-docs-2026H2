@@ -48,7 +48,7 @@ export function ImportPage() {
     <div className="flex flex-1 flex-col">
       <TopBar
         breadcrumb={[
-          { label: "Library", href: "/library" },
+          { label: "Documents", href: "/library" },
           { label: "Import external" },
         ]}
       />

@@ -1,0 +1,130 @@
+import { useMutation } from "convex/react"
+import { toast } from "sonner"
+import { CalendarClock, CheckCircle2, GitBranch } from "lucide-react"
+import { api } from "../../../convex/_generated/api"
+import type { Doc } from "../../../convex/_generated/dataModel"
+import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { cn } from "@/lib/utils"
+
+const DAY = 24 * 60 * 60 * 1000
+const INTERVALS = [6, 12, 24, 36]
+
+// Periodic review (CONTEXT.md) for a Published Document: when it is due, and
+// the two possible outcomes. "Still valid" confirms the live version and moves
+// the date one interval on; "Start revision" forks the next draft.
+export function PeriodicReviewCard({
+  doc,
+  highlight,
+  onStartRevision,
+}: {
+  doc: Doc<"documents">
+  highlight?: boolean
+  onStartRevision: () => void
+}) {
+  const confirm = useMutation(api.documents.confirmReview)
+  const setInterval = useMutation(api.documents.setReviewInterval)
+
+  if (doc.liveVersion == null || doc.status === "archived") return null
+
+  const months = doc.reviewIntervalMonths ?? 12
+  const next = doc.nextReviewAt ?? null
+  const daysLeft = next == null ? null : Math.ceil((next - Date.now()) / DAY)
+  const due = daysLeft != null && daysLeft <= 30
+  const revisionInProgress = doc.currentVersion !== doc.liveVersion
+
+  async function run(p: Promise<unknown>, ok: string) {
+    try {
+      await p
+      toast.success(ok)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  return (
+    <div
+      className={cn(
+        "space-y-3 rounded-lg border p-3",
+        due && "border-amber-300 bg-amber-50/60 dark:border-amber-500/40 dark:bg-amber-500/10",
+        highlight && "ring-2 ring-primary/40",
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <CalendarClock className={cn("h-4 w-4", due ? "text-amber-600" : "text-muted-foreground")} />
+        <p className="text-xs font-semibold">Periodic review</p>
+      </div>
+      <div>
+        <p className={cn("text-sm font-medium", daysLeft != null && daysLeft < 0 && "text-red-600")}>
+          {next == null
+            ? "No review date yet"
+            : daysLeft! < 0
+              ? `Overdue by ${-daysLeft!} ${-daysLeft! === 1 ? "day" : "days"}`
+              : daysLeft === 0
+                ? "Due today"
+                : `Due in ${daysLeft} ${daysLeft === 1 ? "day" : "days"}`}
+        </p>
+        {next != null && (
+          <p className="text-[11px] text-muted-foreground">
+            {new Date(next).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}
+          </p>
+        )}
+      </div>
+
+      {revisionInProgress ? (
+        <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+          <GitBranch className="mt-0.5 h-3 w-3 shrink-0" />
+          v{doc.currentVersion} is in progress. Publishing it completes the review.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          <Button
+            size="sm"
+            variant={due ? "default" : "outline"}
+            className="h-7 justify-start gap-1.5 text-xs"
+            onClick={() => void run(confirm({ id: doc._id }), `Confirmed. Next review in ${months} months.`)}
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Still valid, confirm v{doc.liveVersion}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 justify-start gap-1.5 text-xs"
+            onClick={onStartRevision}
+          >
+            <GitBranch className="h-3.5 w-3.5" />
+            Needs changes, start revision
+          </Button>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-2 border-t pt-2">
+        <span className="text-[11px] text-muted-foreground">Review every</span>
+        <Select
+          value={String(months)}
+          onValueChange={(v) =>
+            void run(setInterval({ id: doc._id, months: Number(v) }), `Review interval set to ${v} months.`)
+          }
+        >
+          <SelectTrigger className="h-7 w-[110px] text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {INTERVALS.map((m) => (
+              <SelectItem key={m} value={String(m)} className="text-xs">
+                {m} months
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  )
+}

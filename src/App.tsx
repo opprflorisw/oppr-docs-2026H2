@@ -1,9 +1,13 @@
-import { Route, Switch, useLocation, useRoute } from "wouter"
+import { Redirect, Route, Switch, useLocation, useRoute } from "wouter"
 import { ThemeProvider } from "next-themes"
 import { Toaster } from "@/components/ui/sonner"
 import { DesktopShell } from "@/components/layout/DesktopShell"
 import { MobileShell } from "@/components/mobile/MobileShell"
-import { DashboardPage } from "@/pages/desktop/DashboardPage"
+import { HomePage } from "@/pages/desktop/HomePage"
+import { LearnPage } from "@/pages/desktop/LearnPage"
+import { WikiListPage } from "@/pages/desktop/WikiListPage"
+import { WikiPage } from "@/pages/desktop/WikiPage"
+import { FloorSimulatorPage } from "@/pages/desktop/FloorSimulatorPage"
 import { LibraryPage } from "@/pages/desktop/LibraryPage"
 import { AssetsPage } from "@/pages/desktop/AssetsPage"
 import { AssetDetailPage } from "@/pages/desktop/AssetDetailPage"
@@ -12,10 +16,7 @@ import { DocumentEditPage } from "@/pages/desktop/DocumentEditPage"
 import { DocumentNewPage } from "@/pages/desktop/DocumentNewPage"
 import { DocumentNewChooserPage } from "@/pages/desktop/DocumentNewChooserPage"
 import { SettingsPage } from "@/pages/desktop/SettingsPage"
-import { NamingSettingsPage } from "@/pages/desktop/NamingSettingsPage"
-import { TemplatesPage } from "@/pages/desktop/TemplatesPage"
 import { TemplateEditPage } from "@/pages/desktop/TemplateEditPage"
-import { ImageLibraryPage } from "@/pages/desktop/ImageLibraryPage"
 import { ImportPage } from "@/pages/desktop/ImportPage"
 import { AnalysisIndexPage } from "@/pages/desktop/AnalysisIndexPage"
 import { getAnalysisBySlug } from "@/pages/desktop/analysis/registry"
@@ -65,21 +66,32 @@ function App() {
         ) : (
           <DesktopShell>
             <Switch>
-              <Route path="/" component={DashboardPage} />
+              <Route path="/" component={HomePage} />
               <Route path="/library" component={LibraryPage} />
+              <Route path="/learn" component={LearnPage} />
+              <Route path="/wiki" component={WikiListPage} />
+              <Route path="/wiki/:id" component={WikiPage} />
               <Route path="/assets" component={AssetsPage} />
               <Route path="/assets/:id" component={AssetDetailPage} />
+              <Route path="/floor" component={FloorSimulatorPage} />
               <Route path="/docs/new" component={DocumentNewChooserPage} />
               <Route path="/docs/new/compose" component={DocumentNewPage} />
               <Route path="/docs/new/import" component={DocumentNewPage} />
               <Route path="/docs/:id/edit" component={DocumentEditPage} />
               <Route path="/docs/:id" component={DocumentReadPage} />
-              <Route path="/templates" component={TemplatesPage} />
               <Route path="/templates/new" component={TemplateEditPage} />
               <Route path="/templates/:id/edit" component={TemplateEditPage} />
-              <Route path="/settings/naming" component={NamingSettingsPage} />
               <Route path="/settings" component={SettingsPage} />
-              <Route path="/images" component={ImageLibraryPage} />
+              {/* Old addresses: these are tabs of Settings now. */}
+              <Route path="/templates">
+                <Redirect to="/settings?tab=templates" replace />
+              </Route>
+              <Route path="/settings/naming">
+                <Redirect to="/settings?tab=naming" replace />
+              </Route>
+              <Route path="/images">
+                <Redirect to="/settings?tab=images" replace />
+              </Route>
               <Route path="/import" component={ImportPage} />
               <Route path="/import/:jobId" component={ImportPage} />
               <Route path="/analysis" component={AnalysisIndexPage} />

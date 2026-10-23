@@ -19,7 +19,7 @@ export function AskFloatingButton({ to }: AskFloatingButtonProps) {
   return (
     <Link
       href={to}
-      aria-label="Ask IDA"
+      aria-label="Ask"
       className={cn(
         "fixed right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition active:scale-95",
         navVisible ? "bottom-20" : "bottom-6",

@@ -1,18 +1,15 @@
 import { ReactNode } from "react"
 import { Link, useLocation } from "wouter"
 import {
-  FileText,
+  BookOpenText,
   Boxes,
-  Smartphone,
+  FileText,
+  GraduationCap,
+  Home,
+  Library,
   Settings,
-  FolderKanban,
-  Microscope,
-  LayoutDashboard,
-  LayoutTemplate,
-  Image as ImageIcon,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { Separator } from "@/components/ui/separator"
 import { FloatingAskIda } from "@/components/ai/FloatingAskIda"
 
 type NavItem = {
@@ -22,158 +19,87 @@ type NavItem = {
   match: (path: string) => boolean
 }
 
+// Exactly six places (CONTEXT.md). Everything else is reached from one of
+// these, at most one level down; anything deeper opens as a panel or dialog.
 const NAV: NavItem[] = [
+  { label: "Home", to: "/", icon: Home, match: (p) => p === "/" },
   {
-    label: "Dashboard",
-    to: "/",
-    icon: LayoutDashboard,
-    match: (p) => p === "/",
-  },
-  {
-    label: "Library",
+    label: "Documents",
     to: "/library",
-    icon: FileText,
-    match: (p) => p === "/library" || p.startsWith("/docs"),
+    icon: Library,
+    match: (p) =>
+      p === "/library" || p.startsWith("/docs") || p.startsWith("/import"),
   },
   {
-    label: "Templates",
-    to: "/templates",
-    icon: LayoutTemplate,
-    match: (p) => p.startsWith("/templates"),
+    label: "Learn",
+    to: "/learn",
+    icon: GraduationCap,
+    match: (p) => p.startsWith("/learn"),
   },
   {
-    label: "Images",
-    to: "/images",
-    icon: ImageIcon,
-    match: (p) => p.startsWith("/images"),
+    label: "Wiki",
+    to: "/wiki",
+    icon: BookOpenText,
+    match: (p) => p.startsWith("/wiki"),
   },
   {
     label: "Assets",
     to: "/assets",
     icon: Boxes,
-    match: (p) => p.startsWith("/assets"),
+    match: (p) => p.startsWith("/assets") || p.startsWith("/floor"),
   },
 ]
 
-const META_NAV: NavItem[] = [
-  {
-    label: "Analysis",
-    to: "/analysis",
-    icon: Microscope,
-    match: (p) => p.startsWith("/analysis"),
-  },
-]
+const SETTINGS: NavItem = {
+  label: "Settings",
+  to: "/settings",
+  icon: Settings,
+  match: (p) => p.startsWith("/settings") || p.startsWith("/templates"),
+}
 
-const BOTTOM_NAV: NavItem[] = [
-  {
-    label: "Settings",
-    to: "/settings",
-    icon: Settings,
-    match: (p) => p.startsWith("/settings"),
-  },
-]
+function NavLink({ item, location }: { item: NavItem; location: string }) {
+  const Icon = item.icon
+  const active = item.match(location)
+  return (
+    <Link
+      href={item.to}
+      className={cn(
+        "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+        active
+          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+          : "text-sidebar-foreground/80 hover:bg-sidebar-border/40 hover:text-sidebar-foreground",
+      )}
+    >
+      <Icon className="h-4 w-4" />
+      {item.label}
+    </Link>
+  )
+}
 
 export function DesktopShell({ children }: { children: ReactNode }) {
   const [location] = useLocation()
-
-  function openMobileWindow() {
-    window.open(
-      `${window.location.origin}/m`,
-      "oppr-mobile",
-      "width=390,height=844,resizable=yes,scrollbars=yes",
-    )
-  }
 
   return (
     <div className="flex min-h-screen w-full bg-background">
       <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col self-start overflow-y-auto border-r bg-sidebar text-sidebar-foreground">
         <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
-            <FolderKanban className="h-4 w-4" />
+            <BookOpenText className="h-4 w-4" />
           </div>
           <div className="leading-tight">
-            <div className="text-sm font-semibold">Oppr DOCS</div>
-            <div className="text-xs text-sidebar-accent">v1.0 showcase</div>
+            <div className="text-sm font-semibold">Oppr Knowledge</div>
+            <div className="text-xs text-sidebar-accent">Internal showcase</div>
           </div>
         </div>
 
         <nav className="flex-1 space-y-1 px-3 py-4">
-          {NAV.map((item) => {
-            const Icon = item.icon
-            const active = item.match(location)
-            return (
-              <Link
-                key={item.to}
-                href={item.to}
-                className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-                  active
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-border/40 hover:text-sidebar-foreground",
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </Link>
-            )
-          })}
-
-          <Separator className="my-3 bg-sidebar-border" />
-
-          <button
-            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground/80 transition-colors hover:bg-sidebar-border/40 hover:text-sidebar-foreground"
-            onClick={openMobileWindow}
-          >
-            <Smartphone className="h-4 w-4" />
-            <span className="flex-1 text-left">Mobile</span>
-            <span className="text-[10px] uppercase tracking-wider text-sidebar-accent">
-              Open
-            </span>
-          </button>
-
-          <Separator className="my-3 bg-sidebar-border" />
-
-          {META_NAV.map((item) => {
-            const Icon = item.icon
-            const active = item.match(location)
-            return (
-              <Link
-                key={item.to}
-                href={item.to}
-                className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-                  active
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-border/40 hover:text-sidebar-foreground",
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </Link>
-            )
-          })}
+          {NAV.map((item) => (
+            <NavLink key={item.to} item={item} location={location} />
+          ))}
         </nav>
 
         <div className="space-y-1 border-t border-sidebar-border p-3">
-          {BOTTOM_NAV.map((item) => {
-            const Icon = item.icon
-            const active = item.match(location)
-            return (
-              <Link
-                key={item.to}
-                href={item.to}
-                className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-                  active
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-border/40 hover:text-sidebar-foreground",
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </Link>
-            )
-          })}
+          <NavLink item={SETTINGS} location={location} />
         </div>
       </aside>
 

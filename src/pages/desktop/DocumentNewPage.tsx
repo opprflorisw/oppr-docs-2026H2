@@ -267,7 +267,7 @@ export function DocumentNewPage() {
     <div className="flex flex-col">
       <TopBar
         breadcrumb={[
-          { label: "Library", href: "/library" },
+          { label: "Documents", href: "/library" },
           { label: "New document", href: "/docs/new" },
           { label: kind === "pdf" ? "Import PDF" : "Compose" },
         ]}
