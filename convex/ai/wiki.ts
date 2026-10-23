@@ -1,4 +1,4 @@
-import { v } from "convex/values"
+import { ConvexError, v } from "convex/values"
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai"
 import type { ResponseSchema } from "@google/generative-ai"
 import { action, internalAction, internalQuery } from "../_generated/server"
@@ -253,13 +253,16 @@ const GUIDE_SYSTEM = [
   "A Wiki is an AI-generated overview of published knowledge for a specific audience. Its Scope decides which published documents it is built from.",
   "A Scope combines any of: areas (plant areas), disciplines, assets (machines) and specific documents. A document is included when it is linked to a chosen asset, chosen explicitly, or matches the chosen areas and disciplines.",
   "You work on a DRAFT with fields: title, purpose (one line: who it is for and what they need), areas, disciplines, assetCodes, documentCodes.",
+  "The person sees the draft next to the conversation and can edit any field themselves. CURRENT DRAFT always holds their latest edits and wins over anything said earlier.",
   "Rules:",
-  "- Always return the COMPLETE next draft. Keep every field the person already set unless they ask to change it.",
-  "- Only use codes that appear in OPTIONS. Never invent codes.",
+  "- Always return the COMPLETE next draft. Copy every field from CURRENT DRAFT unchanged unless the latest MESSAGE asks to change it. Never clear a field the person set.",
+  "- Only use codes that appear in OPTIONS. Never invent codes. If nothing in OPTIONS fits the request, keep the Scope as it is, say so, and name the closest options.",
   "- Choose the narrowest Scope that covers what they asked for. Prefer assets and areas over listing many documents.",
-  "- `reply` is one or two short sentences: say what you set, and ask at most ONE follow-up question only if something essential is unclear (usually the audience).",
-  "- Set `ready` to true once the draft has a title, a purpose and a non-empty Scope that fits the request.",
-  "- You never create the Wiki yourself. The person presses Create.",
+  "- Fill in title and purpose yourself from what they said. A title is 2 to 6 words, names the subject and does not contain the word Wiki.",
+  "- `reply` is at most two short sentences, in the language of the person's message. Do not list the draft field by field: the screen already shows which fields changed. Mention a choice only when it is not obvious.",
+  "- Ask at most ONE question, and only when you cannot fill a fitting Scope or the audience without it. If you can make a reasonable draft, make it and do not ask.",
+  "- Set `ready` to true once the draft has a title, a purpose and a non-empty Scope that fits the request. Then end the reply with: Check the draft and press Create, or tell me what to change.",
+  "- You never create the Wiki yourself and never say it was created. The person presses Create.",
 ].join("\n")
 
 const GUIDE_SCHEMA: ResponseSchema = {
@@ -320,7 +323,11 @@ export const guide = action({
     if (aiStubEnabled()) return stubGuide(args.messages, args.draft, options)
 
     const apiKey = process.env.GEMINI_API_KEY
-    if (!apiKey) throw new Error("GEMINI_API_KEY is not set on this deployment.")
+    if (!apiKey) {
+      throw new ConvexError(
+        "The assistant is not available on this server (no AI key). Fill in the draft yourself.",
+      )
+    }
 
     const assetCode = new Map(options.assets.map((a) => [String(a._id), a.code]))
     const docCode = new Map(options.documents.map((d) => [String(d._id), d.namingCode]))
@@ -347,7 +354,18 @@ export const guide = action({
       documentCodes: args.draft.scope.documentIds.map((id) => docCode.get(String(id))).filter(Boolean),
     })
 
-    const history = args.messages.slice(-12)
+    // Gemini expects alternating turns that start with the person: skip a
+    // leading assistant turn and merge runs from the same side (a retry after
+    // a failed answer leaves two person turns in a row).
+    const history: { role: "user" | "assistant"; text: string }[] = []
+    for (const m of args.messages.slice(-12)) {
+      const prev = history[history.length - 1]
+      if (!prev && m.role === "assistant") continue
+      if (prev && prev.role === m.role) prev.text = `${prev.text}\n${m.text}`
+      else history.push({ role: m.role, text: m.text })
+    }
+    const latest = history[history.length - 1]
+    if (!latest || latest.role !== "user") throw new ConvexError("There is no message to answer.")
     const contents = [
       {
         role: "user",
@@ -360,26 +378,28 @@ export const guide = action({
       })),
       {
         role: "user",
-        parts: [
-          {
-            text: `CURRENT DRAFT: ${currentDraft}\n\nMESSAGE: ${history[history.length - 1]?.text ?? ""}`,
-          },
-        ],
+        parts: [{ text: `CURRENT DRAFT: ${currentDraft}\n\nMESSAGE: ${latest.text}` }],
       },
     ]
 
-    const result = await geminiJson(apiKey, GUIDE_SYSTEM, GUIDE_SCHEMA).generateContent({
-      contents,
-    })
-    const out = JSON.parse(result.response.text()) as {
-      reply: string
-      title: string
-      purpose: string
-      areas: string[]
-      disciplines: string[]
-      assetCodes: string[]
-      documentCodes: string[]
-      ready: boolean
+    let out: {
+      reply?: string
+      title?: string
+      purpose?: string
+      areas?: string[]
+      disciplines?: string[]
+      assetCodes?: string[]
+      documentCodes?: string[]
+      ready?: boolean
+    }
+    try {
+      const result = await geminiJson(apiKey, GUIDE_SYSTEM, GUIDE_SCHEMA).generateContent({ contents })
+      out = JSON.parse(result.response.text())
+    } catch (err) {
+      console.error("Wiki guide failed:", err)
+      throw new ConvexError(
+        "The assistant is not responding right now. Your draft is kept, and you can fill it in yourself.",
+      )
     }
 
     // Map codes back to ids, dropping anything not in OPTIONS.
@@ -404,15 +424,14 @@ export const guide = action({
     }
     const scopeEmpty =
       scope.areas.length + scope.disciplines.length + scope.assetIds.length + scope.documentIds.length === 0
+    // An empty title or purpose from the model never wipes what the person had.
+    const title = String(out.title ?? "").trim() || args.draft.title
+    const purpose = String(out.purpose ?? "").trim() || args.draft.purpose
 
     return {
       reply: String(out.reply ?? "").trim() || "I've updated the draft.",
-      draft: {
-        title: String(out.title ?? "").trim(),
-        purpose: String(out.purpose ?? "").trim(),
-        scope,
-      },
-      ready: Boolean(out.ready) && !scopeEmpty && String(out.title ?? "").trim() !== "",
+      draft: { title, purpose, scope },
+      ready: Boolean(out.ready) && !scopeEmpty && title.trim() !== "",
     }
   },
 })
@@ -482,53 +501,61 @@ function stubGuide(
   },
   options: Options,
 ) {
-  const said = messages
-    .filter((m) => m.role === "user")
-    .map((m) => m.text)
-    .join(" ")
+  // Only the latest message adds to the Draft. The Draft already holds what
+  // earlier turns matched plus the person's own edits, so a chip they removed
+  // by hand is not put back by something they said before.
   const last = messages.filter((m) => m.role === "user").at(-1)?.text ?? ""
-  const hay = said.toLowerCase()
+  const hay = last.toLowerCase()
   const words = (s: string) =>
     s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3)
+  // "line 2" and "hall 2" only count as a whole phrase, never as the bare word.
+  const phrases = (s: string): string[] => s.toLowerCase().match(/\b(?:line|hall)\s*\d+\b/g) ?? []
   const mentions = (code: string, label: string) =>
     hay.includes(code.toLowerCase()) ||
+    phrases(label).some((p) => phrases(hay).includes(p)) ||
     words(label).some((w) => !["hall", "line", "with"].includes(w) && hay.includes(w))
   const uniq = <T,>(xs: T[]) => Array.from(new Set(xs))
 
-  const areas = uniq([
-    ...draft.scope.areas,
-    ...options.areas.filter((a) => mentions(a.code, a.label)).map((a) => a.code),
-  ])
-  const disciplines = uniq([
-    ...draft.scope.disciplines,
-    ...options.disciplines.filter((d) => hay.includes(d.label.toLowerCase())).map((d) => d.code),
-  ])
-  const assetIds = uniq([
-    ...draft.scope.assetIds,
-    ...options.assets.filter((a) => mentions(a.code, a.name)).map((a) => a._id),
-  ])
-  const documentIds = uniq([
-    ...draft.scope.documentIds,
-    ...options.documents
-      .filter(
-        (d) =>
-          hay.includes(d.namingCode.toLowerCase()) ||
-          words(d.title).some((w) => w.length >= 6 && hay.includes(w)),
-      )
-      .map((d) => d._id),
-  ])
-  const scope = { areas, disciplines, assetIds, documentIds }
-  const scopeSize = areas.length + disciplines.length + assetIds.length + documentIds.length
+  const newAreas = options.areas.filter((a) => mentions(a.code, a.label))
+  const newDisciplines = options.disciplines.filter((d) => hay.includes(d.label.toLowerCase()))
+  const newAssets = options.assets.filter((a) => mentions(a.code, a.name))
+  const newDocs = options.documents.filter(
+    (d) =>
+      hay.includes(d.namingCode.toLowerCase()) ||
+      words(d.title).some((w) => w.length >= 6 && hay.includes(w)),
+  )
+  const scope = {
+    areas: uniq([...draft.scope.areas, ...newAreas.map((a) => a.code)]),
+    disciplines: uniq([...draft.scope.disciplines, ...newDisciplines.map((d) => d.code)]),
+    assetIds: uniq([...draft.scope.assetIds, ...newAssets.map((a) => a._id)]),
+    documentIds: uniq([...draft.scope.documentIds, ...newDocs.map((d) => d._id)]),
+  }
+  const scopeSize =
+    scope.areas.length + scope.disciplines.length + scope.assetIds.length + scope.documentIds.length
+  const matched = [
+    ...newAreas.map((a) => a.label),
+    ...newDisciplines.map((d) => d.label),
+    ...newAssets.map((a) => a.code),
+    ...newDocs.map((d) => d.namingCode),
+  ]
 
   const title = draft.title || last.replace(/^(make|create|build|i want|i need)( me)?( a)?( wiki)?( (about|on|for))?\s*/i, "").replace(/\s+/g, " ").trim().slice(0, 70)
   const titleCased = title ? title.charAt(0).toUpperCase() + title.slice(1) : ""
   const purpose = draft.purpose || (last.length > 20 ? last.trim() : "")
   const ready = scopeSize > 0 && titleCased !== ""
 
+  let reply: string
+  if (options.documents.length === 0) {
+    reply = "Nothing is published yet, so a Wiki would have nothing to draw from. Publish a document first."
+  } else if (matched.length > 0) {
+    reply = `I matched your words to: ${matched.join(", ")}. Check the draft and press Create, or adjust any field.`
+  } else if (ready) {
+    reply = "I found nothing new to match in that message. Change any field in the draft yourself, or press Create."
+  } else {
+    reply = "I could not match an area, machine or document in your words. Name one, or pick it in the draft."
+  }
   return {
-    reply: ready
-      ? `${STUB_INTRO_PREFIX} I matched your words to the Scope on the right. Check it and press Create, or adjust any field.`
-      : `${STUB_INTRO_PREFIX} I could not match an area, machine or document yet. Name one, or pick it on the right.`,
+    reply: `${STUB_INTRO_PREFIX} ${reply}`,
     draft: { title: titleCased, purpose, scope },
     ready,
   }
