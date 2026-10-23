@@ -68,6 +68,9 @@ export const writeEmbedding = internalMutation({
     embedding: v.array(v.float64()),
   },
   handler: async (ctx, args) => {
+    // The chunk may have been deleted meanwhile (a new version published, or
+    // a reseed on dev); then there is nothing to write.
+    if (!(await ctx.db.get(args.chunkId))) return
     await ctx.db.patch(args.chunkId, {
       embedding: args.embedding,
       embeddingModel: EMBEDDING_MODEL_VERSION,

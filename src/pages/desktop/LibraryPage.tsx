@@ -26,6 +26,7 @@ import { DeleteDocumentDialog } from "@/components/docs/DeleteDocumentDialog"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { toast } from "sonner"
+import { NewDocumentChooserDialog } from "./DocumentNewChooserPage"
 
 type StatusFilter = DocumentStatus | "all"
 type TypeFilter = DocumentType | "all"
@@ -55,6 +56,7 @@ export function LibraryPage() {
   const [, navigate] = useLocation()
   const [search, setSearch] = useState("")
   const urlSearch = useSearch()
+  const [newOpen, setNewOpen] = useState(() => new URLSearchParams(urlSearch).get("new") === "1")
   // ?status= lets Home link straight to a filtered list.
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(
     () => (new URLSearchParams(urlSearch).get("status") as StatusFilter | null) ?? "all",
@@ -158,7 +160,7 @@ export function LibraryPage() {
         title="Documents"
         subtitle="Every controlled document. Only the published version of each counts as knowledge."
         actions={
-          <Button size="sm" onClick={() => navigate("/docs/new")}>
+          <Button size="sm" onClick={() => setNewOpen(true)}>
             <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
             New document
           </Button>
@@ -262,6 +264,7 @@ export function LibraryPage() {
         onConfirmDelete={() => void handleDeleteConfirm()}
         busy={deleting}
       />
+      <NewDocumentChooserDialog open={newOpen} onOpenChange={setNewOpen} />
     </div>
   )
 }

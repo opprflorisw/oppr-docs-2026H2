@@ -1,8 +1,9 @@
-// Document creation chooser. Start blank, from a template, or by importing a
-// PDF. Templates come from the DB (/templates); the PDF import embeds the file
-// as an attachment inside an otherwise normal, editable document.
+// Document creation chooser, as a dialog over the Documents list (or Home),
+// so starting a document never adds a navigation level: list, then the new
+// item in the editor. Start blank, from a template, or by importing a PDF.
+// The old /docs/new address redirects to /library?new=1, which opens it.
 
-import { useLocation } from "wouter"
+import { Redirect, useLocation } from "wouter"
 import { useQuery } from "convex/react"
 import { FileText, LayoutTemplate, PlusCircle, Sparkles, Upload } from "lucide-react"
 import {
@@ -13,29 +14,46 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { TypeBadge } from "@/components/docs/TypeBadge"
-import { TopBar } from "@/components/layout/TopBar"
-import { PageHeader } from "@/components/layout/PageHeader"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { api } from "../../../convex/_generated/api"
 
 export function DocumentNewChooserPage() {
-  const [, navigate] = useLocation()
-  const templates = useQuery(api.templates.list, {})
+  return <Redirect to="/library?new=1" replace />
+}
+
+export function NewDocumentChooserDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const [, setLocation] = useLocation()
+  const templates = useQuery(api.templates.list, open ? {} : "skip")
+  const navigate = (to: string) => {
+    onOpenChange(false)
+    setLocation(to)
+  }
 
   return (
-    <div className="flex flex-col">
-      <TopBar
-        breadcrumb={[
-          { label: "Documents", href: "/library" },
-          { label: "New document" },
-        ]}
-      />
-      <PageHeader
-        icon={PlusCircle}
-        title="New document"
-        subtitle="Start blank, from a template, or by importing a PDF. You set the title, location, discipline, and reviewers on the next screen."
-      />
-
-      <div className="mx-auto w-full max-w-3xl space-y-8 p-6">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+        <div>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <PlusCircle className="h-4 w-4 text-primary" />
+            New document
+          </DialogTitle>
+          <DialogDescription className="text-xs">
+            Start blank, from a template, or from a PDF. You set the title,
+            area, discipline and reviewers in the editor.
+          </DialogDescription>
+        </div>
+      <div className="space-y-6">
         <div className="grid gap-4 md:grid-cols-3">
           <ChooserCard
             icon={FileText}
@@ -110,7 +128,8 @@ export function DocumentNewChooserPage() {
           )}
         </div>
       </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 

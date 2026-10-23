@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { useQuery } from "convex/react"
 import { Link, useLocation } from "wouter"
 import {
@@ -16,6 +17,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { useCheckIn } from "@/lib/checkIn"
+import { NewDocumentChooserDialog } from "./DocumentNewChooserPage"
 import { cn } from "@/lib/utils"
 
 // Home (CONTEXT.md): an Engineer's inbox of decisions waiting today, plus a
@@ -24,6 +26,7 @@ export function HomePage() {
   const data = useQuery(api.home.overview)
   const { person } = useCheckIn()
   const [, navigate] = useLocation()
+  const [newOpen, setNewOpen] = useState(false)
   const inboxCount = data ? data.approvals.length + data.reviews.length : 0
 
   return (
@@ -34,7 +37,7 @@ export function HomePage() {
         title={person ? `Good to see you, ${person.name.split(" ")[0]}` : "Home"}
         subtitle="What needs a decision today, and how the knowledge base is doing."
         actions={
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => navigate("/docs/new")}>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setNewOpen(true)}>
             <Plus className="h-3.5 w-3.5" />
             New document
           </Button>
@@ -135,6 +138,7 @@ export function HomePage() {
           </p>
         </aside>
       </div>
+      <NewDocumentChooserDialog open={newOpen} onOpenChange={setNewOpen} />
     </div>
   )
 }

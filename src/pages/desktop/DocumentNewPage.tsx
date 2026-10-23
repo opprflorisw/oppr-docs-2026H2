@@ -268,7 +268,7 @@ export function DocumentNewPage() {
       <TopBar
         breadcrumb={[
           { label: "Documents", href: "/library" },
-          { label: "New document", href: "/docs/new" },
+          { label: "New document", href: "/library?new=1" },
           { label: kind === "pdf" ? "Import PDF" : "Compose" },
         ]}
       />

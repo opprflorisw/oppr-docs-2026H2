@@ -9,6 +9,10 @@ npx convex run devChecks:run        # automated checks 3-7, G and B (all must pa
 npx convex run seedKnowledge:run    # restore: check 6 publishes a document
 ```
 
+After a reseed, give the background embedding and Wiki build about 30 seconds
+before reseeding again. A reseed that overlaps running embedding writes can
+fail with a concurrency error; just run it again.
+
 ## Seed fixtures the checks rely on
 
 | Fixture | Why |
