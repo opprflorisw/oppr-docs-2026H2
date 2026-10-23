@@ -171,7 +171,7 @@ export function SettingsPage() {
                   </div>
                 </div>
                 <div className="space-y-1 rounded-md bg-muted/40 p-3 text-[11px]">
-                  <Row label="Email" value={email || "—"} />
+                  <Row label="Email" value={email || "Not set"} />
                   <Row label="Role" value={ROLE} />
                 </div>
               </CardContent>
@@ -224,12 +224,11 @@ export function SettingsPage() {
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm">AI retrieval (Ask)</CardTitle>
                 <CardDescription className="text-xs">
-                  Ask answers questions by retrieving the most
-                  relevant passages from your published documents. On publish,
-                  each document is split into text chunks and converted into
-                  embedding vectors; a question is matched against those vectors
-                  to find supporting passages. Keep coverage complete so answers
-                  stay grounded — every chunk should be indexed.
+                  Ask answers questions from the most relevant passages of
+                  published documents only. Each saved document is split into
+                  text chunks and turned into embedding vectors, and a question
+                  is matched against those vectors to find supporting passages.
+                  Keep every chunk indexed so answers stay grounded.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -263,7 +262,7 @@ export function SettingsPage() {
                       embedStatus === undefined
                         ? "…"
                         : outstanding === 0
-                          ? "0 — all indexed"
+                          ? "0, all indexed"
                           : `${outstanding} to embed`
                     }
                     highlight={outstanding > 0}
@@ -308,7 +307,7 @@ export function SettingsPage() {
                         <AlertDialogDescription className="text-center">
                           Every existing chunk embedding will be cleared and
                           rebuilt from scratch. Ask answers may be degraded
-                          until the re-embed finishes — takes roughly 30 seconds.
+                          until the re-embed finishes, which takes about 30 seconds.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>

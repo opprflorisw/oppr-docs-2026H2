@@ -69,7 +69,7 @@ export function FloorSimulatorPage() {
             <Smartphone className="h-5 w-5 text-muted-foreground" />
             <p className="text-[11px] font-medium">Emulated phone</p>
             <p className="text-[10px] text-muted-foreground">
-              Shows what the operator sees at the machine.
+              Shows what the operator sees at the Asset.
             </p>
           </div>
         </div>
@@ -77,11 +77,11 @@ export function FloorSimulatorPage() {
         <div className="space-y-2 text-sm lg:col-span-2">
           <p className="font-medium">What will come here</p>
           <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-            <li>A floor plan with about five machines, each with its QR code.</li>
+            <li>A floor plan with about five Assets, each with its QR code.</li>
             <li>An emulated phone screen next to it that shows what an operator sees.</li>
-            <li>Picking a machine plays the "walking there" moment, then opens its knowledge.</li>
+            <li>Picking an Asset plays the "walking there" moment, then opens its knowledge.</li>
             <li>
-              During a Round: at the wrong machine you get "You're at the wrong
+              During a Round: at the wrong Asset you get "You're at the wrong
               machine, go to EXL-201".
             </li>
             <li>No real phone and no real scanning. This page only emulates the field.</li>

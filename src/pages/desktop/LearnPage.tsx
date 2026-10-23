@@ -15,7 +15,7 @@ const COMING = [
   {
     icon: Footprints,
     title: "Rounds",
-    text: "Trainings done on the floor, like a treasure hunt: walk to each machine, scan it, answer, add a photo or voice note.",
+    text: "Trainings done on the floor, like a treasure hunt: walk to each Asset, Scan it, answer, add a photo or voice note.",
   },
   {
     icon: Grid3x3,
