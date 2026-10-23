@@ -521,7 +521,7 @@ export function PublishToPdfDialog({
             />
             <ToggleRow
               id="machines-block"
-              label="Linked machines"
+              label="Linked Assets"
               sublabel="Machines linked to this document."
               value={options.machinesBlock}
               onChange={(v) => setOptions((o) => ({ ...o, machinesBlock: v }))}

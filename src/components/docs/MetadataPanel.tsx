@@ -355,7 +355,7 @@ export function MetadataPanel({
       <div className="space-y-2">
         <LinkCard
           icon={Factory}
-          title="Linked machines"
+          title="Linked Assets"
           tone="emerald"
           emptyHint="None. Insert one in the body (toolbar → Assets)."
           items={derivedAssets.map((a) => ({

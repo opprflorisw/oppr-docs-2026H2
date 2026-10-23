@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { Check, LogOut, UserRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -10,9 +11,16 @@ export function CheckInChip() {
   const { mode, person, people, checkIn, checkOut } = useCheckIn()
   const operators = people?.filter((p) => p.kind === "operator") ?? []
   const engineers = people?.filter((p) => p.kind === "engineer") ?? []
+  // Picking a name or checking out is the whole task: close right after,
+  // so it is two clicks each way.
+  const [open, setOpen] = useState(false)
+  const pick = (id: Person["_id"]) => {
+    checkIn(id)
+    setOpen(false)
+  }
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -50,8 +58,8 @@ export function CheckInChip() {
             </p>
           ) : (
             <>
-              <Group label="Operators" people={operators} current={person} onPick={checkIn} />
-              <Group label="Engineers" people={engineers} current={person} onPick={checkIn} />
+              <Group label="Operators" people={operators} current={person} onPick={pick} />
+              <Group label="Engineers" people={engineers} current={person} onPick={pick} />
             </>
           )}
         </div>
@@ -59,7 +67,10 @@ export function CheckInChip() {
           <div className="border-t p-1">
             <button
               type="button"
-              onClick={checkOut}
+              onClick={() => {
+                checkOut()
+                setOpen(false)
+              }}
               className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
             >
               <LogOut className="h-3.5 w-3.5" />

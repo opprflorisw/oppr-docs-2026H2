@@ -19,7 +19,10 @@ export function PeopleSettings() {
           {people === undefined ? (
             <p className="p-4 text-xs text-muted-foreground">Loading…</p>
           ) : people.length === 0 ? (
-            <p className="p-4 text-xs text-muted-foreground">No people yet.</p>
+            <p className="p-4 text-xs text-muted-foreground">
+              No people yet. In this showcase they come from the seed: run{" "}
+              <code className="font-mono">npx convex run seedKnowledge:run</code>.
+            </p>
           ) : (
             people.map((p) => (
               <div key={p._id} className="flex items-center gap-3 px-4 py-2.5">

@@ -439,7 +439,7 @@ function deriveTitle(label: string, code: string): string {
 function renderAssetList(assets: Asset[]): string {
   return `
 <section class="fm-block asset-list-block">
-  <div class="fm-h">Linked machines</div>
+  <div class="fm-h">Linked Assets</div>
   <table>
     <thead>
       <tr><th>Linked machine</th><th>Name</th></tr>

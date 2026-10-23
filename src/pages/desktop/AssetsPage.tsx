@@ -189,16 +189,22 @@ export function AssetsPage() {
 
   return (
     <div className="flex flex-col">
-      <TopBar breadcrumb={[{ label: "Site Assets" }]} />
+      <TopBar breadcrumb={[{ label: "Assets" }]} />
       <PageHeader
         icon={Factory}
-        title="Site Assets"
-        subtitle="Manage and view all assets on this site"
+        title="Assets"
+        subtitle="The equipment in the plant. Each Asset's QR code leads to its documents."
         actions={
+          <>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => navigate("/floor")}>
+            <MapIcon className="h-3.5 w-3.5" />
+            Floor simulator
+          </Button>
           <Button size="sm" className="gap-1.5" onClick={() => setAddOpen(true)}>
             <Plus className="h-3.5 w-3.5" />
             Add asset
           </Button>
+          </>
         }
       />
 

@@ -131,7 +131,7 @@ export function SettingsPage() {
         title="Settings"
         subtitle="Everything that configures Oppr Knowledge, one tab per area."
       />
-      <div className="p-6">
+      <div className="mx-auto w-full max-w-5xl p-6">
         <Tabs
           value={tab}
           onValueChange={(v) => navigate(`/settings?tab=${v}`, { replace: true })}
