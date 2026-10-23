@@ -251,6 +251,13 @@ export const run = internalAction({
       ["E4", { key: "E4", text: "Keep the melt temperature between 170 and 220 °C." }],
       ["E5", { key: "E5", text: "Stop dosing when the hopper is below 20 %." }],
       ["E7", { key: "E7", text: "Set the calibration gap to 0,5 mm." }],
+      ["E8", { key: "E8", text: "Start the screw rotation at 60 rpm before purging the barrel." }],
+      ["E9", { key: "E9", text: "Keep the die above 190 °C during the changeover." }],
+      ["E10", { key: "E10", text: "Leave the heater on during cleaning." }],
+      ["E11", { key: "E11", text: "Reduce the screw speed to 60 rpm." }],
+      ["E12", { key: "E12", text: "Only authorised staff may open the guarding." }],
+      ["E13", { key: "E13", text: "Measure wall thickness on each of the first 15 pipes." }],
+      ["E14", { key: "E14", text: "Streaks of the old colour after 15 minutes | Purge not finished | Purge for another 5 minutes, then check again" }],
     ])
     // [case, point text, cited keys, expected to pass]
     const cases: [string, string, string[], boolean][] = [
@@ -274,6 +281,18 @@ export const run = internalAction({
       ["negation kept", "Never reach into the saw area while the line is only stopped.", ["E3"], true],
       ["wrong excerpt with the same number", "Wear heat-resistant gloves above 190 °C.", ["E2"], false],
       ["merged claim cites one source", "Purge with PX-4400 and tighten the die bolts to 40 Nm.", ["E2"], false],
+      ["order kept", "Start the screw rotation at 60 rpm before you purge the barrel.", ["E8"], true],
+      ["order reversed", "Purge the barrel before you start the screw rotation at 60 rpm.", ["E8"], false],
+      ["above kept", "Keep the die above 190 °C during the changeover.", ["E9"], true],
+      ["above flipped to below", "Keep the die below 190 °C during the changeover.", ["E9"], false],
+      ["on flipped to off", "Leave the heater off during cleaning.", ["E10"], false],
+      ["reduce flipped to increase", "Increase the screw speed to 60 rpm.", ["E11"], false],
+      ["restriction kept", "Only authorised staff may open the guarding.", ["E12"], true],
+      ["restriction dropped", "Authorised staff may open the guarding.", ["E12"], false],
+      ["counted noun kept", "Measure wall thickness on the first 15 pipes.", ["E13"], true],
+      ["counted noun swapped", "Measure wall thickness for the first 15 minutes.", ["E13"], false],
+      ["table row, one negated cell", "Streaks of the old colour after 15 minutes mean the purge is not finished. Purge for another 5 minutes, then check again.", ["E14"], true],
+      ["table row, negation invented", "Streaks of the old colour after 15 minutes mean the purge is finished. Do not purge again.", ["E14"], false],
     ]
     const wrong = cases.filter(([, text, sources, expect]) => checkPoint({ text, sources }, provided).ok !== expect)
     add(

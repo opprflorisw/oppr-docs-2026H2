@@ -516,8 +516,6 @@ export const saveContent = mutation({
       )
     }
 
-    await ctx.db.patch(args.id, patch)
-
     // Upsert the target version's content row.
     const existing = await ctx.db
       .query("documentVersions")
@@ -525,6 +523,25 @@ export const saveContent = mutation({
         q.eq("documentId", args.id).eq("version", targetVersion),
       )
       .unique()
+
+    // Review and approval apply to the exact content that was reviewed. A
+    // change to the text or title after that sends the edition back to draft
+    // and clears its review sign-offs, so it cannot be published unreviewed.
+    const reviewed = doc.status === "in_review" || doc.status === "approved"
+    const changed =
+      args.title.trim() !== doc.title ||
+      JSON.stringify(existing?.bodyJson ?? null) !== JSON.stringify(args.body)
+    if (reviewed && changed) {
+      patch.status = "draft"
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          signoffs: (existing.signoffs ?? []).filter((s) => s.role === "author"),
+        })
+      }
+    }
+
+    await ctx.db.patch(args.id, patch)
+
     if (existing) {
       await ctx.db.patch(existing._id, {
         bodyKind: "tiptap",
@@ -693,9 +710,14 @@ export async function publishApproved(
 // as-is and the next review moves one interval forward. Changing the content
 // goes through createNewVersion instead.
 export const confirmReview = mutation({
-  args: { id: v.id("documents") },
+  // Confirming a review is a sign-off, so it produces proof: the person must be
+  // checked in, and must be an Engineer (CONTEXT.md: Checked in, Engineer).
+  args: { id: v.id("documents"), personId: v.id("people") },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
+    const person = await ctx.db.get(args.personId)
+    if (!person || person.kind !== "engineer")
+      throw new Error("Check in as an Engineer to confirm a periodic review.")
     const doc = await ctx.db.get(args.id)
     if (!doc) throw new Error("Document not found")
     const live = publishedVersion(doc)
@@ -715,7 +737,10 @@ export const confirmReview = mutation({
       .unique()
     if (row) {
       await ctx.db.patch(row._id, {
-        reviewConfirmations: [...(row.reviewConfirmations ?? []), { userId, at: now }],
+        reviewConfirmations: [
+          ...(row.reviewConfirmations ?? []),
+          { userId, at: now, personId: args.personId },
+        ],
       })
     }
   },
@@ -755,7 +780,8 @@ export const reviewRecord = query({
       },
     ]
     for (const c of row.reviewConfirmations ?? []) {
-      events.push({ kind: "confirmed", at: c.at, by: await nameOf(c.userId) })
+      const person = c.personId ? await ctx.db.get(c.personId) : null
+      events.push({ kind: "confirmed", at: c.at, by: person?.name ?? (await nameOf(c.userId)) })
     }
     events.sort((a, b) => b.at - a.at)
     return { version: live, events }

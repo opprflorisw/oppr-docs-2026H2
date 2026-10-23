@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
 import { CalendarClock, CheckCircle2, GitBranch } from "lucide-react"
@@ -12,6 +13,17 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
+import { useCheckIn } from "@/lib/checkIn"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 const DAY = 24 * 60 * 60 * 1000
 const INTERVALS = [6, 12, 24, 36]
@@ -35,6 +47,9 @@ export function PeriodicReviewCard({
   const confirm = useMutation(api.documents.confirmReview)
   const setInterval = useMutation(api.documents.setReviewInterval)
   const record = useQuery(api.documents.reviewRecord, { documentId: doc._id })
+  const { person } = useCheckIn()
+  const [confirming, setConfirming] = useState(false)
+  const engineer = person?.kind === "engineer" ? person : null
 
   if (doc.liveVersion == null || doc.status === "archived") return null
 
@@ -97,16 +112,43 @@ export function PeriodicReviewCard({
             size="sm"
             variant={due ? "default" : "outline"}
             className="h-7 justify-start gap-1.5 text-xs"
-            onClick={() =>
-              void run(
-                confirm({ id: doc._id }),
-                `v${doc.liveVersion} confirmed as still valid. Next review in ${months} months.`,
-              )
-            }
+            disabled={!engineer}
+            onClick={() => setConfirming(true)}
           >
             <CheckCircle2 className="h-3.5 w-3.5" />
             Still valid, confirm v{doc.liveVersion}
           </Button>
+          {!engineer && (
+            <p className="text-[11px] text-muted-foreground">
+              Confirming is a sign-off. Check in as an Engineer (top right) to do it.
+            </p>
+          )}
+          <AlertDialog open={confirming} onOpenChange={setConfirming}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Confirm v{doc.liveVersion} is still valid?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This records that {engineer?.name ?? "you"} reviewed v{doc.liveVersion} and
+                  it stays in use unchanged. The next review moves to {months} months from
+                  today. The record cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    if (!engineer) return
+                    void run(
+                      confirm({ id: doc._id, personId: engineer._id }),
+                      `v${doc.liveVersion} confirmed as still valid by ${engineer.name}. Next review in ${months} months.`,
+                    )
+                  }}
+                >
+                  Confirm as {engineer?.name.split(" ")[0] ?? "Engineer"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           <Button
             size="sm"
             variant="outline"

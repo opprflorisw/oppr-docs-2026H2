@@ -102,7 +102,7 @@ export const list = query({
   },
 })
 
-type OutdatedReason = "newer_version" | "archived" | "not_published" | "deleted"
+type OutdatedReason = "newer_version" | "archived" | "not_published" | "deleted" | "out_of_scope"
 
 /**
  * Which sources no longer match the Published state of their Document. A
@@ -128,6 +128,16 @@ async function sourceStatus(ctx: QueryCtx, wiki: Doc<"wikis">) {
       stale.set(String(s.documentId), { reason: "not_published", liveVersion: null })
     else if (d.liveVersion !== s.version)
       stale.set(String(s.documentId), { reason: "newer_version", liveVersion: d.liveVersion as number })
+  }
+  // After a scope edit, sources that are no longer in scope are withheld too,
+  // until the rebuild replaces them.
+  const { published } = await resolveScope(ctx, wiki.scope)
+  const inScope = new Set(published.map((d) => String(d._id)))
+  for (const s of wiki.sources) {
+    const key = String(s.documentId)
+    if (!stale.has(key) && !inScope.has(key)) {
+      stale.set(key, { reason: "out_of_scope", liveVersion: null })
+    }
   }
   return { stale, publishedAt }
 }
@@ -282,6 +292,7 @@ async function scopeLabels(ctx: QueryCtx, scope: Scope) {
 function cleanInput(title: string, purpose: string, scope: Scope) {
   const t = title.trim()
   if (!t) throw new Error("Give the Wiki a title.")
+  if (!purpose.trim()) throw new Error("Say who the Wiki is for and what they need from it.")
   if (scopeIsEmpty(scope))
     throw new Error("Choose at least one area, discipline, Asset or Document.")
   return { title: t, purpose: purpose.trim(), scope }

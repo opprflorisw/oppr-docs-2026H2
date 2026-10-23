@@ -264,7 +264,9 @@ export function WikiPage() {
                                 ? "Outdated: archived"
                                 : s.outdated.reason === "deleted"
                                   ? "Outdated: deleted"
-                                  : "Outdated: no longer published"}
+                                  : s.outdated.reason === "out_of_scope"
+                                    ? "No longer in scope"
+                                    : "Outdated: no longer published"}
                           </span>
                         )}
                       </span>

@@ -122,7 +122,7 @@ export function HomePage() {
           <Card>
             <CardContent className="grid grid-cols-2 gap-px overflow-hidden rounded-lg bg-border p-0">
               <Stat label="Published" value={data?.health.published} href="/library?status=published" />
-              <Stat label="In progress" value={data?.health.inProgress} href="/library" />
+              <Stat label="Drafts and revisions" value={data?.health.inProgress} href="/library" />
               <Stat
                 label="Review due"
                 value={data?.health.reviewDue}

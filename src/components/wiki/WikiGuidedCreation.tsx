@@ -107,6 +107,8 @@ export function WikiGuidedCreation({
       blockedReason={(d) =>
         !d.title.trim()
           ? "Give the Wiki a title."
+          : !d.purpose.trim()
+            ? "Say who the Wiki is for and what they need from it."
           : d.scope.areas.length + d.scope.disciplines.length + d.scope.assetIds.length + d.scope.documentIds.length === 0
             ? "Choose at least one area, discipline, Asset or document."
             : null

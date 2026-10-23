@@ -119,7 +119,14 @@ export default defineSchema({
     // Periodic review record for this version: who confirmed it as still
     // valid, and when. Publishing itself is the approver sign-off above.
     reviewConfirmations: v.optional(
-      v.array(v.object({ userId: v.id("users"), at: v.number() })),
+      v.array(
+        v.object({
+          userId: v.id("users"),
+          at: v.number(),
+          // The checked-in Engineer who confirmed it (CONTEXT.md: Checked in).
+          personId: v.optional(v.id("people")),
+        }),
+      ),
     ),
   }).index("by_documentId_and_version", ["documentId", "version"]),
 

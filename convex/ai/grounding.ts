@@ -16,8 +16,13 @@
 //      caught.
 //   5. It keeps the polarity of what it cites: a positive point needs a
 //      positive supporting sentence, a "never / do not" point a negated one.
-// This is what makes "every sentence is grounded in Published content" a
-// property of the code, not of the prompt. It is deliberately strict: a
+//   6. It keeps direction, restrictions and order: above/below, increase/
+//      reduce, start/stop, on/off, "only / unless / except", and what comes
+//      before what.
+// These are lexical checks, not a full reading of meaning: they catch
+// invented facts, wrong numbers and codes and the common meaning flips. A
+// rare change of meaning that keeps all the wording can still pass. It is
+// deliberately strict: a
 // wrongly dropped point costs a little coverage, a wrongly kept one can hurt
 // someone on the floor.
 
@@ -43,6 +48,7 @@ export type DropReason =
   | "unsupported-token"
   | "weak-support"
   | "negation-mismatch"
+  | "meaning-mismatch"
 
 export interface DroppedPoint {
   text: string
@@ -141,9 +147,18 @@ export interface Quantity {
   raw: string
 }
 
+// Words that may follow a number without being what is counted.
+const NOT_A_NOUN = new Set(
+  "AND OR TO AT IN ON OF FOR THE A AN PER BY WITH FROM THAN UNTIL WHEN AFTER BEFORE IS ARE".split(" "),
+)
+
 function readUnit(after: string): string | null {
   const s = after.replace(/^\s+/, "")
   for (const [re, canon] of UNITS) if (re.test(s)) return canon
+  // Otherwise the counted noun is the unit ("15 PIPES"), compared by stem, so
+  // "15 pipes" in a source never supports "15 minutes".
+  const noun = /^([A-Z]{3,})/.exec(s)?.[1]
+  if (noun && !NOT_A_NOUN.has(noun)) return `#${noun.slice(0, 4)}`
   return null
 }
 
@@ -185,9 +200,9 @@ function quantitySupported(q: Quantity, cited: Quantity[]): boolean {
 
 const STOP = new Set(
   ("THE AND FOR WITH THAT THIS FROM INTO ONTO WHEN THEN THAN THEY THEM THEIR " +
-    "THERE HERE YOUR YOURS EACH EVERY BEFORE AFTER WHILE ABOUT ABOVE BELOW UNTIL " +
-    "ALSO ONLY MUST SHOULD WILL WOULD COULD HAVE HAS HAD BEEN BEING WERE WHICH " +
-    "WHERE WHAT WHO WHOM WHOSE SOME SUCH OTHER MORE MOST VERY JUST OVER UNDER " +
+    "THERE HERE YOUR YOURS EACH EVERY WHILE ABOUT UNTIL " +
+    "ALSO MUST SHOULD WILL WOULD COULD HAVE HAS HAD BEEN BEING WERE WHICH " +
+    "WHERE WHAT WHO WHOM WHOSE SOME SUCH OTHER VERY JUST " +
     "SAYS STATES ACCORDING DOCUMENT DOCUMENTS MANUAL STEP STEPS MAKE SURE NEED " +
     "NEEDS KEEP").split(" "),
 )
@@ -220,9 +235,11 @@ export function support(point: string, cited: string): number {
 // point citing an unrelated passage scores near 0.
 export const MIN_SUPPORT = 0.4
 
+// Table rows arrive as "cell | cell | cell"; each cell is its own statement,
+// so a "not" in one cell never counts against another.
 function sentences(text: string): string[] {
   return text
-    .split(/(?<=[.!?;])\s+|\n+/)
+    .split(/(?<=[.!?;])\s+|\n+|\s+\|\s+/)
     .map((s) => s.trim())
     .filter(Boolean)
 }
@@ -282,7 +299,11 @@ export function checkPoint(
     const best = Math.max(0, ...scored.map((x) => x.score))
     const supporting = scored.filter((x) => x.score >= Math.max(MIN_SUPPORT, best - 0.25))
     const ownNeg = NEG_RE.test(normalise(own))
-    if (supporting.length > 0 && !supporting.some((x) => x.neg === ownNeg)) {
+    // A short negated statement ("Purge not finished") that the point fully
+    // contains also backs a negated point, even if a longer cell scores higher.
+    const containedNegation =
+      ownNeg && citedSentences.some((c) => c.neg && support(c.s, own) >= 0.99)
+    if (supporting.length > 0 && !containedNegation && !supporting.some((x) => x.neg === ownNeg)) {
       return {
         ok: false,
         dropped: {
@@ -294,5 +315,67 @@ export function checkPoint(
     }
   }
 
+  // Direction, restriction and order, per sentence of the point, against the
+  // cited sentences that best support it. These catch meaning flips that keep
+  // most of the wording: above/below, increase/reduce, on/off, dropping
+  // "only", and swapping what comes before what.
+  for (const own of sentences(text)) {
+    const scored = citedSentences.map((c) => ({ ...c, score: support(own, c.s) }))
+    const best = Math.max(0, ...scored.map((x) => x.score))
+    const supporting = scored.filter((x) => x.score >= Math.max(MIN_SUPPORT, best - 0.25)).map((x) => x.s)
+    if (supporting.length === 0) continue
+    const problem = meaningFlip(own, supporting)
+    if (problem) return { ok: false, dropped: { text, reason: "meaning-mismatch", detail: problem } }
+  }
+
   return { ok: true, point: { text, sources } }
+}
+
+// Opposites: a point using one side needs a supporting sentence that uses
+// that side too, when the supporting sentences only use the other side.
+const OPPOSITES: [RegExp, RegExp, string][] = [
+  [/\bABOVE\b|\bOVER\b|\bHIGHER\b|\bMORE THAN\b|\bAT LEAST\b|\bMINIMUM\b/, /\bBELOW\b|\bUNDER\b|\bLOWER THAN\b|\bLESS THAN\b|\bAT MOST\b|\bMAXIMUM\b/, "above / below"],
+  [/\bINCREAS\w*|\bRAIS\w*|\bRAMP UP\b/, /\bREDUC\w*|\bDECREAS\w*|\bLOWER(?:S|ED|ING)?\b(?! THAN)|\bRAMP DOWN\b/, "increase / reduce"],
+  [/\bSTART\w*|\bSWITCH ON\b|\bTURN ON\b|\bOPEN\w*/, /\bSTOP\w*|\bSWITCH OFF\b|\bTURN OFF\b|\bCLOS\w*|\bSHUT\w*/, "start / stop"],
+  [/\bON\b(?= *(?:[.,;]|$| DURING| WHILE| UNTIL| AT ALL))/, /\bOFF\b/, "on / off"],
+  [/\bBEFORE\b|\bFIRST\b/, /\bAFTER\b|\bLAST\b/, "before / after"],
+]
+const RESTRICTIONS = /\bONLY\b|\bUNLESS\b|\bEXCEPT\b/
+
+function meaningFlip(point: string, supporting: string[]): string | null {
+  const p = normalise(point)
+  const cs = supporting.map(normalise)
+  for (const [a, b, label] of OPPOSITES) {
+    for (const [mine, other] of [[a, b], [b, a]] as const) {
+      if (mine.test(p) && !cs.some((c) => mine.test(c)) && cs.some((c) => other.test(c))) {
+        return `the source says the opposite (${label})`
+      }
+    }
+  }
+  if (cs.every((c) => RESTRICTIONS.test(c)) && !RESTRICTIONS.test(p)) {
+    return "the point drops a restriction (only / unless / except)"
+  }
+  // Order around "before" / "after": what the point puts first must also come
+  // first in the source.
+  for (const word of ["BEFORE", "AFTER"]) {
+    const pi = p.indexOf(` ${word} `)
+    if (pi < 0) continue
+    const pBefore = new Set(stems4(p.slice(0, pi)))
+    const pAfter = new Set(stems4(p.slice(pi)))
+    for (const c of cs) {
+      const ci = c.indexOf(` ${word} `)
+      if (ci < 0) continue
+      const cBefore = stems4(c.slice(0, ci))
+      const cAfter = stems4(c.slice(ci))
+      const same = cBefore.filter((x) => pBefore.has(x)).length + cAfter.filter((x) => pAfter.has(x)).length
+      const swapped = cBefore.filter((x) => pAfter.has(x)).length + cAfter.filter((x) => pBefore.has(x)).length
+      if (swapped > same) return `the point reverses the order (${word.toLowerCase()})`
+    }
+  }
+  return null
+}
+
+function stems4(canon: string): string[] {
+  const words: string[] = canon.match(/[A-Z]+/g) ?? []
+  return words.filter((w) => w.length >= 4 && !STOP.has(w)).map((w) => w.slice(0, 4))
 }

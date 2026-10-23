@@ -68,6 +68,9 @@ function App() {
             <Switch>
               <Route path="/" component={HomePage} />
               <Route path="/library" component={LibraryPage} />
+              <Route path="/documents">
+                <Redirect to="/library" replace />
+              </Route>
               <Route path="/learn" component={LearnPage} />
               <Route path="/wiki" component={WikiListPage} />
               <Route path="/wiki/:id" component={WikiPage} />
@@ -97,8 +100,11 @@ function App() {
               <Route path="/analysis" component={AnalysisIndexPage} />
               <Route path="/analysis/:slug" component={AnalysisRoute} />
               <Route>
-                <div className="p-8">
-                  <h1 className="text-2xl font-bold">Not found</h1>
+                <div className="space-y-2 p-8">
+                  <h1 className="text-2xl font-bold">Page not found</h1>
+                  <a href="/" className="text-sm text-primary hover:underline">
+                    Go to Home
+                  </a>
                 </div>
               </Route>
             </Switch>

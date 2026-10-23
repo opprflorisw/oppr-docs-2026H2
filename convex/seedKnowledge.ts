@@ -425,7 +425,7 @@ export const run = internalMutation({
         reviewerId: userId,
         approverId: userId,
         tags: [],
-        updatedAt: now - s.editions.length * DAY,
+        updatedAt: now,
         reviewIntervalMonths: DEFAULT_REVIEW_MONTHS,
         nextReviewAt: s.nextReviewInDays == null ? null : now + s.nextReviewInDays * DAY,
         lastReviewedAt:

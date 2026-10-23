@@ -128,7 +128,7 @@ function ScopeSwitcher({
   const [tab, setTab] = useState<"library" | "doc" | "asset">(scope.kind)
   const [query, setQuery] = useState("")
 
-  const docs = useQuery(api.documents.list, {}) ?? []
+  const docs = useQuery(api.documents.list, { publishedOnly: true }) ?? []
   const assets = useQuery(api.assets.list) ?? []
 
   const filteredDocs = useMemo<DocPick[]>(() => {
