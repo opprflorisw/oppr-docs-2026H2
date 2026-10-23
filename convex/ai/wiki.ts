@@ -6,6 +6,8 @@ import { internal } from "../_generated/api"
 import { Id } from "../_generated/dataModel"
 import { requireUser } from "../lib/auth"
 import { CHAT_MODEL } from "./constants"
+import { z } from "zod"
+import { claudeConfigured, claudeJson, describeClaudeError } from "./llm"
 import { checkPoint, ProvidedExcerpt, RawPoint } from "./grounding"
 import { loadScopeOptions } from "../wikis"
 
@@ -22,6 +24,26 @@ function geminiJson(apiKey: string, system: string, schema: ResponseSchema) {
     },
   })
 }
+
+// Same shapes as WIKI_SCHEMA / GUIDE_SCHEMA, for Claude's structured output.
+const WikiOut = z.object({
+  sections: z.array(
+    z.object({
+      heading: z.string(),
+      points: z.array(z.object({ text: z.string(), sources: z.array(z.string()) })),
+    }),
+  ),
+})
+const GuideOut = z.object({
+  reply: z.string(),
+  title: z.string(),
+  purpose: z.string(),
+  areas: z.array(z.string()),
+  disciplines: z.array(z.string()),
+  assetCodes: z.array(z.string()),
+  documentCodes: z.array(z.string()),
+  ready: z.boolean(),
+})
 
 // ---- Generation -------------------------------------------------------------
 
@@ -137,13 +159,15 @@ export const generate = internalAction({
       return
     }
 
+    // Claude when its key is set, otherwise Gemini.
+    const useClaude = claudeConfigured()
     const apiKey = process.env.GEMINI_API_KEY
-    if (!apiKey) {
+    if (!useClaude && !apiKey) {
       await save({
         status: "failed",
         content: null,
         droppedPoints: 0,
-        error: "GEMINI_API_KEY is not set on this deployment.",
+        error: "No AI key is set on this deployment.",
       })
       return
     }
@@ -179,14 +203,23 @@ export const generate = internalAction({
 
     let raw: { sections?: { heading?: string; points?: RawPoint[] }[] }
     try {
-      const result = await geminiJson(apiKey, WIKI_SYSTEM, WIKI_SCHEMA).generateContent(prompt)
-      raw = JSON.parse(result.response.text())
+      if (useClaude) {
+        raw = await claudeJson({
+          system: WIKI_SYSTEM,
+          messages: [{ role: "user", content: prompt }],
+          schema: WikiOut,
+          effort: "medium",
+        })
+      } else {
+        const result = await geminiJson(apiKey!, WIKI_SYSTEM, WIKI_SCHEMA).generateContent(prompt)
+        raw = JSON.parse(result.response.text())
+      }
     } catch (err) {
       await save({
         status: "failed",
         content: null,
         droppedPoints: 0,
-        error: `Generation failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 400),
+        error: `Generation failed: ${useClaude ? describeClaudeError(err) : err instanceof Error ? err.message : String(err)}`.slice(0, 400),
       })
       return
     }
@@ -322,8 +355,9 @@ export const guide = action({
     const options: Options = await ctx.runQuery(internal.ai.wiki.guideOptions, {})
     if (aiStubEnabled()) return stubGuide(args.messages, args.draft, options)
 
+    const useClaude = claudeConfigured()
     const apiKey = process.env.GEMINI_API_KEY
-    if (!apiKey) {
+    if (!useClaude && !apiKey) {
       throw new ConvexError(
         "The assistant is not available on this server (no AI key). Fill in the draft yourself.",
       )
@@ -393,10 +427,30 @@ export const guide = action({
       ready?: boolean
     }
     try {
-      const result = await geminiJson(apiKey, GUIDE_SYSTEM, GUIDE_SCHEMA).generateContent({ contents })
-      out = JSON.parse(result.response.text())
+      if (useClaude) {
+        // Claude takes alternating user/assistant turns; the OPTIONS block
+        // and the current Draft ride along on the person's turns.
+        out = await claudeJson({
+          system: `${GUIDE_SYSTEM}
+
+OPTIONS:
+${optionsText}`,
+          messages: [
+            ...history.slice(0, -1).map((m) => ({ role: m.role, content: m.text })),
+            { role: "user" as const, content: `CURRENT DRAFT: ${currentDraft}
+
+MESSAGE: ${latest.text}` },
+          ],
+          schema: GuideOut,
+          effort: "low",
+          maxTokens: 4000,
+        })
+      } else {
+        const result = await geminiJson(apiKey!, GUIDE_SYSTEM, GUIDE_SCHEMA).generateContent({ contents })
+        out = JSON.parse(result.response.text())
+      }
     } catch (err) {
-      console.error("Wiki guide failed:", err)
+      console.error("Wiki guide failed:", useClaude ? describeClaudeError(err) : err)
       throw new ConvexError(
         "The assistant is not responding right now. Your draft is kept, and you can fill it in yourself.",
       )
