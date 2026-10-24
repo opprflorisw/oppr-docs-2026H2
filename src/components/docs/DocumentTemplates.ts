@@ -86,7 +86,7 @@ const MANUAL: JSONNode = {
   content: [
     h(1, "Untitled manual"),
     p(
-      "Asset description and scope of this manual — covers normal operation, faults, and maintenance.",
+      "Asset description and scope of this manual. It covers normal operation, faults, and maintenance.",
     ),
     ppe(["hardhat", "glasses", "gloves", "boots", "ear-pro"]),
     h(2, "Operating envelope"),
@@ -153,7 +153,7 @@ const LMRA: JSONNode = {
   content: [
     h(1, "Untitled LMRA"),
     p(
-      "Last Minute Risk Analysis — confirm every item with a colleague present before starting.",
+      "Last Minute Risk Analysis: confirm every item with a colleague present before starting.",
     ),
     ppe(["hardhat", "glasses", "gloves", "boots", "hi-vis"]),
     callout("danger", [

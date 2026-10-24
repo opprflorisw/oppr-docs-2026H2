@@ -93,8 +93,8 @@ function HealthBody({ data }: { data: Health }) {
             {s.published === 0
               ? "No Published documents yet."
               : todo === 0
-                ? `${s.published} Published documents, all used and consistent.`
-                : `${todo} of ${s.published} Published documents ${todo === 1 ? "needs" : "need"} a decision to keep the library lean.`}
+                ? `${s.published} Published documents, all used, consistent and not due for review.`
+                : `${todo} of ${s.published} Published documents ${todo === 1 ? "needs" : "need"} a decision: never used, unclear, in a Finding or due for review.`}
           </h2>
           <p className="text-sm text-muted-foreground">
             {s.views} views, {s.scans} Scans and {s.questions} questions in the last {data.windowDays} days

@@ -475,9 +475,10 @@ async function computeHealth(ctx: QueryCtx) {
   }
 
   // The headline counts documents, not items: one document can be unused,
-  // unclear and in a Finding at once.
+  // unclear, in a Finding and due for review at once. Every row in those
+  // sections counts, so the headline matches what the page shows.
   const needsDecision = new Set<string>()
-  for (const i of [...neverUsed, ...unclear, ...overlaps, ...contradictions]) {
+  for (const i of [...neverUsed, ...unclear, ...overlaps, ...contradictions, ...reviewsDue]) {
     needsDecision.add(i.documentId)
     if (i.related) needsDecision.add(i.related.documentId)
   }

@@ -1,5 +1,6 @@
 import type { FunctionReturnType } from "convex/server"
 import type { api } from "../../../convex/_generated/api"
+import { formatDate, formatTime } from "@/lib/time"
 
 // Shared helpers of the Findings UI (CONTEXT.md: Finding, Consistency check).
 
@@ -58,10 +59,10 @@ const DAY = 24 * 60 * 60 * 1000
 /** "today", "yesterday", "3 days ago", else a date. */
 export function whenText(at: number): string {
   const days = Math.floor((startOfDay(Date.now()) - startOfDay(at)) / DAY)
-  if (days <= 0) return `today at ${new Date(at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`
+  if (days <= 0) return `today at ${formatTime(at)}`
   if (days === 1) return "yesterday"
   if (days < 7) return `${days} days ago`
-  return new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })
+  return formatDate(at)
 }
 
 function startOfDay(at: number) {

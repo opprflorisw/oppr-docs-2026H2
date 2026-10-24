@@ -224,7 +224,7 @@ export const SCENARIOS: Scenario[] = [
         say: "On publish, Oppr's Consistency check compares each new version with existing Published knowledge.",
         oppr: {
           title: "Findings",
-          lines: ["1 contradiction: purge amount 25 kg vs 30 kg against EXT-OPS-SOP-0001", "Banner on both documents until an Engineer resolves it"],
+          lines: ["1 contradiction: purge with 25 kg PE100 natural vs purge compound PX-4400 for about 15 minutes in EXT-OPS-SOP-0001", "Banner on both documents until an Engineer resolves it"],
           tone: "signal",
         },
         funnel: 3,
@@ -251,21 +251,21 @@ export const SCENARIOS: Scenario[] = [
       },
       {
         who: "assistant",
-        say: "Found: screen pack change every 400 operating hours, gearbox oil every 4,000 hours, 9 safety warnings. Applies to the extruder EXL-201.",
+        say: "Found: screen pack change every 500 operating hours, gearbox oil every 4,000 hours, 9 safety warnings. Applies to the extruder EXL-201.",
         oppr: { title: "Nothing in Oppr", lines: ["Extraction ran on the local model. No document left the site."], tone: "none" },
       },
       {
         who: "assistant",
         call: {
           tool: "oppr_find_similar",
-          args: { title: "Krauss KX-60 maintenance intervals", text: "Screen pack change every 400 operating hours on EXL-201. Gearbox oil every 4,000 hours..." },
-          result: "Overlaps: EXT-MNT-MAN-0001 Krauss KX-60 manual (Wrapped, Published)",
+          args: { title: "Krauss KX-60 maintenance intervals", text: "Screen pack change every 500 operating hours on EXL-201. Gearbox oil every 4,000 hours..." },
+          result: "Verdict new. Closest: EXT-MNT-MAN-0001 Krauss KX-60 manual (wrapped, Published), similarity 0.78",
         },
         oppr: { title: "Audit log", lines: ["oppr_find_similar, ok", "Key: Plant server (Open WebUI)"], tone: "log" },
       },
       {
         who: "assistant",
-        say: "The manual itself is already wrapped in Oppr. What is missing is a short work instruction for the 400 hour interval. Importing that as a draft, with the warnings as callouts.",
+        say: "The manual itself is already wrapped in Oppr. What is missing is a short work instruction for the 500 hour interval. Importing that as a draft, with the warnings as callouts.",
         call: {
           tool: "oppr_import_draft",
           args: {
@@ -312,7 +312,7 @@ export const SCENARIOS: Scenario[] = [
       },
       {
         who: "assistant",
-        call: { tool: "oppr_skill_coverage", args: { skill: "Operate extrusion line 2" }, result: "Night shift: Jan de Vries level 3, Ahmed Yilmaz level 2" },
+        call: { tool: "oppr_skill_coverage", args: { profile: "Line 2 operator" }, result: "Meets every target: Jan de Vries (night shift), Fatima El Amrani (early shift). Not there yet: Ahmed Yilmaz (late shift), Lockout/tagout line 2 expired" },
         oppr: { title: "Audit log", lines: ["oppr_skill_coverage, ok", "Personal data: read:people scope"], tone: "log" },
       },
       {
@@ -322,7 +322,7 @@ export const SCENARIOS: Scenario[] = [
       },
       {
         who: "assistant",
-        say: "Jan (can train others) and Ahmed are qualified on nights. Purge with PX-4400 at 190 °C until the melt runs clean, about 15 minutes. Source: EXT-OPS-SOP-0001 v1.",
+        say: "On the night shift, Jan de Vries meets every target for Line 2 operator. Ahmed Yilmaz is on the late shift, and his Lockout/tagout line 2 has expired. Purge with PX-4400 at 190 °C until the melt runs clean, about 15 minutes. Source: EXT-OPS-SOP-0001 v1.",
         oppr: { title: "Nothing changes in Oppr", lines: ["Read-only. The answer cites the Published version."], tone: "none" },
       },
     ],

@@ -11,7 +11,7 @@ import { useCheckIn } from "@/lib/checkIn"
 /**
  * My learning on mobile Home, for a checked-in person: the top Next up item
  * with one button. A Round opens on the phone; a Training (questions at a
- * screen) opens its Attempt page.
+ * screen) opens its mobile Attempt page.
  */
 export function MobileLearningCard() {
   const { person } = useCheckIn()
@@ -50,9 +50,9 @@ function LearningCard({ personId }: { personId: Id<"people"> }) {
   const Icon = top.kind === "retrain" ? RotateCcw : top.kind === "signoff" ? BadgeCheck : GraduationCap
 
   function openAttempt(id: Id<"trainingAttempts">, kind: "course" | "round") {
-    // Rounds have a phone screen. Question Trainings open their Attempt page.
-    if (kind === "round") navigate(`/m/round/${id}`)
-    else window.location.assign(`/learn/attempts/${id}`)
+    // Both open inside the phone: a Round walks the plant, a Training asks
+    // its questions one at a time.
+    navigate(kind === "round" ? `/m/round/${id}` : `/m/attempt/${id}`)
   }
 
   async function go() {
@@ -98,15 +98,16 @@ function LearningCard({ personId }: { personId: Id<"people"> }) {
             type="button"
             disabled={busy}
             onClick={() => void go()}
-            className="flex items-center gap-2 rounded-md bg-primary/10 px-2 py-1.5 text-left text-primary active:scale-[0.99] disabled:opacity-70"
+            // The brand's deep violet: white text on it passes contrast, unlike the light primary.
+            className="flex min-h-11 items-center gap-2 rounded-lg bg-[#6E59A5] px-3 py-2 text-left text-white shadow-sm transition hover:bg-[#5b4892] active:scale-[0.99] disabled:opacity-70"
           >
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[11px] font-semibold leading-tight">
+              <div className="truncate text-[12px] font-semibold leading-tight">
                 {label}: {training.title}
               </div>
-              <div className="font-mono text-[9px] opacity-80">{training.code}</div>
+              <div className="font-mono text-[9px] opacity-90">{training.code}</div>
             </div>
-            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <ChevronRight className="h-3 w-3" />}
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronRight className="h-4 w-4" />}
           </button>
         )}
       </div>

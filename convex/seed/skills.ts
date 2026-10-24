@@ -9,7 +9,8 @@
 // - Ahmed runs the late shift, but his lockout/tagout expired two months
 //   ago: nobody on the late shift is qualified, and tonight only Jan.
 // - Lotte, three weeks in, passed the safety round 9 days ago (level 1 on
-//   the Skills it covers) and failed the changeover Training 4 days ago.
+//   every Skill it covers, Vacuum tank setup included) and failed the
+//   changeover Training 4 days ago.
 // - Pieter and Emma run mixing; Emma still needs her drying sign-off. The
 //   drying SOP was republished with a Significant change 12 days ago, so
 //   both need re-training on Granulate drying.
@@ -20,7 +21,10 @@
 // Every level is backed by its history: "Passed X" only with a Training
 // record on that date (after the Training was Published), sign-offs after
 // the level 1 date, and "previous training register" only for people who
-// were there before Oppr Knowledge (never for a new starter).
+// were there before Oppr Knowledge (never for a new starter). A Training
+// covers a Skill as in convex/skills.ts covers(): the Skill links it, or its
+// live version cites one of the Skill's Documents. Every passed Training
+// gives level 1 on each Skill it covers, as onTrainingPassed would.
 import { internalMutation, MutationCtx } from "../_generated/server"
 import { Doc, Id } from "../_generated/dataModel"
 import { addMonths } from "../skills"
@@ -229,6 +233,27 @@ export const run = internalMutation({
     await clear(ctx)
     const now = Date.now()
 
+    // ---- Published Trainings and the Documents their live version cites ----
+    const published: { _id: Id<"trainings">; liveVersion: number; needsReview: boolean; documentIds: Set<Id<"documents">> }[] = []
+    for (const t of await ctx.db.query("trainings").take(500)) {
+      if (t.liveVersion == null || t.status === "archived") continue
+      const ver = await ctx.db
+        .query("trainingVersions")
+        .withIndex("by_trainingId_and_version", (q) => q.eq("trainingId", t._id).eq("version", t.liveVersion as number))
+        .unique()
+      published.push({
+        _id: t._id,
+        liveVersion: t.liveVersion,
+        needsReview: t.needsReview,
+        documentIds: new Set((ver?.objectives ?? []).map((o) => o.documentId)),
+      })
+    }
+    // Same rule as covers() in convex/skills.ts.
+    const covering = (trainingIds: Id<"trainings">[], documentIds: Id<"documents">[]) =>
+      published
+        .filter((t) => trainingIds.includes(t._id) || documentIds.some((d) => t.documentIds.has(d)))
+        .map((t) => t._id)
+
     // ---- Skills ----
     const skillIds = new Map<string, Id<"skills">>()
     const skillTrainings = new Map<string, Id<"trainings">[]>()
@@ -263,7 +288,7 @@ export const run = internalMutation({
         sortOrder: i,
       })
       skillIds.set(s.key, id)
-      skillTrainings.set(s.key, trainingIds)
+      skillTrainings.set(s.key, covering(trainingIds, documentIds))
       validity.set(s.key, s.validityMonths)
     }
 
@@ -352,12 +377,32 @@ export const run = internalMutation({
       return publishedAtOf.get(k)!
     }
 
+    // Level 1 for every Skill a passed Training covers that the story above
+    // does not set: the pass is the proof (e.g. Lotte's Vacuum tank setup
+    // from the safety round, which cites EXT-OPS-WI-0002).
+    const seeded = new Set(LEVELS.map(([name, key]) => `${name}|${key}`))
+    const derived: LevelSeed[] = []
+    for (const person of people) {
+      for (const s of SKILLS) {
+        if (seeded.has(`${person.name}|${s.key}`)) continue
+        const linked = skillTrainings.get(s.key) ?? []
+        let first: number | null = null
+        for (const r of await records(person._id)) {
+          const t = published.find((x) => x._id === r.trainingId)
+          if (!t || !linked.includes(t._id) || t.needsReview || r.trainingVersion !== t.liveVersion) continue
+          if (r.passedAt < (await trainingPublishedAt(r))) continue
+          first = first == null ? r.passedAt : Math.min(first, r.passedAt)
+        }
+        if (first != null) derived.push([person.name, s.key, 1, Math.max(0, (now - first) / DAY), null])
+      }
+    }
+
     let levels = 0
     let fromRecords = 0
     let events = 0
     let retrain = 0
     const skippedLevels: string[] = []
-    for (const [name, key, level, daysAgo, signerName] of LEVELS) {
+    for (const [name, key, level, daysAgo, signerName] of [...LEVELS, ...derived]) {
       const person = byName.get(name)
       const skillId = skillIds.get(key)
       if (!person || !skillId) continue
@@ -477,6 +522,7 @@ export const run = internalMutation({
       peopleAssigned: assigned,
       levels,
       levelsFromRecords: fromRecords,
+      derivedFromRecords: derived.map(([name, key]) => `${name} ${key}`),
       events,
       retrainNeeded: retrain,
       skippedLevels,

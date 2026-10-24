@@ -43,7 +43,11 @@ interface StopDef {
 
 interface VersionDef {
   keys: string[]
-  /** Days ago it was published; null = the working version, not published. */
+  /**
+   * Days ago it was published; null = the working version, not published.
+   * Must be later than every cited Document version was Published (and the
+   * author's sign-off 9 days before it too): devChecks check D.
+   */
   publishedDaysAgo: number | null
   author: string
   reviewer?: string
@@ -178,7 +182,7 @@ const TRAININGS: TrainingDef[] = [
         },
       },
     ],
-    versions: [{ keys: ["c1", "c2", "c3", "c4", "c5", "c6"], publishedDaysAgo: 200, author: SANNE, reviewer: MARK, approver: INGRID }],
+    versions: [{ keys: ["c1", "c2", "c3", "c4", "c5", "c6"], publishedDaysAgo: 155, author: SANNE, reviewer: MARK, approver: INGRID }],
     attempts: [
       { person: "Jan de Vries", daysAgo: 150 },
       { person: "Fatima El Amrani", daysAgo: 120, wrong: [3] },
@@ -378,11 +382,11 @@ const TRAININGS: TrainingDef[] = [
       },
     ],
     versions: [
-      { keys: ["m1", "m2", "m3", "m4"], publishedDaysAgo: 450, author: SANNE, reviewer: MARK, approver: INGRID },
+      { keys: ["m1", "m2", "m3", "m4"], publishedDaysAgo: 290, author: SANNE, reviewer: MARK, approver: INGRID },
       { keys: ["m1", "m2", "m3", "m4", "m5"], publishedDaysAgo: null, author: SANNE, status: "in_review" },
     ],
     attempts: [
-      { person: "Pieter Bakker", daysAgo: 380, wrong: [] },
+      { person: "Pieter Bakker", daysAgo: 270, wrong: [] },
       { person: "Emma de Boer", daysAgo: 140 },
     ],
   },
@@ -463,7 +467,7 @@ const TRAININGS: TrainingDef[] = [
         },
       },
     ],
-    versions: [{ keys: ["w1", "w2", "w3", "w4", "w5"], publishedDaysAgo: 250, author: INGRID, reviewer: SANNE, approver: MARK }],
+    versions: [{ keys: ["w1", "w2", "w3", "w4", "w5"], publishedDaysAgo: 165, author: INGRID, reviewer: SANNE, approver: MARK }],
     attempts: [{ person: "Kevin Mulder", daysAgo: 45 }],
   },
   {
@@ -775,7 +779,8 @@ export const run = internalMutation({
 
       for (const [i, vd] of versionsDef.entries()) {
         const published = vd.publishedDaysAgo != null ? now - vd.publishedDaysAgo * DAY : null
-        const writtenAt = (published ?? now - 3 * DAY) - 9 * DAY
+        // Written 9 days before it was Published; a working version 6 days ago.
+        const writtenAt = published != null ? published - 9 * DAY : now - 6 * DAY
         const signoffs: Doc<"trainingVersions">["signoffs"] = []
         const author = await findPerson(ctx, people, vd.author, true)
         signoffs.push({ role: "author", personId: author?._id ?? null, userId, at: writtenAt })

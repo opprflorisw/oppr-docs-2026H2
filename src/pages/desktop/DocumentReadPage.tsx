@@ -45,6 +45,7 @@ import { DocumentInsightsCard } from "@/components/insights/DocumentInsightsCard
 import { DocumentTrainingsCard } from "@/components/learn/DocumentTrainingsCard"
 import { WrappedManualView } from "@/components/manuals/WrappedManualView"
 import { useRecordUsage } from "@/lib/usage"
+import { useCheckIn } from "@/lib/checkIn"
 import { STATUS_LABELS } from "@/components/docs/StatusBadge"
 
 export function DocumentReadPage() {
@@ -71,6 +72,10 @@ export function DocumentReadPage() {
   const createNewVersion = useMutation(api.documents.createNewVersion)
   const submitForReview = useMutation(api.documents.submitForReview)
   const [submitting, setSubmitting] = useState(false)
+  // Authoring is an Engineer's job (CONTEXT.md): only a checked-in Engineer
+  // sees New version, Edit and the editor entries.
+  const { person } = useCheckIn()
+  const canRevise = person?.kind === "engineer"
 
   const initialPage = useMemo(() => {
     const p = new URLSearchParams(search).get("page")
@@ -153,10 +158,14 @@ export function DocumentReadPage() {
   const hasWorkingDraft = liveVer != null && workingVer > liveVer
 
   function goEdit() {
-    if (rawDoc) navigate(`/docs/${rawDoc._id}/edit`)
+    if (rawDoc && canRevise) navigate(`/docs/${rawDoc._id}/edit`)
   }
   function handleEdit() {
     if (!rawDoc) return
+    if (!canRevise) {
+      toast.info("Check in as an Engineer to revise")
+      return
+    }
     // Published editions are read-only — confirm forking a new version first.
     if (isPublished) setForkOpen(true)
     else goEdit()
@@ -348,15 +357,22 @@ export function DocumentReadPage() {
                   </Button>
                 }
               />}
-              <Button
-                size="sm"
-                // Arriving for a periodic review, the review card is the decision.
-                variant={new URLSearchParams(search).get("panel") === "review" ? "outline" : "default"}
-                onClick={handleEdit}
-              >
-                <Edit className="mr-1 h-3.5 w-3.5" />
-                {isPublished ? "New version" : "Edit"}
-              </Button>
+              {canRevise ? (
+                <Button
+                  size="sm"
+                  // Arriving for a periodic review, the review card is the decision.
+                  variant={new URLSearchParams(search).get("panel") === "review" ? "outline" : "default"}
+                  onClick={handleEdit}
+                >
+                  <Edit className="mr-1 h-3.5 w-3.5" />
+                  {isPublished ? "New version" : "Edit"}
+                </Button>
+              ) : (
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Lock className="h-3.5 w-3.5" />
+                  Check in as an Engineer to revise
+                </span>
+              )}
             </>
           }
         />
@@ -383,9 +399,11 @@ export function DocumentReadPage() {
                     <GitBranch className="mr-1 h-3.5 w-3.5" />
                     View v{workingVer} draft
                   </Button>
-                  <Button size="sm" variant="outline" onClick={goEdit}>
-                    Open in editor
-                  </Button>
+                  {canRevise && (
+                    <Button size="sm" variant="outline" onClick={goEdit}>
+                      Open in editor
+                    </Button>
+                  )}
                 </span>
               </AlertDescription>
             </Alert>
@@ -407,9 +425,11 @@ export function DocumentReadPage() {
                   >
                     View live v{liveVer}
                   </Button>
-                  <Button size="sm" variant="outline" onClick={goEdit}>
-                    Open in editor
-                  </Button>
+                  {canRevise && (
+                    <Button size="sm" variant="outline" onClick={goEdit}>
+                      Open in editor
+                    </Button>
+                  )}
                 </span>
               </AlertDescription>
             </Alert>
@@ -444,7 +464,7 @@ export function DocumentReadPage() {
                     ? "This document is archived. It is no longer valid and is not shown to Operators, Ask or Wikis."
                     : "This document is not published yet. It does not count as knowledge: Operators, Ask and Wikis cannot see it."}
                 </p>
-                {workingStatus !== "archived" && rawDoc && (
+                {workingStatus !== "archived" && rawDoc && canRevise && (
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-amber-300/60 pt-2 print:hidden">
                     <span className="flex items-center gap-1.5 font-medium">
                       <ArrowRight className="h-3.5 w-3.5" />

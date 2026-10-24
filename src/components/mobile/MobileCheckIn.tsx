@@ -18,8 +18,26 @@ export function MobileCheckInButton({
 }) {
   const { person } = useCheckIn()
   const { openCheckIn } = useMobileShell()
-  const label = person ? `Checked in as ${person.name}` : "Anonymous. Check in"
+  const label = person ? `Checked in as ${person.name}` : "Check in"
 
+  // Anonymous in the header: a small "Check in" chip, the same words as the
+  // desktop top bar, so the way to check in is obvious.
+  if (variant === "icon" && !person) {
+    return (
+      <button
+        type="button"
+        onClick={openCheckIn}
+        aria-label={label}
+        className={cn(
+          "flex h-8 shrink-0 items-center gap-1 rounded-full border bg-background pl-1 pr-2 text-[11px] font-medium text-foreground transition hover:bg-muted active:scale-95",
+          className,
+        )}
+      >
+        <Avatar person={null} />
+        Check in
+      </button>
+    )
+  }
   if (variant === "pill") {
     return (
       <button
@@ -28,12 +46,12 @@ export function MobileCheckInButton({
         aria-label={label}
         className={cn(
           "flex h-8 max-w-[170px] items-center gap-1.5 rounded-full border px-2 text-[11px] font-medium transition active:scale-95",
-          person ? "border-primary/40 bg-primary/5 text-foreground" : "bg-background text-muted-foreground",
+          person ? "border-primary/40 bg-primary/5 text-foreground" : "bg-background text-foreground",
           className,
         )}
       >
         <Avatar person={person} />
-        <span className="truncate">{person ? person.name : "Anonymous"}</span>
+        <span className="truncate">{person ? person.name : "Check in"}</span>
       </button>
     )
   }
@@ -42,7 +60,7 @@ export function MobileCheckInButton({
       type="button"
       onClick={openCheckIn}
       aria-label={label}
-      title={person ? person.name : "Anonymous"}
+      title={person ? person.name : "Check in"}
       className={cn(
         "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition hover:bg-muted active:scale-95",
         className,

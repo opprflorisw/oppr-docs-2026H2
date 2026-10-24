@@ -1,9 +1,13 @@
-import { mutation } from "./_generated/server"
+import { internalMutation, mutation, MutationCtx } from "./_generated/server"
 
-// One-off seeding of a best-practice, multi-chapter SOP template into the
-// templates table. Idempotent on the template name. No auth requirement so it
-// can be run from the CLI (`npx convex run seedTemplates:seedBestPracticeSop`)
-// — it only inserts a template row, which is harmless in this showcase.
+// Seeds the best-practice, multi-chapter SOP template into the templates
+// table. Upserts by its key: a row with the same name, ignoring dashes,
+// colons and spacing, is overwritten (so an older name is renamed). The
+// knowledge reseed (seedKnowledge:run) calls `upsert`, which also takes the
+// long dash out of every template name and description. No auth requirement
+// on the public mutation so it can be run from the CLI
+// (`npx convex run seedTemplates:seedBestPracticeSop`): it only writes
+// template rows, which is harmless in this showcase.
 
 interface JSONNode {
   type: string
@@ -108,32 +112,57 @@ const SOP_BEST_PRACTICE: JSONNode = {
   ],
 }
 
+const SOP_NAME = "SOP: Best practice (chapters)"
+const SOP_DESCRIPTION =
+  "Chaptered SOP: scope, safety, definitions, prerequisites, procedure (uncontrolled actions), references, revision history."
+
+const LONG_DASH = /\s*[\u2013\u2014]\s*/g
+
+/** The template's identity: its name without dashes, colons or spacing. */
+const keyOf = (name: string) => name.toLowerCase().replace(/[\s:\-\u2013\u2014]+/g, "")
+
+/** A long dash in a name becomes a colon ("SOP: Best practice"); in a description, a comma. */
+function withoutLongDash(text: string, kind: "name" | "description"): string {
+  return text.replace(LONG_DASH, kind === "name" ? ": " : ", ")
+}
+
+async function upsertTemplates(ctx: MutationCtx) {
+  const rows = await ctx.db.query("templates").take(500)
+  const key = keyOf(SOP_NAME)
+  const matches = rows.filter((r) => keyOf(r.name) === key)
+  // Older runs could leave a renamed copy next to the current one: keep one.
+  const [keep, ...extra] = matches
+  for (const r of extra) await ctx.db.delete(r._id)
+  const fields = {
+    name: SOP_NAME,
+    type: "sop",
+    description: SOP_DESCRIPTION,
+    bodyJson: SOP_BEST_PRACTICE,
+    updatedAt: Date.now(),
+  }
+  let id = keep?._id ?? null
+  if (keep) await ctx.db.patch(keep._id, fields)
+  else id = await ctx.db.insert("templates", fields)
+  let renamed = 0
+  for (const r of rows) {
+    if (matches.includes(r)) continue
+    const name = withoutLongDash(r.name, "name")
+    const description = r.description == null ? null : withoutLongDash(r.description, "description")
+    if (name !== r.name || description !== r.description) {
+      await ctx.db.patch(r._id, { name, description })
+      renamed++
+    }
+  }
+  return { id, created: !keep, removedDuplicates: extra.length, renamed }
+}
+
+/** Called by the knowledge reseed (seedKnowledge:run). */
+export const upsert = internalMutation({
+  args: {},
+  handler: async (ctx) => upsertTemplates(ctx),
+})
+
 export const seedBestPracticeSop = mutation({
   args: {},
-  handler: async (ctx) => {
-    const name = "SOP: Best practice (chapters)"
-    // Older runs named it with a dash; find either and rename.
-    const legacyName = "SOP \u2014 Best practice (chapters)"
-    const existing = await ctx.db
-      .query("templates")
-      .filter((q) => q.or(q.eq(q.field("name"), name), q.eq(q.field("name"), legacyName)))
-      .first()
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        name,
-        bodyJson: SOP_BEST_PRACTICE,
-        updatedAt: Date.now(),
-      })
-      return { updated: true, id: existing._id }
-    }
-    const id = await ctx.db.insert("templates", {
-      name,
-      type: "sop",
-      description:
-        "Chaptered SOP: scope, safety, definitions, prerequisites, procedure (uncontrolled actions), references, revision history.",
-      bodyJson: SOP_BEST_PRACTICE,
-      updatedAt: Date.now(),
-    })
-    return { created: true, id }
-  },
+  handler: async (ctx) => upsertTemplates(ctx),
 })

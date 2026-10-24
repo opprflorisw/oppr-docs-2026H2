@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useQuery } from "convex/react"
 import type { FunctionReturnType } from "convex/server"
 import { Link } from "wouter"
-import { AlertTriangle, CalendarClock, Grid3x3, Moon, RotateCcw, Settings2, Sunrise, Sunset, Users } from "lucide-react"
+import { AlertTriangle, CalendarClock, ChevronLeft, ChevronRight, Grid3x3, Moon, RotateCcw, Settings2, Sunrise, Sunset, Users } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { Card, CardContent } from "@/components/ui/card"
@@ -15,6 +15,12 @@ import { SkillCellSheet } from "./skills/SkillCellSheet"
 import { expiryText, LevelDots, levelName, SkillLegend, STATUS_META, type SkillStatus } from "./skills/skillUi"
 
 const ALL = "all"
+
+// Below 1360px the matrix tightens: a narrower person column and narrow
+// Skill columns with wrapped headers, so a laptop shows every Skill without
+// cutting one off. Wider screens get the roomy layout.
+const PERSON_COL = "w-[204px] min-w-[204px] max-w-[204px] min-[1360px]:w-[250px] min-[1360px]:min-w-[250px] min-[1360px]:max-w-[250px]"
+const SKILL_COL = "w-[74px] min-w-[74px] max-w-[74px] min-[1360px]:w-[84px] min-[1360px]:min-w-[84px] min-[1360px]:max-w-[84px]"
 
 // Learn tab: the Skill matrix, people against Skills, current against target
 // level. Answers "who can run line 2 tonight?" and "who needs re-training?"
@@ -158,7 +164,12 @@ export function SkillMatrixTab() {
           <table className="w-full border-separate border-spacing-0 text-xs">
             <thead>
               <tr>
-                <th className="sticky left-0 z-20 w-[250px] min-w-[250px] border-b border-r bg-card px-4 py-2 text-left align-bottom text-[11px] font-medium text-muted-foreground">
+                <th
+                  className={cn(
+                    "sticky left-0 z-20 border-b border-r bg-card px-3 py-2 text-left align-bottom text-[11px] font-medium text-muted-foreground min-[1360px]:px-4",
+                    PERSON_COL,
+                  )}
+                >
                   <div className="flex items-end justify-between gap-2">
                     <span>Person</span>
                     <span>At target</span>
@@ -167,10 +178,13 @@ export function SkillMatrixTab() {
                 {data.skills.map((s) => (
                   <th
                     key={s._id}
-                    className="w-[84px] min-w-[84px] max-w-[84px] border-b border-l px-1 py-2 text-center align-bottom font-medium"
+                    className={cn("border-b border-l px-1 py-2 text-center align-bottom font-medium", SKILL_COL)}
                     title={s.name}
                   >
-                    <div className="line-clamp-4 break-words text-[10.5px] leading-tight">{s.name}</div>
+                    <div className="line-clamp-4 hyphens-auto break-words text-[10px] leading-tight min-[1360px]:text-[10.5px]" lang="en">
+                      {/* Let "Lockout/tagout" wrap at the slash, not mid-word. */}
+                      {s.name.replace(/\//g, "/\u200b")}
+                    </div>
                     <div className="mt-0.5 text-[10px] font-normal text-muted-foreground">
                       {s.area ?? ""}
                       {s.validityMonths ? ` · ${s.validityMonths} mo` : ""}
@@ -187,7 +201,8 @@ export function SkillMatrixTab() {
                   <tr key={p._id} className={cn("group transition-opacity", dim && "opacity-40")}>
                     <td
                       className={cn(
-                        "sticky left-0 z-10 w-[250px] min-w-[250px] border-b border-r bg-card px-4 py-2",
+                        "sticky left-0 z-10 border-b border-r bg-card px-3 py-2 min-[1360px]:px-4",
+                        PERSON_COL,
                         tonight && qualified && "bg-emerald-50 shadow-[inset_3px_0_0_#10b981] dark:bg-emerald-950",
                       )}
                     >
@@ -206,12 +221,12 @@ export function SkillMatrixTab() {
                             </span>
                           </span>
                         </Link>
-                        <div className="w-14 shrink-0">
+                        <div className="w-12 shrink-0 min-[1360px]:w-14">
                           <Progress done={p.summary.atTarget} total={p.summary.targets} />
                         </div>
                       </div>
                       {p.profiles.length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1 pl-[38px]">
+                        <div className="mt-1 flex flex-wrap gap-1 pl-[38px] max-[1359px]:pl-0">
                           {p.profiles.map((pr) => (
                             <span key={pr._id} className="rounded bg-primary/10 px-1.5 py-px text-[10px] text-primary">
                               {pr.name}
@@ -223,7 +238,7 @@ export function SkillMatrixTab() {
                     {data.skills.map((s) => {
                       const c = p.cells[s._id]
                       return (
-                        <td key={s._id} className="border-b border-l p-1 text-center">
+                        <td key={s._id} className={cn("border-b border-l p-1 text-center", SKILL_COL)}>
                           {c && (
                             <MatrixCell
                               cell={c}
@@ -255,7 +270,7 @@ export function SkillMatrixTab() {
 
 /**
  * The matrix scrolls sideways when there are many Skills. The person column
- * stays put, and a fade on either edge shows there is more to see.
+ * stays put; a fade on the edge and arrows above it show there is more to see.
  */
 function MatrixScroller({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -278,18 +293,46 @@ function MatrixScroller({ children }: { children: ReactNode }) {
       ro.disconnect()
     }
   }, [])
+  const page = (dir: 1 | -1) => ref.current?.scrollBy({ left: dir * ref.current.clientWidth * 0.6, behavior: "smooth" })
   return (
-    <Card className="relative overflow-hidden">
-      <div ref={ref} className="overflow-x-auto">
-        {children}
-      </div>
-      {edges.left && (
-        <div className="pointer-events-none absolute inset-y-0 left-[250px] z-20 w-6 bg-gradient-to-r from-black/10 to-transparent dark:from-black/40" />
+    <div className="space-y-1.5">
+      {(edges.left || edges.right) && (
+        <div className="flex items-center justify-end gap-1.5 text-[11px] text-muted-foreground">
+          <span>More Skills to the {edges.right ? "right" : "left"}</span>
+          <Button
+            size="icon"
+            variant="outline"
+            className="h-6 w-6"
+            aria-label="Scroll the matrix left"
+            disabled={!edges.left}
+            onClick={() => page(-1)}
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="icon"
+            variant="outline"
+            className="h-6 w-6"
+            aria-label="Scroll the matrix right"
+            disabled={!edges.right}
+            onClick={() => page(1)}
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       )}
-      {edges.right && (
-        <div className="pointer-events-none absolute inset-y-0 right-0 z-20 w-10 bg-gradient-to-l from-card to-transparent" />
-      )}
-    </Card>
+      <Card className="relative overflow-hidden">
+        <div ref={ref} className="overflow-x-auto">
+          {children}
+        </div>
+        {edges.left && (
+          <div className="pointer-events-none absolute inset-y-0 left-[204px] z-20 w-6 bg-gradient-to-r from-black/10 to-transparent min-[1360px]:left-[250px] dark:from-black/40" />
+        )}
+        {edges.right && (
+          <div className="pointer-events-none absolute inset-y-0 right-0 z-20 w-12 bg-gradient-to-l from-card via-card/70 to-transparent" />
+        )}
+      </Card>
+    </div>
   )
 }
 

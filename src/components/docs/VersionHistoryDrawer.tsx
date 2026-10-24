@@ -81,7 +81,9 @@ export function VersionHistoryDrawer({
             Every version of this document, newest first, with its state.
           </SheetDescription>
         </SheetHeader>
-        <ScrollArea className="-mx-6 mt-4 flex-1 px-6">
+        {/* Radix wraps the content in a display:table div that grows with its
+            widest line; forcing it to block keeps every card inside the sheet. */}
+        <ScrollArea className="-mx-6 mt-4 min-h-0 flex-1 px-6 [&_[data-radix-scroll-area-viewport]>div]:!block">
           {versions.length === 0 ? (
             <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
               No versions yet.
@@ -118,9 +120,9 @@ export function VersionHistoryDrawer({
                     key={v._id}
                     className="rounded-md border bg-background p-3"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+                      <div className="min-w-0 flex-1 basis-56 space-y-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <span className="text-sm font-semibold">
                             v{v.version}
                           </span>
@@ -174,6 +176,7 @@ export function VersionHistoryDrawer({
                       </div>
                       <Button
                         size="sm"
+                        className="shrink-0"
                         variant={isSelected ? "secondary" : "outline"}
                         onClick={() => {
                           onSelect(v.version)

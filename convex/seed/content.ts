@@ -60,7 +60,25 @@ function withPublishedRevision(d: SeedDoc): SeedDoc {
   }
 }
 
-export const SEED_DOCS: SeedDoc[] = NATIVE_DOCS.map(withPublishedRevision)
+// The Documents the line 2 safety round (EXT-TRN-0002, Published 500 days
+// ago) cites were Published before it: a Training can only cite Published
+// Knowledge. Their periodic review dates stay as they are: seedKnowledge
+// derives the last confirmation from the next review date, so the review
+// story (EXT-HSE-SOP-0001 is 10 days overdue) does not change.
+const FIRST_PUBLISHED_DAYS_AGO: Record<string, number> = {
+  "EXT-HSE-SOP-0001": 520,
+  "EXT-HSE-LMRA-0001": 520,
+  "EXT-OPS-WI-0002": 520,
+}
+
+function withFirstPublished(d: SeedDoc): SeedDoc {
+  const days = FIRST_PUBLISHED_DAYS_AGO[d.code]
+  const first = d.editions[0]
+  if (days == null || first.publishedDaysAgo == null || first.publishedDaysAgo >= days) return d
+  return { ...d, editions: [{ ...first, publishedDaysAgo: days }, ...d.editions.slice(1)] }
+}
+
+export const SEED_DOCS: SeedDoc[] = NATIVE_DOCS.map(withFirstPublished).map(withPublishedRevision)
 
 export const SITE = "PWN"
 

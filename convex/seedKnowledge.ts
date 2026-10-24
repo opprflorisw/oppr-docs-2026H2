@@ -5,6 +5,7 @@ import { Doc, Id, TableNames } from "./_generated/dataModel"
 import { counterKey, parseNamingCode } from "./naming"
 import { FACTORY_PPE } from "./ppe"
 import { DEFAULT_REVIEW_MONTHS } from "./documents"
+import { addMonths } from "./skills"
 import { requestGeneration } from "./wikis"
 import { bodyChunks, pdfPageChunks } from "./lib/chunking"
 import type { Node, SeedDoc, SupplierManual } from "./seed/builders"
@@ -352,7 +353,17 @@ export const writeDocumentRows = internalMutation({
         updatedAt: args.now - (lastAgo ?? 1) * DAY,
         reviewIntervalMonths: DEFAULT_REVIEW_MONTHS,
         nextReviewAt: live != null && p.nextReviewInDays != null ? args.now + p.nextReviewInDays * DAY : null,
-        lastReviewedAt: liveAgo != null ? args.now - liveAgo * DAY : null,
+        // The last review is the publish, or a later periodic review that
+        // confirmed it: one interval before the next review is due.
+        lastReviewedAt:
+          liveAgo == null
+            ? null
+            : p.nextReviewInDays == null
+              ? args.now - liveAgo * DAY
+              : Math.max(
+                  args.now - liveAgo * DAY,
+                  addMonths(args.now + p.nextReviewInDays * DAY, -DEFAULT_REVIEW_MONTHS),
+                ),
         origin: p.origin,
         supplier: p.supplier,
       })
@@ -412,9 +423,17 @@ function signoffsFor(
 ): Signoff[] {
   if (!userId) return []
   const s = SIGNERS[discipline] ?? SIGNERS.OPS
-  const out: Signoff[] = [{ role: "author", userId, at: at - 9 * DAY, personId: personId(s.author) }]
-  if (stage !== "authored") out.push({ role: "reviewer", userId, at: at - 3 * DAY, personId: personId(s.reviewer) })
-  if (stage === "published") out.push({ role: "approver", userId, at, personId: personId(s.approver) })
+  // A Published version: written 9 days and reviewed 3 days before `at`.
+  // A working version starts at `at` with the author's sign-off, so the
+  // History drawer's "Started" date and the author date are the same day.
+  if (stage === "published")
+    return [
+      { role: "author", userId, at: at - 9 * DAY, personId: personId(s.author) },
+      { role: "reviewer", userId, at: at - 3 * DAY, personId: personId(s.reviewer) },
+      { role: "approver", userId, at, personId: personId(s.approver) },
+    ]
+  const out: Signoff[] = [{ role: "author", userId, at, personId: personId(s.author) }]
+  if (stage === "approved") out.push({ role: "reviewer", userId, at: at + 4 * DAY, personId: personId(s.reviewer) })
   return out
 }
 
@@ -480,7 +499,8 @@ export const writeDocumentVersions = internalMutation({
         const version = i + 1
         const isLast = version === native.editions.length
         const published = ed.publishedDaysAgo != null
-        const at = published ? args.now - ed.publishedDaysAgo! * DAY : args.now - DAY
+        // A working version was started (and signed by its author) 8 days ago.
+        const at = published ? args.now - ed.publishedDaysAgo! * DAY : args.now - 8 * DAY
         const stage = published ? "published" : isLast && native.status === "approved" ? "approved" : "authored"
         const resolved = resolveBody(ed.body, { docs, assets, images })
         await ctx.db.insert("documentVersions", {
@@ -698,6 +718,14 @@ export const run = internalAction({
         modules[name] = { error: e instanceof Error ? e.message : String(e) }
         console.error(`seed module ${name} failed:`, e)
       }
+    }
+
+    // Templates are kept by the wipe; upsert the seeded one by name so an
+    // old row is renamed rather than shown with its old name.
+    try {
+      modules.templates = await ctx.runMutation(internal.seedTemplates.upsert, {})
+    } catch (e) {
+      modules.templates = { error: e instanceof Error ? e.message : String(e) }
     }
 
     // 7. Wikis (generated in the background).

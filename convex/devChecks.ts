@@ -256,6 +256,85 @@ async function waitForWiki(
   return { wiki: await ctx.runQuery(internal.devChecks.getWiki, { id }), ms: Date.now() - start }
 }
 
+/**
+ * Check D: Training dates follow from what they rest on. Every Published
+ * Training version is Published after each Document version it cites; every
+ * Attempt and Training record of it comes after that; every Skill event that
+ * names a pass ("Passed EXT-TRN-0002 v1") is on or after that record.
+ */
+export const trainingTimeline = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const day = (t: number) => new Date(t).toISOString().slice(0, 10)
+    const problems: string[] = []
+    const trainings = await ctx.db.query("trainings").take(500)
+    const codeOf = new Map(trainings.map((t) => [t._id, t.code]))
+    const publishedAt = new Map<string, number>()
+    let versions = 0
+    let citations = 0
+    for (const t of trainings) {
+      const rows = await ctx.db
+        .query("trainingVersions")
+        .withIndex("by_trainingId_and_version", (q) => q.eq("trainingId", t._id))
+        .take(100)
+      for (const tv of rows) {
+        if (tv.publishedAt == null) continue
+        versions++
+        publishedAt.set(`${t._id}|${tv.version}`, tv.publishedAt)
+        for (const o of tv.objectives) {
+          citations++
+          const dv = await ctx.db
+            .query("documentVersions")
+            .withIndex("by_documentId_and_version", (q) =>
+              q.eq("documentId", o.documentId).eq("version", o.documentVersion),
+            )
+            .unique()
+          if (!dv) problems.push(`${t.code} v${tv.version} cites missing ${o.namingCode} v${o.documentVersion}`)
+          else if (!(dv.publishedAt < tv.publishedAt))
+            problems.push(
+              `${t.code} v${tv.version} Published ${day(tv.publishedAt)}, before ${o.namingCode} v${o.documentVersion} (${day(dv.publishedAt)})`,
+            )
+        }
+      }
+    }
+    const attempts = await ctx.db.query("trainingAttempts").take(5000)
+    for (const a of attempts) {
+      const at = publishedAt.get(`${a.trainingId}|${a.trainingVersion}`)
+      if (at == null) problems.push(`attempt on unpublished ${codeOf.get(a.trainingId)} v${a.trainingVersion}`)
+      else if (a.startedAt < at)
+        problems.push(`attempt ${codeOf.get(a.trainingId)} started ${day(a.startedAt)}, before its Publish ${day(at)}`)
+    }
+    const records = await ctx.db.query("trainingRecords").take(5000)
+    for (const r of records) {
+      const at = publishedAt.get(`${r.trainingId}|${r.trainingVersion}`)
+      if (at == null) problems.push(`record of unpublished ${r.trainingCode} v${r.trainingVersion}`)
+      else if (!(r.passedAt > at))
+        problems.push(`record ${r.trainingCode} v${r.trainingVersion} passed ${day(r.passedAt)}, before its Publish ${day(at)}`)
+    }
+    const people = new Map((await ctx.db.query("people").take(500)).map((p) => [p._id, p.name]))
+    const events = await ctx.db.query("skillEvents").take(5000)
+    let fromTrainings = 0
+    for (const e of events) {
+      const m = /passed ([A-Z]{3}-TRN-\d{4}) v(\d+)/i.exec(e.reason)
+      if (!m) continue
+      fromTrainings++
+      const hit = records.find(
+        (r) => r.personId === e.personId && r.trainingCode === m[1] && r.trainingVersion === Number(m[2]) && r.passedAt <= e.at,
+      )
+      if (!hit)
+        problems.push(`${people.get(e.personId) ?? "someone"}: "${e.reason}" on ${day(e.at)} has no record on or before it`)
+    }
+    return {
+      versions,
+      citations,
+      attempts: attempts.length,
+      records: records.length,
+      events: fromTrainings,
+      problems: [...new Set(problems)],
+    }
+  },
+})
+
 /** Open Findings with their two quotes, for check F. */
 export const openFindings = internalQuery({
   args: {},
@@ -295,6 +374,17 @@ export const run = internalAction({
       )
       return [...new Set([...risky, ...sampleLive, ...chunks.filter((c) => own.has(c.documentId)).map((c) => c._id)])]
     }
+
+    // ---- D. Training dates follow from the Documents and passes they rest on ----
+    const timeline = await ctx.runQuery(internal.devChecks.trainingTimeline, {})
+    add(
+      "D",
+      "Trainings are Published after what they cite; records and Skill events after that",
+      timeline.problems.length === 0,
+      timeline.problems.length === 0
+        ? `${timeline.versions} Published Training versions, ${timeline.citations} citations, ${timeline.attempts} attempts, ${timeline.records} records and ${timeline.events} Skill events from passes all in order`
+        : timeline.problems.slice(0, 8).join("; "),
+    )
 
     // ---- 3. Ask serves Published only, in every scope ----
     const scopes: ({ kind: "library" } | { kind: "doc"; id: Id<"documents"> } | { kind: "asset"; id: Id<"assets"> })[] = [

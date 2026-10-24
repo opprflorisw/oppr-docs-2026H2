@@ -4,6 +4,7 @@ import { Link } from "wouter"
 import { toast } from "sonner"
 import { AlertTriangle, Check, Copy, KeyRound, Loader2, Plus, ScrollText, XCircle } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
+import { formatDate, formatDateTime } from "@/lib/time"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -49,16 +50,15 @@ export async function copyText(text: string, what = "Copied") {
 
 function when(ts: number | null | undefined): string {
   if (!ts) return "Never"
-  const d = new Date(ts)
   const mins = Math.round((Date.now() - ts) / 60000)
   if (mins < 1) return "Just now"
   if (mins < 60) return `${mins} min ago`
   if (mins < 24 * 60) return `${Math.round(mins / 60)} h ago`
-  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })
+  return formatDate(ts)
 }
 
 function time(ts: number): string {
-  return new Date(ts).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+  return formatDateTime(ts)
 }
 
 /** MCP keys: list, make (Engineer check-in), revoke. Used on /mcp and in Settings. */

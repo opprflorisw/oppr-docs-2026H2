@@ -149,15 +149,17 @@ export function PeriodicReviewCard({
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 justify-start gap-1.5 text-xs"
-            onClick={onStartRevision}
-          >
-            <GitBranch className="h-3.5 w-3.5" />
-            Needs changes, start revision
-          </Button>
+          {engineer && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 justify-start gap-1.5 text-xs"
+              onClick={onStartRevision}
+            >
+              <GitBranch className="h-3.5 w-3.5" />
+              Needs changes, start revision
+            </Button>
+          )}
         </div>
       )}
 

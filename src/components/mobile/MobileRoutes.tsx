@@ -7,6 +7,7 @@ import { MobileDocsPage } from "@/pages/mobile/MobileDocsPage"
 import { MobileDocPage } from "@/pages/mobile/MobileDocPage"
 import { MobileAskPage } from "@/pages/mobile/MobileAskPage"
 import { MobileRoundPage } from "@/pages/mobile/MobileRoundPage"
+import { MobileAttemptPage } from "@/pages/mobile/MobileAttemptPage"
 
 /**
  * Every route of the mobile (floor) app. Used by App.tsx under /m and by the
@@ -23,6 +24,7 @@ export function MobileRoutes() {
       <Route path="/m/docs/:id" component={MobileDocPage} />
       <Route path="/m/ask" component={MobileAskPage} />
       <Route path="/m/round/:attemptId" component={MobileRoundPage} />
+      <Route path="/m/attempt/:attemptId" component={MobileAttemptPage} />
       {/* Shared components (Ask sources, cited passages) sometimes link to the
           desktop address. Inside the phone that means the mobile page. */}
       <Route path="/docs/:id">
