@@ -1,6 +1,7 @@
 import { ChevronLeft } from "lucide-react"
 import { useLocation } from "wouter"
 import type { ReactNode } from "react"
+import { MobileCheckInButton } from "./MobileCheckIn"
 
 interface MobileHeaderProps {
   /**
@@ -14,11 +15,14 @@ interface MobileHeaderProps {
   subtitle?: string
   /** Optional right-aligned action slot — typically a search/menu icon. */
   right?: ReactNode
+  /** Show the check-in control (Anonymous or the checked-in person). Default on. */
+  checkIn?: boolean
 }
 
 /**
  * Sticky top header for mobile sub-pages. Renders a 44px-tall back button,
- * the title, an optional subtitle, and an optional right slot.
+ * the title, an optional subtitle, an optional right slot and the
+ * check-in control.
  */
 export function MobileHeader({
   backTo = "/m",
@@ -26,6 +30,7 @@ export function MobileHeader({
   title,
   subtitle,
   right,
+  checkIn = true,
 }: MobileHeaderProps) {
   const [, navigate] = useLocation()
   const showBack = onBack != null || backTo !== null
@@ -60,8 +65,11 @@ export function MobileHeader({
           </div>
         )}
       </div>
-      {right ? (
-        <div className="flex shrink-0 items-center gap-0.5">{right}</div>
+      {right || checkIn ? (
+        <div className="flex shrink-0 items-center gap-0.5">
+          {right}
+          {checkIn && <MobileCheckInButton />}
+        </div>
       ) : null}
     </header>
   )

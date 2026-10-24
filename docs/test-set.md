@@ -1,38 +1,67 @@
-# Test set: Oppr Knowledge slices 0 and 1
+# Test set: Oppr Knowledge showcase
 
 A fixed regression set that every later slice reruns. It runs on the Convex
-**dev** deployment against the fresh seed (`convex/seedKnowledge.ts`).
+**dev** deployment against the seed (`convex/seedKnowledge.ts`, content in
+`convex/seed/`).
 
 ```
-npx convex run seedKnowledge:run    # fresh seed
-npx convex run devChecks:run        # automated checks 3-7, G and B (all must pass)
+npx convex run seedKnowledge:run    # fresh seed (about 10 s with cached media)
+# wait about 90 s: embeddings, Wiki builds and the seeded Consistency check
+npx convex run devChecks:run        # automated checks (all must pass)
 npx convex run seedKnowledge:run    # restore: check 6 publishes a document
 ```
 
-After a reseed, give the background embedding and Wiki build about 30 seconds
-before reseeding again. A reseed that overlaps running embedding writes can
-fail with a concurrency error; just run it again.
+The seed is an action. It first makes sure every image exists
+(`seed/media:ensureMedia`, Gemini `gemini-3.1-flash-lite-image`, cached in
+`seedMedia` by prompt hash, so a reseed generates nothing), renders the four
+supplier manuals to PDF (`seed/supplierPdfs.ts`, original cached as
+`pdf/<code>`) and stamps a Published v1 copy, then wipes the app tables in
+batches (never `seedMedia`, users, auth tables, templates, cover settings) and
+writes the plant in a few mutations. It then runs the Trainings, Skills and
+insights seed modules, creates three Wikis, schedules embeddings and, 90 s
+later, the real Consistency check. A reseed that overlaps running embedding
+writes can fail with a concurrency error; just run it again.
+
+To regenerate one image after changing its prompt, add the corrected prompt
+to `PROMPT_OVERRIDES` in `convex/seed/media.ts` (the hash changes, so the next
+seed or `npx convex run seed/media:ensureMedia '{"keys":["<key>"]}'` makes a
+new one).
 
 ## Seed fixtures the checks rely on
+
+Plant Pijpwerk Noord: 3 areas (MIX, EXT, QCL), 4 disciplines (OPS, MNT, HSE,
+QA), 7 Assets, 11 people, 20 Documents (16 native, 4 Wrapped manuals), 3 Wikis,
+5 Trainings, 9 Skills. Everything is found by naming code, Asset code or
+person name, never by id.
 
 | Fixture | Why |
 |---|---|
 | `EXT-OPS-SOP-0001` is Published v1 with a v2 draft. v2 switches purge compound `PX-4400` to `PX-9917`. | Draft text of a Published document must stay invisible. |
 | `MIX-OPS-SOP-0001` is a never-published draft mentioning `MT-5521`. | A never-published document must be invisible. |
 | `EXT-OPS-WI-0001` is in review and mentions `BL-7730`. | In-review text is not Knowledge; shows in the Home inbox. |
-| Review dates: `EXT-HSE-SOP-0001` overdue by 10 days, `EXT-MNT-MAN-0001` due in 20 days, `MIX-OPS-WI-0001` due in 60 days. | Periodic review window is 30 days. |
-| SOP says die bolts 40 Nm, manual says 45 Nm. | Deliberate contradiction for the Consistency check slice. A Wiki over both must state both values, say which document gives which, and cite both. |
-| Wiki "Line 2 changeover essentials", Scope = machine EXL-201. | Regeneration check. |
+| `EXT-OPS-WI-0003` is approved, never Published. | The Home inbox shows Publish. |
+| `EXT-MNT-SOP-0001` is Published v1 with v2 in review, marked as a Significant change with a change note. | Publishing v2 sends `EXT-TRN-0003` back to review and flags Skill holders. |
+| Review dates: `EXT-HSE-SOP-0001` overdue by 10 days, `EXT-MNT-MAN-0001` due in 20 days, `MIX-HSE-LMRA-0001` in 23 days, `MIX-OPS-WI-0001` due in 60 days. | Periodic review window is 30 days. |
+| Contradiction 1: `EXT-OPS-SOP-0001` says die bolts 40 Nm, the Krauss manual `EXT-MNT-MAN-0001` says 45 Nm. | Consistency check. A Wiki over both must state both values, say which document gives which, and cite both. |
+| Contradiction 2: `EXT-OPS-SOP-0002` says never above 230 °C, the Krauss manual says 170-220 °C. | Consistency check. |
+| Contradiction 3: `QCL-QA-SOP-0001` says calibrate the UT-200 once a day, the Sonatek manual `QCL-QA-MAN-0001` says at the start of every shift. | Consistency check. |
+| Duplicate: the vacuum tank section of `EXT-OPS-SOP-0002` repeats `EXT-OPS-WI-0002`. | Consistency check (duplicate). |
+| Wrapped manuals `EXT-MNT-MAN-0001`, `MIX-MNT-MAN-0001`, `EXT-MNT-MAN-0002`, `QCL-QA-MAN-0001`: supplier PDFs with a cover, contents, safety panels and figures, stamped "Controlled copy · Published v1", one or more passages per page ("Page N"). | Wrapped manual reading, page citations, stamping. |
+| Wikis "Line 2 changeover essentials" (Scope: Asset EXL-201), "Quality lab: measuring and releasing pipe" (area QCL), "Night shift safety on line 2" (area EXT and discipline HSE). | Regeneration check uses the first, by title. |
 
 ## Automated checks (`devChecks:run`)
 
 | # | Check | Expected result |
 |---|---|---|
-| 3 | Ask retrieval (`ai/ask:lookupAfterSearch`) and scope overview, for the library, every document and every asset, fed every chunk id. | Only chunks of live versions of non-archived documents are served. None of `PX-9917`, `MT-5521`, `BL-7730` appear. The library overview lists no unpublished document. |
+| 3 | Ask retrieval (`ai/ask:lookupAfterSearch`) and scope overview, for the library, every document and every asset. The library is fed every chunk id; a document or Asset scope is fed every chunk that must not be served (drafts, older versions, never-published documents), its own documents' chunks and a sample of other live chunks, in batches of 400 (chunks with embeddings are too large to read all at once). | Only chunks of live versions of non-archived documents are served. None of `PX-9917`, `MT-5521`, `BL-7730` appear. The library overview lists no unpublished document. |
 | 4 | A probe Wiki whose Scope includes both sentinel documents. | Status `ready`. No sentinel text. "Built from" lists `EXT-OPS-SOP-0001` at its live version (v1), and does not list `MIX-OPS-SOP-0001`. |
 | 5 | Every point of every Wiki: each citation's chunk exists, belongs to the cited document, is that document's live version and is inside the Wiki's Scope; the grounding check passes again on the stored text. | 100% of points traceable. Report the count. |
-| G | Grounding check (`convex/ai/grounding.ts`), 20 fixed cases: supported number, wrong number, draft-only code, unknown source key, no source, two sources, number written as a word (right and wrong), unit swapped (40 Nm vs 40 °C), range with an en dash, range end changed, "percent" vs "%", code with a non-breaking hyphen, code one digit off, document code taken from the cited document's label, decimal comma, "never" dropped from a warning, "never" kept, a point citing an unrelated passage that happens to contain the same number, a merged claim that cites only one of its two sources; plus meaning flips: order before/after reversed (and kept), above flipped to below (and kept), on flipped to off, reduce flipped to increase, "only" dropped (and kept), counted noun swapped (15 pipes vs 15 minutes, and kept), and a table row whose cells are separate statements (one negated cell kept, an invented negation dropped). ; plus added qualifiers ("usually", "at least", "only"), "or" turned into "and", hot flipped to cold, and table rows read with their column headers (minimum and maximum kept, and swapped). | All 42 behave as expected. Add a case here for every new way a point slips through. These are lexical checks: a rare change of meaning that keeps all the wording can still pass. |
+| G | Grounding check (`convex/ai/grounding.ts`), 42 fixed cases: supported number, wrong number, draft-only code, unknown source key, no source, two sources, number written as a word (right and wrong), unit swapped (40 Nm vs 40 °C), range with an en dash, range end changed, "percent" vs "%", code with a non-breaking hyphen, code one digit off, document code taken from the cited document's label, decimal comma, "never" dropped from a warning, "never" kept, a point citing an unrelated passage that happens to contain the same number, a merged claim that cites only one of its two sources; plus meaning flips: order before/after reversed (and kept), above flipped to below (and kept), on flipped to off, reduce flipped to increase, "only" dropped (and kept), counted noun swapped (15 pipes vs 15 minutes, and kept), and a table row whose cells are separate statements (one negated cell kept, an invented negation dropped). ; plus added qualifiers ("usually", "at least", "only"), "or" turned into "and", hot flipped to cold, and table rows read with their column headers (minimum and maximum kept, and swapped). | All 42 behave as expected. Add a case here for every new way a point slips through. These are lexical checks: a rare change of meaning that keeps all the wording can still pass. |
 | B | Broad Scope budget (`wikis.loadForGeneration`): split 160 passages over documents of 3, 40, 400 and 0 passages; pick 3 of 30 passages from a long document. | Small documents are read in full, the large one gets the rest (3, 40, 117, 0). The safety passage is kept, the bare heading is skipped, passages stay in document order. |
+| I | Every image in the live version of every Published native Document. | Each image node points at an `images` row whose file exists in storage. No unresolved `key:` placeholder. |
+| M | Every Published Wrapped manual. | A stamped PDF and the supplier original both exist, the stamp label says "Published vN" for the live version, the page count is set, and its passages exist with sections "Page N" inside the page count. |
+| S | Every passage of every live version (native and wrapped). | None contains `PX-9917`, `MT-5521` or `BL-7730`. |
+| N | Naming counters. | For every (area, discipline, type) the counter is at least the highest seeded number, and the next code it would allocate does not exist yet. |
 | 7 | A Wiki whose Scope only contains never-published documents. | Status `empty`, no content. |
 | 6 | Publish the v2 draft of `EXT-OPS-SOP-0001` and time the seeded Wiki. | Rebuilt from v2 in under 60 s. The new text (`PX-9917`) now appears, because it is Published. |
 
@@ -60,7 +89,7 @@ Each generation costs money. Run these after changing the prompt (`WIKI_SYSTEM` 
 | 10d | Create a Wiki "everything a new night-shift operator needs about changeovers" by describing it. | Draft fills in, Create builds the Wiki with sources. |
 | 10e | Open a Wiki citation. | Lands on the source document with the passage highlighted. |
 | 10f | Find the Floor simulator placeholder. | Assets page header, or the link on Learn. |
-| 11 | Periodic review window. | `EXT-MNT-MAN-0001` (20 days) and `EXT-HSE-SOP-0001` (overdue) are in the inbox; `MIX-OPS-WI-0001` (60 days) is not. |
+| 11 | Periodic review window. | `EXT-MNT-MAN-0001` (20 days), `MIX-HSE-LMRA-0001` (23 days) and `EXT-HSE-SOP-0001` (overdue) are in the inbox; `EXT-HSE-SOP-0002` (45 days) and `MIX-OPS-WI-0001` (60 days) are not. |
 | 12 | Periodic review sign-off. Open `EXT-HSE-SOP-0001` from the inbox while Anonymous, then while checked in as an Operator, then as an Engineer. | "Still valid" is disabled until you are checked in as an Engineer, then asks for confirmation. The review record names the Engineer. |
 | 12b | Approve and publish. Open the document in review from the inbox and press Approve while Anonymous, then as an Engineer. | Anonymous gets "Check in as an Engineer". As an Engineer a confirm dialog names the version and the person; the sign-off records that Engineer. Unsaved edits are not included. |
 | 13 | Change after approval. Edit the text of a document that is in review or approved, and save. | It goes back to draft and its review sign-offs are cleared, so it must be reviewed again before it can be published. |

@@ -49,6 +49,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import type { DocumentType } from "@/types"
+import { WrappedManualEditor } from "@/components/manuals/WrappedManualEditor"
 
 const EMPTY_DOC = { type: "doc", content: [{ type: "paragraph" }] }
 const META_VISIBLE_KEY = "oppr-docs:edit-metadata-visible"
@@ -202,6 +203,8 @@ export function DocumentEditPage() {
   // never bumps a version. Explicit Save clears it.
   useEffect(() => {
     if (!bodyHydrated || !scratchKey) return
+    // A Wrapped manual's body is its supplier PDF: nothing to autosave.
+    if (versionResult?.bodyKind === "pdf") return
     const t = setTimeout(() => {
       try {
         window.localStorage.setItem(
@@ -213,7 +216,7 @@ export function DocumentEditPage() {
       }
     }, 1000)
     return () => clearTimeout(t)
-  }, [body, bodyHydrated, scratchKey])
+  }, [body, bodyHydrated, scratchKey, versionResult?.bodyKind])
 
   function clearScratch() {
     if (scratchKey) {
@@ -409,6 +412,10 @@ export function DocumentEditPage() {
         </Button>
       </div>
     )
+  }
+  // A Wrapped manual has no body to edit: its supplier PDF is only replaced.
+  if (docResult.doc.origin === "wrapped") {
+    return <WrappedManualEditor doc={docResult.doc} assets={docResult.assets} />
   }
   if (!meta) {
     return <div className="p-6 text-sm text-muted-foreground">Loading…</div>

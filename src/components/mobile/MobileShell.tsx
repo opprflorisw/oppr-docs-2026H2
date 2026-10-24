@@ -1,6 +1,7 @@
 import {
   createContext,
   ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -18,6 +19,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useOnline } from "./use-mobile-prefs"
+import { MobileCheckInSheet } from "./MobileCheckIn"
 
 const HINT_KEY = "oppr-docs:mobile-hint-seen"
 
@@ -25,6 +27,7 @@ const HINT_KEY = "oppr-docs:mobile-hint-seen"
 // Matched against the wouter `useLocation()` pathname.
 const NAV_HIDDEN_PATTERNS: RegExp[] = [
   /^\/m\/docs\/[^/]+$/, // doc reader — immersive
+  /^\/m\/round\/[^/]+$/, // a Round in progress: focus on the stop
 ]
 
 function shouldHideNav(pathname: string, search: string): boolean {
@@ -38,29 +41,50 @@ function shouldHideNav(pathname: string, search: string): boolean {
 
 interface MobileShellState {
   navVisible: boolean
+  /** Opens the "Who are you?" check-in sheet. */
+  openCheckIn: () => void
+  /** True inside the Floor simulator's phone frame. */
+  embedded: boolean
 }
 
-const MobileShellCtx = createContext<MobileShellState>({ navVisible: true })
+const MobileShellCtx = createContext<MobileShellState>({
+  navVisible: true,
+  openCheckIn: () => {},
+  embedded: false,
+})
 
 export function useMobileShell(): MobileShellState {
   return useContext(MobileShellCtx)
 }
 
-export function MobileShell({ children }: { children: ReactNode }) {
+/**
+ * The mobile app frame. On a real phone it fills the viewport (100dvh).
+ * `embedded` (the Floor simulator's phone) fills its parent instead and
+ * skips the "resize this window" hint.
+ */
+export function MobileShell({
+  children,
+  embedded = false,
+}: {
+  children: ReactNode
+  embedded?: boolean
+}) {
   const [location] = useLocation()
   const search = useSearch()
   const [showHint, setShowHint] = useState(false)
+  const [checkInOpen, setCheckInOpen] = useState(false)
   const online = useOnline()
 
   const navVisible = !shouldHideNav(location, search)
+  const openCheckIn = useCallback(() => setCheckInOpen(true), [])
 
   useEffect(() => {
-    if (typeof window === "undefined") return
+    if (typeof window === "undefined" || embedded) return
     const seen = localStorage.getItem(HINT_KEY)
     if (!seen && window.innerWidth > 500) {
       setShowHint(true)
     }
-  }, [])
+  }, [embedded])
 
   function dismissHint() {
     localStorage.setItem(HINT_KEY, "1")
@@ -68,8 +92,8 @@ export function MobileShell({ children }: { children: ReactNode }) {
   }
 
   const ctx = useMemo<MobileShellState>(
-    () => ({ navVisible }),
-    [navVisible],
+    () => ({ navVisible, openCheckIn, embedded }),
+    [navVisible, openCheckIn, embedded],
   )
 
   return (
@@ -79,8 +103,18 @@ export function MobileShell({ children }: { children: ReactNode }) {
           the bottom nav stays pinned regardless of page length. dvh is
           the dynamic viewport unit — accounts for iOS Safari's address
           bar growing/shrinking, unlike vh. */}
-      <div className="flex h-[100dvh] w-full justify-center bg-muted/40">
-        <div className="relative flex h-full w-full max-w-[430px] flex-col bg-background shadow-xl">
+      <div
+        className={cn(
+          "flex w-full justify-center",
+          embedded ? "h-full bg-background" : "h-[100dvh] bg-muted/40",
+        )}
+      >
+        <div
+          className={cn(
+            "relative flex h-full w-full flex-col bg-background",
+            !embedded && "max-w-[430px] shadow-xl",
+          )}
+        >
           {showHint && (
             <div className="absolute inset-x-0 top-0 z-50 mx-3 mt-3 rounded-lg border border-primary/30 bg-card p-3 text-xs shadow-md">
               <div className="flex items-start gap-2">
@@ -107,7 +141,7 @@ export function MobileShell({ children }: { children: ReactNode }) {
           {!online && (
             <div className="flex shrink-0 items-center justify-center gap-1.5 bg-amber-500/15 px-3 py-1.5 text-[11px] font-medium text-amber-900 dark:text-amber-200">
               <WifiOff className="h-3 w-3" />
-              Offline — local data only
+              Offline: local data only
             </div>
           )}
 
@@ -142,6 +176,11 @@ export function MobileShell({ children }: { children: ReactNode }) {
               />
             </nav>
           )}
+
+          <MobileCheckInSheet
+            open={checkInOpen}
+            onClose={() => setCheckInOpen(false)}
+          />
         </div>
       </div>
     </MobileShellCtx.Provider>

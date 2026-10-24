@@ -81,7 +81,7 @@ export function DesktopShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen w-full bg-background">
-      <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col self-start overflow-y-auto border-r bg-sidebar text-sidebar-foreground">
+      <aside className="print:hidden sticky top-0 flex h-screen w-60 shrink-0 flex-col self-start overflow-y-auto border-r bg-sidebar text-sidebar-foreground">
         <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
             <BookOpenText className="h-4 w-4" />

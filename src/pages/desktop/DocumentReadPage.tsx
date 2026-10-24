@@ -58,6 +58,11 @@ export function DocumentReadPage() {
     const n = v ? parseInt(v, 10) : NaN
     return Number.isFinite(n) && n > 0 ? n : null
   })
+  // Keep the version in step with ?v= (links from banners within this page).
+  useEffect(() => {
+    const n = parseInt(new URLSearchParams(search).get("v") ?? "", 10)
+    setOverrideVersion(Number.isFinite(n) && n > 0 ? n : null)
+  }, [search])
   const [forkOpen, setForkOpen] = useState(false)
   const [forking, setForking] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -121,6 +126,7 @@ export function DocumentReadPage() {
   const owner = null
 
   const rawDoc = docResult?.doc
+  const isWrapped = rawDoc?.origin === "wrapped"
   const liveVer = rawDoc?.liveVersion ?? null
   const workingVer = rawDoc?.currentVersion ?? 1
   const workingStatus = rawDoc?.status
@@ -239,14 +245,17 @@ export function DocumentReadPage() {
           }
           actions={
             <>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => window.print()}
-              >
-                <Printer className="mr-1 h-3.5 w-3.5" />
-                Print
-              </Button>
+              {/* A Wrapped manual has its own controlled-copy download. */}
+              {!isWrapped && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => window.print()}
+                >
+                  <Printer className="mr-1 h-3.5 w-3.5" />
+                  Print
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="outline"
@@ -255,7 +264,7 @@ export function DocumentReadPage() {
                 <History className="mr-1 h-3.5 w-3.5" />
                 History
               </Button>
-              <PublishToPdfDialog
+              {!isWrapped && <PublishToPdfDialog
                 documentId={docWithAssets.id}
                 version={renderedVersionNumber}
                 trigger={
@@ -269,7 +278,7 @@ export function DocumentReadPage() {
                     PDF
                   </Button>
                 }
-              />
+              />}
               <Button
                 size="sm"
                 // Arriving for a periodic review, the review card is the decision.
@@ -442,9 +451,19 @@ export function DocumentReadPage() {
                 Carried over — editable in v{workingVer + 1}
               </p>
               <ul className="list-disc space-y-0.5 pl-4 text-xs text-sky-900/90 dark:text-sky-100/90">
-                <li>Body content (copied from the live version)</li>
-                <li>Linked Assets, logs &amp; references (follow the body)</li>
-                <li>Title, reviewer and approver assignments</li>
+                {isWrapped ? (
+                  <>
+                    <li>The supplier PDF (replace it in the editor with Replace PDF)</li>
+                    <li>Linked Assets</li>
+                    <li>Title, supplier, reviewer and approver</li>
+                  </>
+                ) : (
+                  <>
+                    <li>Body content (copied from the live version)</li>
+                    <li>Linked Assets, logs &amp; references (follow the body)</li>
+                    <li>Title, reviewer and approver assignments</li>
+                  </>
+                )}
               </ul>
             </div>
             <div className="space-y-1.5 rounded-md border bg-muted/40 p-3">

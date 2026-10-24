@@ -41,6 +41,8 @@ import { toast } from "sonner"
 const PdfViewer = lazy(() =>
   import("@/components/docs/PdfViewer").then((m) => ({ default: m.PdfViewer })),
 )
+// A Wrapped manual shows its stamped Published PDF (the controlled copy).
+const WrappedManualMobile = lazy(() => import("@/components/manuals/WrappedManualMobile"))
 const TiptapReadOnly = lazy(() =>
   import("@/components/docs/TiptapReadOnly").then((m) => ({
     default: m.TiptapReadOnly,
@@ -261,7 +263,7 @@ export function MobileDocPage() {
       }
     } else {
       handleCopy()
-      toast.message("Sharing not supported here — naming code copied instead.")
+      toast.message("Sharing is not supported here. The naming code is copied instead.")
     }
   }
 
@@ -327,7 +329,7 @@ export function MobileDocPage() {
           <Share2 className="h-3 w-3" />
           Share
         </Button>
-        {version && (
+        {version && docResult?.doc.origin !== "wrapped" && (
         <PublishToPdfDialog
           documentId={doc.id}
           version={version.version}
@@ -363,7 +365,15 @@ export function MobileDocPage() {
         ) : version.body_kind === "pdf" ? (
           <ViewerErrorBoundary fallback={VIEWER_UNAVAILABLE}>
             <Suspense fallback={VIEWER_FALLBACK}>
-              <PdfViewer url={pdfUrl ?? null} pageNumber={initialPage} />
+              {docResult?.doc.origin === "wrapped" ? (
+                <WrappedManualMobile
+                  documentId={docResult.doc._id}
+                  version={version.version}
+                  initialPage={initialPage}
+                />
+              ) : (
+                <PdfViewer url={pdfUrl ?? null} pageNumber={initialPage} />
+              )}
             </Suspense>
           </ViewerErrorBoundary>
         ) : version.body_kind === "tiptap" ? (
@@ -394,7 +404,15 @@ export function MobileDocPage() {
           {version?.body_kind === "pdf" ? (
             <ViewerErrorBoundary fallback={VIEWER_UNAVAILABLE}>
               <Suspense fallback={VIEWER_FALLBACK}>
-                <PdfViewer url={pdfUrl ?? null} pageNumber={initialPage} />
+                {docResult?.doc.origin === "wrapped" ? (
+                  <WrappedManualMobile
+                    documentId={docResult.doc._id}
+                    version={version.version}
+                    initialPage={initialPage}
+                  />
+                ) : (
+                  <PdfViewer url={pdfUrl ?? null} pageNumber={initialPage} />
+                )}
               </Suspense>
             </ViewerErrorBoundary>
           ) : version?.body_kind === "tiptap" && version.body_json != null ? (

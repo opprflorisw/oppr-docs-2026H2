@@ -30,6 +30,8 @@ import {
   type EntityKind,
 } from "@/components/mobile/use-mobile-prefs"
 import { MobileGlobalSearch } from "@/components/mobile/MobileGlobalSearch"
+import { MobileCheckInButton } from "@/components/mobile/MobileCheckIn"
+import { MobileRoundsCard } from "@/components/mobile/MobileRoundsCard"
 import { cn } from "@/lib/utils"
 
 export function MobileHomePage() {
@@ -115,6 +117,7 @@ export function MobileHomePage() {
             </div>
           </div>
         </div>
+        <MobileCheckInButton variant="pill" />
       </div>
 
       {/* Inline search trigger — opens MobileGlobalSearch overlay */}
@@ -124,7 +127,7 @@ export function MobileHomePage() {
         className="flex items-center gap-2 rounded-md border bg-muted/40 px-2.5 py-2 text-left text-[12px] text-muted-foreground active:scale-[0.99]"
       >
         <Search className="h-3.5 w-3.5" />
-        Search assets, docs, codes…
+        Search Assets, documents, codes…
       </button>
 
       {/* Hero CTA — Scan, the operator's primary entry point */}
@@ -163,6 +166,8 @@ export function MobileHomePage() {
           sub={docCount != null ? `${docCount}` : "Browse"}
         />
       </div>
+
+      <MobileRoundsCard />
 
       {staleCount > 0 && (
         <div className="flex items-center justify-between rounded-md border border-amber-300/50 bg-amber-100/40 px-2.5 py-2 text-[11px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">

@@ -8,6 +8,7 @@ import { allocateNamingCode, parseNamingCode } from "./naming"
 import { walkBodyAssetIds } from "./lib/assetWalker"
 import { regenerateWikisForDocument } from "./wikis"
 import { isPublished, publishedVersion } from "./lib/published"
+import { scheduleStamp } from "./manuals"
 
 // Periodic review (CONTEXT.md): every Published Document is due for review
 // this many months after it was published or last confirmed.
@@ -27,6 +28,9 @@ async function syncDocumentAssetsFromBody(
   documentId: Id<"documents">,
   body: unknown,
 ) {
+  // A version without a TipTap body (a Wrapped manual's PDF) carries no asset
+  // pills: its links are kept as they are (manuals.ts manages them).
+  if (body == null) return
   const wantedRaw = walkBodyAssetIds(body)
   const wanted = new Set<string>()
   for (const raw of wantedRaw) {
@@ -529,9 +533,14 @@ export const saveContent = mutation({
     // change to the text or title after that sends the edition back to draft
     // and clears its review sign-offs, so it cannot be published unreviewed.
     const reviewed = doc.status === "in_review" || doc.status === "approved"
+    // A Wrapped manual's body is the supplier PDF: it is never edited here
+    // (only replaced through manuals.replacePdf), so its PDF, page chunks and
+    // asset links are left untouched and only the title can change.
+    const pdfBody = existing?.bodyKind === "pdf"
     const changed =
       args.title.trim() !== doc.title ||
-      JSON.stringify(existing?.bodyJson ?? null) !== JSON.stringify(args.body)
+      (!pdfBody &&
+        JSON.stringify(existing?.bodyJson ?? null) !== JSON.stringify(args.body))
     if (reviewed && changed) {
       patch.status = "draft"
       if (existing) {
@@ -542,6 +551,12 @@ export const saveContent = mutation({
     }
 
     await ctx.db.patch(args.id, patch)
+
+    if (existing && pdfBody) {
+      if (doc.origin === "wrapped" && (changed || patch.status !== undefined))
+        await scheduleStamp(ctx, args.id, [targetVersion])
+      return { version: targetVersion }
+    }
 
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -635,6 +650,7 @@ export const submitForReview = mutation({
     if (!doc.reviewerId)
       throw new Error("Assign a reviewer before submitting for review.")
     await ctx.db.patch(args.id, { status: "in_review", updatedAt: Date.now() })
+    if (doc.origin === "wrapped") await scheduleStamp(ctx, doc._id, [doc.currentVersion])
   },
 })
 
@@ -663,6 +679,7 @@ export const approve = mutation({
       throw new Error("Assign an approver before approving.")
     await ctx.db.patch(args.id, { status: "approved", updatedAt: Date.now() })
     await recordSignoff(ctx, doc, "reviewer", userId, args.personId)
+    if (doc.origin === "wrapped") await scheduleStamp(ctx, doc._id, [doc.currentVersion])
   },
 })
 
@@ -895,15 +912,26 @@ export const createNewVersion = mutation({
       updatedAt: now,
     })
 
+    const wrapped = doc.origin === "wrapped" && liveRow?.bodyKind === "pdf"
     await ctx.db.insert("documentVersions", {
       documentId: args.id,
       version: newVersion,
       bodyKind: liveRow?.bodyKind ?? "tiptap",
       bodyJson: liveRow?.bodyJson ?? null,
-      pdfStorageId: liveRow?.pdfStorageId ?? null,
+      // A Wrapped manual's new version starts from the same supplier original
+      // and gets its own stamp ("Draft vN"), so it never shares the live copy.
+      pdfStorageId: wrapped ? null : (liveRow?.pdfStorageId ?? null),
+      ...(wrapped
+        ? {
+            sourcePdfStorageId: liveRow?.sourcePdfStorageId ?? null,
+            pdfPageCount: liveRow?.pdfPageCount,
+            stampLabel: null,
+          }
+        : {}),
       publishedAt: now,
       signoffs: [{ role: "author", userId, at: now }],
     })
+    if (wrapped) await scheduleStamp(ctx, args.id, [newVersion])
 
     // Mirror the live edition's chunks + image usages onto the new version so
     // editing and (eventually) re-publishing start from the same content. RAG
@@ -988,6 +1016,7 @@ export const refile = mutation({
     )
     const now = Date.now()
 
+    const wrapped = doc.origin === "wrapped" && versionRow?.bodyKind === "pdf"
     const newId = await ctx.db.insert("documents", {
       namingCode,
       location,
@@ -1002,17 +1031,43 @@ export const refile = mutation({
       approverId: doc.approverId ?? null,
       tags: doc.tags,
       updatedAt: now,
+      ...(wrapped ? { origin: "wrapped" as const, supplier: doc.supplier ?? null } : {}),
     })
 
+    // A Wrapped manual keeps its supplier original and gets a fresh stamp with
+    // the new naming code. The stored file is copied (by manuals.copySource,
+    // which then stamps), never shared, so deleting either Document cannot
+    // break the other.
     await ctx.db.insert("documentVersions", {
       documentId: newId,
       version: 1,
       bodyKind: versionRow?.bodyKind ?? "tiptap",
       bodyJson: versionRow?.bodyJson ?? null,
-      pdfStorageId: versionRow?.pdfStorageId ?? null,
+      pdfStorageId: wrapped ? null : (versionRow?.pdfStorageId ?? null),
+      ...(wrapped
+        ? {
+            sourcePdfStorageId: null,
+            pdfPageCount: versionRow?.pdfPageCount,
+            stampLabel: null,
+          }
+        : {}),
       publishedAt: now,
       signoffs: [{ role: "author", userId, at: now }],
     })
+    if (wrapped) {
+      const links = await ctx.db
+        .query("documentAssets")
+        .withIndex("by_documentId", (q) => q.eq("documentId", args.id))
+        .take(500)
+      for (const l of links)
+        await ctx.db.insert("documentAssets", { documentId: newId, assetId: l.assetId })
+      if (versionRow?.sourcePdfStorageId)
+        await ctx.scheduler.runAfter(0, internal.manuals.copySource, {
+          documentId: newId,
+          version: 1,
+          fromStorageId: versionRow.sourcePdfStorageId,
+        })
+    }
 
     const chunks = await ctx.db
       .query("chunks")
@@ -1047,6 +1102,7 @@ export const refile = mutation({
     if (args.archiveOld) {
       await ctx.db.patch(args.id, { status: "archived", updatedAt: now })
       await regenerateWikisForDocument(ctx, args.id, `archived ${doc.namingCode}`)
+      await ctx.scheduler.runAfter(0, internal.findings.resolveStale, {})
     }
 
     return { id: newId, namingCode }
@@ -1063,6 +1119,7 @@ export const revertToDraft = mutation({
     if (doc.status !== "in_review" && doc.status !== "approved")
       throw new Error("Only an in-review or approved document can be reverted.")
     await ctx.db.patch(args.id, { status: "draft", updatedAt: Date.now() })
+    if (doc.origin === "wrapped") await scheduleStamp(ctx, doc._id, [doc.currentVersion])
   },
 })
 
@@ -1076,7 +1133,12 @@ export const archive = mutation({
       status: "archived",
       updatedAt: Date.now(),
     })
+    // Every copy of an archived Wrapped manual says it is not for use.
+    if (doc.origin === "wrapped")
+      await scheduleStamp(ctx, doc._id, [doc.liveVersion, doc.currentVersion])
     await regenerateWikisForDocument(ctx, args.id, `archived ${doc.namingCode}`)
+    // Findings on an archived document close now, not at the next check.
+    await ctx.scheduler.runAfter(0, internal.findings.resolveStale, {})
   },
 })
 
@@ -1147,15 +1209,20 @@ export const remove = mutation({
         q.eq("documentId", args.id),
       )
       .take(500)
+    // Versions can share a file (a Wrapped manual's supplier original), so
+    // each stored file is deleted once.
+    const files = new Set<Id<"_storage">>()
     for (const v of versions) {
-      if (v.pdfStorageId) {
-        try {
-          await ctx.storage.delete(v.pdfStorageId)
-        } catch {
-          // best-effort; orphan file is harmless
-        }
-      }
+      if (v.pdfStorageId) files.add(v.pdfStorageId)
+      if (v.sourcePdfStorageId) files.add(v.sourcePdfStorageId)
       await ctx.db.delete(v._id)
+    }
+    for (const f of files) {
+      try {
+        await ctx.storage.delete(f)
+      } catch {
+        // best-effort; orphan file is harmless
+      }
     }
 
     const chunks = await ctx.db
@@ -1189,6 +1256,7 @@ export const remove = mutation({
     for (const u of usages) await ctx.db.delete(u._id)
 
     await ctx.db.delete(args.id)
+    await ctx.scheduler.runAfter(0, internal.findings.resolveStale, {})
     if (doc.liveVersion != null) {
       await regenerateWikisForDocument(ctx, args.id, `deleted ${doc.namingCode}`)
     }

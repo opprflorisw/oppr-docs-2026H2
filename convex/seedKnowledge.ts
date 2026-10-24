@@ -1,174 +1,184 @@
-import { internalMutation } from "./_generated/server"
+import { v } from "convex/values"
+import { internalAction, internalMutation, internalQuery, MutationCtx } from "./_generated/server"
 import { internal } from "./_generated/api"
-import { Id } from "./_generated/dataModel"
-import { counterKey } from "./naming"
+import { Doc, Id, TableNames } from "./_generated/dataModel"
+import { counterKey, parseNamingCode } from "./naming"
 import { FACTORY_PPE } from "./ppe"
 import { DEFAULT_REVIEW_MONTHS } from "./documents"
 import { requestGeneration } from "./wikis"
+import { bodyChunks, pdfPageChunks } from "./lib/chunking"
+import type { Node, SeedDoc, SupplierManual } from "./seed/builders"
+import {
+  AREAS,
+  ASSETS,
+  DISCIPLINES,
+  PEOPLE,
+  SEED_DOCS,
+  SEED_MANUALS,
+  SIGNERS,
+  SITE,
+  TYPES,
+  WIKIS,
+  liveEdition,
+} from "./seed/content"
+import { ensureMediaImpl } from "./seed/media"
+import { buildSupplierPdfs } from "./seed/supplierPdfs"
 
-// Fresh, minimal seed for Oppr Knowledge (CONTEXT.md: "fresh, minimal seed").
-// One small fictional plant, Pijpwerk Noord, that makes plastic pipe:
-//   2 areas, 3 disciplines, 3 Assets, 6 Documents, 5 people, 1 Wiki.
-// Small on purpose: every flow can be tested end to end on it.
+// The seed of Oppr Knowledge: one rich, believable plant, Pijpwerk Noord,
+// that makes PE pressure pipe (docs/build/full-showcase-plan.md, content
+// catalogue). 3 areas, 4 disciplines, 7 Assets, 11 people, 20 Documents
+// (16 written in the editor, 4 wrapped supplier manuals), 3 Wikis, then
+// Trainings, Skills and insights from their own seed modules.
 //
-// Built-in test fixtures (see docs/test-set.md):
-//   - EXT-OPS-SOP-0001 is Published v1 with a newer v2 draft. The draft
-//     switches purge compound PX-4400 to PX-9917. "PX-9917" must never appear
-//     in Ask or a Wiki until v2 is published.
-//   - MIX-OPS-SOP-0001 is a never-published draft mentioning paddle tool
-//     MT-5521. "MT-5521" must never appear in Ask or a Wiki.
-//   - EXT-OPS-WI-0001 is in review (shows in the Home inbox).
-//   - Periodic reviews: one overdue, one due in 20 days, one due in 60 days.
-//   - The SOP says die bolts 40 Nm, the supplier manual says 45 Nm: a
-//     deliberate contradiction for the Consistency check slice.
+// Content lives in convex/seed/docs and convex/seed/manuals; images and
+// supplier PDFs are generated once and cached in seedMedia (never wiped).
 //
-// Wipes app data (templates, users and auth tables are kept). Safe to run
-// twice; the result is identical. Run on dev only:
+// Built-in test fixtures (docs/test-set.md):
+//   - EXT-OPS-SOP-0001 is Published v1 with a newer v2 draft that switches
+//     purge compound PX-4400 to PX-9917. "PX-9917" must never appear in Ask,
+//     a Wiki, a Training or the floor until v2 is published.
+//   - MIX-OPS-SOP-0001 is a never-published draft mentioning MT-5521.
+//   - EXT-OPS-WI-0001 is in review and mentions BL-7730.
+//   - EXT-OPS-WI-0003 is approved (the Home inbox shows Publish).
+//   - EXT-MNT-SOP-0001 is Published v1 with v2 in review, marked as a
+//     Significant change.
+//   - Periodic reviews: EXT-HSE-SOP-0001 overdue by 10 days, EXT-MNT-MAN-0001
+//     due in 20 days, MIX-OPS-WI-0001 due in 60 days.
+//   - Deliberate contradictions for the Consistency check: die bolts 40 Nm
+//     (EXT-OPS-SOP-0001) vs 45 Nm (EXT-MNT-MAN-0001); barrel never above
+//     230 °C (EXT-OPS-SOP-0002) vs 220 °C maximum (EXT-MNT-MAN-0001); gauge
+//     calibration once a day (QCL-QA-SOP-0001) vs every shift
+//     (QCL-QA-MAN-0001); and a duplicated vacuum tank section
+//     (EXT-OPS-SOP-0002 and EXT-OPS-WI-0002).
+//
+// Wipes app data (users, auth tables, templates, cover settings and the
+// seedMedia cache are kept). Safe to run again; run on dev only:
 //   npx convex run seedKnowledge:run
-
-const WIPE_TABLES = [
-  "meta",
-  "assets",
-  "assetLogs",
-  "documents",
-  "documentVersions",
-  "documentAssets",
-  "logs",
-  "documentLogRefs",
-  "chunks",
-  "qaSessions",
-  "qaMessages",
-  "images",
-  "imageUsages",
-  "importJobs",
-  "namingLocations",
-  "namingDisciplines",
-  "namingTypes",
-  "namingCounters",
-  "ppeItems",
-  "people",
-  "wikis",
-] as const
-
-const TYPES = [
-  { slug: "sop", token: "SOP", label: "SOP", icon: "FileText", color: "sky" },
-  { slug: "manual", token: "MAN", label: "Manual", icon: "BookOpen", color: "violet" },
-  { slug: "work_instruction", token: "WI", label: "Work instruction", icon: "ListChecks", color: "emerald" },
-  { slug: "lmra", token: "LMRA", label: "LMRA", icon: "ShieldAlert", color: "rose" },
-]
-
-const PEOPLE = [
-  { name: "Jan de Vries", kind: "operator", role: "Line operator, night shift", area: "EXT" },
-  { name: "Fatima El Amrani", kind: "operator", role: "Line operator, day shift", area: "EXT" },
-  { name: "Pieter Bakker", kind: "operator", role: "Mixing operator", area: "MIX" },
-  { name: "Sanne Visser", kind: "engineer", role: "Process engineer", area: null },
-  { name: "Mark Jansen", kind: "engineer", role: "Maintenance and safety engineer", area: null },
-] as const
-
-// ---- Tiny TipTap builders ---------------------------------------------------
-
-interface Node {
-  type: string
-  attrs?: Record<string, unknown>
-  content?: Node[]
-  text?: string
-}
-
-const t = (text: string): Node => ({ type: "text", text })
-const p = (...parts: (string | Node)[]): Node => ({
-  type: "paragraph",
-  content: parts.map((x) => (typeof x === "string" ? t(x) : x)),
-})
-const h = (level: number, text: string): Node => ({
-  type: "heading",
-  attrs: { level },
-  content: [t(text)],
-})
-const ppe = (items: string): Node => ({ type: "ppe", attrs: { items } })
-const callout = (kind: string, text: string): Node => ({
-  type: "callout",
-  attrs: { kind },
-  content: [p(text)],
-})
-const steps = (items: string[]): Node => ({
-  type: "stepList",
-  content: items.map((it) => ({ type: "stepItem", content: [p(it)] })),
-})
-const table = (rows: string[][]): Node => ({
-  type: "table",
-  content: rows.map((row, i) => ({
-    type: "tableRow",
-    content: row.map((cell) => ({
-      type: i === 0 ? "tableHeader" : "tableCell",
-      attrs: { colspan: 1, rowspan: 1, colwidth: null },
-      content: [p(cell)],
-    })),
-  })),
-})
-const asset = (id: Id<"assets">, label: string): Node => ({
-  type: "linkedAsset",
-  attrs: { assetId: id, label },
-})
-const doc = (...content: Node[]): Node => ({ type: "doc", content })
-
-// One chunk per heading, paragraph, step and table row, labelled with the
-// nearest heading. Same shape the editor produces.
-function bodyChunks(body: Node) {
-  const out: { text: string; section: string | null }[] = []
-  let section: string | null = null
-  const textOf = (n: Node): string =>
-    n.text ?? (n.attrs?.label as string | undefined) ?? (n.content ?? []).map(textOf).join(n.type === "tableRow" ? " | " : "").trim()
-  const visit = (n: Node) => {
-    if (n.type === "heading") {
-      section = textOf(n)
-      out.push({ text: section, section })
-      return
-    }
-    if (n.type === "paragraph" || n.type === "stepItem" || n.type === "tableRow") {
-      const text = textOf(n)
-      if (text) out.push({ text, section })
-      return
-    }
-    for (const c of n.content ?? []) visit(c)
-  }
-  visit(body)
-  return out
-}
 
 const DAY = 24 * 60 * 60 * 1000
 
-export const run = internalMutation({
+// Every app table, in delete order. Kept: users and auth tables, templates,
+// coverSettings, seedMedia.
+const WIPE_TABLES: TableNames[] = [
+  "skillEvents",
+  "skillLevels",
+  "skillProfiles",
+  "skills",
+  "trainingRecords",
+  "trainingAttempts",
+  "trainingVersions",
+  "trainings",
+  "insightReports",
+  "contentFlags",
+  "usageEvents",
+  "askEvents",
+  "proposedRevisions",
+  "findings",
+  "consistencyRuns",
+  "qaMessages",
+  "qaSessions",
+  "wikis",
+  "chunks",
+  "imageUsages",
+  "images",
+  "documentLogRefs",
+  "documentAssets",
+  "documentVersions",
+  "documents",
+  "importJobs",
+  "assetLogs",
+  "logs",
+  "assets",
+  "namingCounters",
+  "namingTypes",
+  "namingDisciplines",
+  "namingLocations",
+  "ppeItems",
+  "people",
+  "meta",
+]
+
+// ---- Wipe ----------------------------------------------------------------------------
+
+/** Blobs a row owns (deleted with it unless the seedMedia cache holds them). */
+function blobsOf(table: TableNames, row: Record<string, unknown>): string[] {
+  const out: unknown[] = []
+  if (table === "documentVersions") out.push(row.pdfStorageId, row.sourcePdfStorageId)
+  if (table === "images") out.push(row.storageId)
+  if (table === "importJobs") out.push(row.sourceStorageId)
+  if (table === "assets") out.push(row.imageStorageId)
+  if (table === "trainingAttempts") {
+    const round = row.round as { evidence?: { storageId?: unknown }[] } | null
+    for (const e of round?.evidence ?? []) out.push(e.storageId)
+  }
+  return out.filter((x): x is string => typeof x === "string" && x.length > 0)
+}
+
+/** Deletes up to ~300 rows per call; the action calls it until done. */
+export const wipeBatch = internalMutation({
   args: {},
-  handler: async (ctx) => {
-    // ---- Wipe ----
-    for (const v of await ctx.db.query("documentVersions").collect()) {
-      if (v.pdfStorageId) await ctx.storage.delete(v.pdfStorageId).catch(() => {})
+  handler: async (ctx): Promise<{ done: boolean; deleted: number }> => {
+    const keep = new Set<string>((await ctx.db.query("seedMedia").take(2000)).map((m) => m.storageId))
+    let budget = 300
+    let deleted = 0
+    for (const table of WIPE_TABLES) {
+      if (budget <= 0) break
+      const rows = await ctx.db.query(table).take(budget)
+      for (const row of rows) {
+        for (const blob of blobsOf(table, row as unknown as Record<string, unknown>)) {
+          if (keep.has(blob)) continue
+          try {
+            await ctx.storage.delete(blob as Id<"_storage">)
+          } catch {
+            // Already gone.
+          }
+          keep.add(blob) // never delete the same blob twice
+        }
+        await ctx.db.delete(row._id)
+        deleted++
+      }
+      budget -= rows.length
     }
-    for (const img of await ctx.db.query("images").collect()) {
-      if (img.storageId) await ctx.storage.delete(img.storageId).catch(() => {})
-    }
-    for (const tbl of WIPE_TABLES) {
-      for (const row of await ctx.db.query(tbl).collect()) await ctx.db.delete(row._id)
-    }
+    return { done: deleted === 0, deleted }
+  },
+})
 
-    const now = Date.now()
-    const user = await ctx.db.query("users").first()
-    const userId = user?._id ?? null
+// ---- Base: vocabulary, people, Assets, images -----------------------------------------
 
-    // ---- Vocabulary ----
-    for (const [code, label] of [
-      ["MIX", "Hall 1 · Mixing"],
-      ["EXT", "Hall 2 · Extrusion"],
-    ]) {
-      await ctx.db.insert("namingLocations", { code, label })
+const mediaArg = v.array(
+  v.object({
+    key: v.string(),
+    storageId: v.id("_storage"),
+    contentType: v.string(),
+    byteSize: v.number(),
+  }),
+)
+
+/** Alt text of each image key, from the first body that uses it. */
+function altTexts(): Map<string, string> {
+  const out = new Map<string, string>()
+  const visit = (n: Node) => {
+    if (n.type === "image") {
+      const id = String(n.attrs?.["data-image-id"] ?? "")
+      if (id.startsWith("key:") && !out.has(id.slice(4))) out.set(id.slice(4), String(n.attrs?.alt ?? ""))
     }
-    for (const [code, label] of [
-      ["OPS", "Operations"],
-      ["MNT", "Maintenance"],
-      ["HSE", "Health and safety"],
-    ]) {
-      await ctx.db.insert("namingDisciplines", { code, label })
-    }
+    for (const c of n.content ?? []) visit(c)
+  }
+  for (const d of SEED_DOCS) for (const e of d.editions) visit(e.body)
+  return out
+}
+
+function extOf(contentType: string): string {
+  return contentType === "image/png" ? "png" : contentType === "image/webp" ? "webp" : "jpg"
+}
+
+export const writeBase = internalMutation({
+  args: { now: v.number(), media: mediaArg },
+  handler: async (ctx, args) => {
+    const media = new Map(args.media.map((m) => [m.key, m]))
+
+    for (const a of AREAS) await ctx.db.insert("namingLocations", { code: a.code, label: a.label })
+    for (const d of DISCIPLINES) await ctx.db.insert("namingDisciplines", { code: d.code, label: d.label })
     for (const [i, ty] of TYPES.entries()) {
       await ctx.db.insert("namingTypes", { ...ty, active: true, builtIn: true, sortOrder: i })
     }
@@ -187,330 +197,506 @@ export const run = internalMutation({
         sortOrder: i,
       })
     }
+
+    const people: { name: string; id: Id<"people"> }[] = []
     for (const [i, person] of PEOPLE.entries()) {
-      await ctx.db.insert("people", { ...person, sortOrder: i })
+      people.push({ name: person.name, id: await ctx.db.insert("people", { ...person, sortOrder: i }) })
     }
 
-    // ---- Assets ----
-    const assetBase = {
-      site: "PWN",
-      level: 0,
-      floorplan: null,
-      isLinked: false,
-      linkedLogCode: null,
-      linkedLogName: null,
-      linkedLogDescription: null,
-      source: "local",
-    }
-    const mixer = await ctx.db.insert("assets", {
-      ...assetBase,
-      code: "MXR-101",
-      name: "Batch mixer",
-      location: "Hall 1 · Mixing",
-      qrToken: "qr-mxr-101",
-      description: "High-speed batch mixer that blends PE granulate with colour masterbatch for line 2.",
-      pinNumber: 1,
-      pinX: 22,
-      pinY: 40,
-    })
-    const extruder = await ctx.db.insert("assets", {
-      ...assetBase,
-      code: "EXL-201",
-      name: "Pipe extruder line 2",
-      location: "Hall 2 · Extrusion",
-      qrToken: "qr-exl-201",
-      description: "Single-screw extruder producing PE pipe from 32 to 110 mm on line 2.",
-      pinNumber: 2,
-      pinX: 55,
-      pinY: 45,
-    })
-    const saw = await ctx.db.insert("assets", {
-      ...assetBase,
-      code: "SAW-202",
-      name: "Haul-off and cutting saw line 2",
-      location: "Hall 2 · Extrusion",
-      qrToken: "qr-saw-202",
-      description: "Caterpillar haul-off with planetary saw that cuts pipe to length at the end of line 2.",
-      pinNumber: 3,
-      pinX: 82,
-      pinY: 45,
-    })
-
-    // ---- Documents ----
-    interface Edition {
-      body: Node
-      publishedDaysAgo: number | null
-    }
-    interface Seed {
-      code: string
-      area: string
-      discipline: string
-      type: string
-      title: string
-      status: "draft" | "in_review" | "published"
-      live: number | null
-      editions: Edition[]
-      assets: Id<"assets">[]
-      nextReviewInDays: number | null
+    const assets: { code: string; id: Id<"assets"> }[] = []
+    for (const [i, a] of ASSETS.entries()) {
+      const id = await ctx.db.insert("assets", {
+        code: a.code,
+        name: a.name,
+        site: SITE,
+        location: AREAS.find((x) => x.code === a.area)?.label ?? null,
+        qrToken: `qr-${a.code.toLowerCase()}`,
+        description: a.description,
+        level: 0,
+        floorplan: null,
+        isLinked: false,
+        linkedLogCode: null,
+        linkedLogName: null,
+        linkedLogDescription: null,
+        pinNumber: i + 1,
+        pinX: a.pinX,
+        pinY: a.pinY,
+        imageStorageId: media.get(a.photo.key)?.storageId ?? null,
+        source: "local",
+      })
+      assets.push({ code: a.code, id })
     }
 
-    const changeoverV1 = doc(
-      h(1, "Colour and product changeover on extrusion line 2"),
-      p("Use this procedure for every colour or product change on ", asset(extruder, "EXL-201"), ", fed by ", asset(mixer, "MXR-101"), " and cut by ", asset(saw, "SAW-202"), "."),
-      ppe("glasses,gloves,boots,hearing"),
-      callout("warning", "The die and barrel stay above 150 °C during a changeover. Wear heat-resistant gloves for any contact with the die."),
-      h(2, "Procedure"),
-      steps([
-        "Tell the mixing operator the changeover is starting and which colour comes next.",
-        "Stop dosing at MXR-101 when the extruder hopper is below 20 percent.",
-        "Purge the barrel with purge compound PX-4400 at 190 °C until the melt runs clean, about 15 minutes.",
-        "Swap the masterbatch and, for a product change, fit the new die.",
-        "Tighten the die bolts crosswise to 40 Nm.",
-        "Restart the screw at 60 rpm and ramp up to production speed over 5 minutes.",
-        "Scrap the first 3 metres of pipe and measure wall thickness on each of the first 10 pipes.",
-      ]),
-      h(2, "If something goes wrong"),
-      table([
-        ["Symptom", "Likely cause", "Action"],
-        ["Streaks of the old colour after 15 minutes", "Purge not finished", "Purge for another 5 minutes, then check again"],
-        ["Wall thickness out of tolerance", "Speed ramp too fast", "Lower haul-off speed and recheck after 3 pipes"],
-      ]),
-    )
-    // v2 draft: switches the purge compound. Must stay invisible until published.
-    const changeoverV2 = doc(
-      ...(changeoverV1.content ?? []).map((n) =>
-        n.type === "stepList"
-          ? steps([
-              "Tell the mixing operator the changeover is starting and which colour comes next.",
-              "Stop dosing at MXR-101 when the extruder hopper is below 20 percent.",
-              "Purge the barrel with purge compound PX-9917 at 190 °C until the melt runs clean, about 10 minutes.",
-              "Swap the masterbatch and, for a product change, fit the new die.",
-              "Tighten the die bolts crosswise to 40 Nm.",
-              "Restart the screw at 60 rpm and ramp up to production speed over 5 minutes.",
-              "Scrap the first 3 metres of pipe and measure wall thickness on each of the first 10 pipes.",
-              "Record the changeover in the shift handover.",
-            ])
-          : n,
-      ),
-    )
+    // Image library rows for every illustration used in a Document body.
+    const alts = altTexts()
+    const images: { key: string; id: Id<"images"> }[] = []
+    for (const d of SEED_DOCS) {
+      const firstPublished = d.editions[0].publishedDaysAgo
+      for (const spec of d.images) {
+        const m = media.get(spec.key)
+        if (!m) continue
+        const id = await ctx.db.insert("images", {
+          source: "upload",
+          storageId: m.storageId,
+          externalUrl: null,
+          filename: `${spec.key.replace(/\//g, "-")}.${extOf(m.contentType)}`,
+          contentType: m.contentType,
+          byteSize: m.byteSize,
+          width: null,
+          height: null,
+          sha256: null,
+          altText: alts.get(spec.key) ?? "",
+          uploadedBy: null,
+          createdAt: args.now - ((firstPublished ?? 1) + 7) * DAY,
+        })
+        images.push({ key: spec.key, id })
+      }
+    }
+    return { people, assets, images }
+  },
+})
 
-    const manual = doc(
-      h(1, "EXL-201 single-screw extruder: supplier manual (excerpt)"),
-      p("Operating and maintenance data for ", asset(extruder, "EXL-201"), " as supplied by the manufacturer."),
-      h(2, "Operating envelope"),
-      table([
-        ["Parameter", "Minimum", "Maximum"],
-        ["Barrel temperature", "170 °C", "220 °C"],
-        ["Screw speed", "20 rpm", "220 rpm"],
-        ["Melt pressure", "-", "350 bar"],
-      ]),
-      h(2, "Die mounting"),
-      p("Tighten the die bolts in a cross pattern to 45 Nm with the die at operating temperature."),
-      p("Replace the die bolts after 20 die changes or when the thread shows wear."),
-      h(2, "Cleaning"),
-      p("Clean the breaker plate and screen pack at every product change and at least every 500 operating hours."),
-    )
+// ---- Documents -------------------------------------------------------------------------
 
-    const loto = doc(
-      h(1, "Lockout/tagout on extrusion line 2"),
-      p("Follow this procedure before any work inside the guarding of ", asset(extruder, "EXL-201"), " or ", asset(saw, "SAW-202"), "."),
-      ppe("glasses,gloves,boots"),
-      callout("warning", "Never reach into the haul-off or saw area while the line is only stopped. A stopped line can restart."),
-      h(2, "Procedure"),
-      steps([
-        "Inform the shift leader and the operators on line 2.",
-        "Stop the line from the main panel.",
-        "Switch off the main isolator of line 2 and attach your personal lock and tag.",
-        "Release stored energy: open the pneumatic dump valve on the haul-off.",
-        "Try to start the line from the panel to verify it is isolated.",
-        "After the work, remove your own lock only. Only the person who placed a lock may remove it.",
-      ]),
-    )
+interface Plan {
+  code: string
+  title: string
+  type: string
+  area: string
+  discipline: string
+  status: Doc<"documents">["status"]
+  origin: "editor" | "wrapped"
+  supplier: string | null
+  editions: { publishedDaysAgo: number | null }[]
+  nextReviewInDays: number | null
+  tags: string[]
+}
 
-    const mixerStart = doc(
-      h(1, "Starting a batch on mixer MXR-101"),
-      p("Work instruction for starting a colour batch on ", asset(mixer, "MXR-101"), "."),
-      ppe("glasses,gloves,mask"),
-      steps([
-        "Check the recipe on the batch card against the colour planned for line 2.",
-        "Weigh the masterbatch: 2 kg per 100 kg of PE granulate unless the batch card says otherwise.",
-        "Load granulate first, then masterbatch, and close the lid before starting.",
-        "Mix for 4 minutes and release the batch to the line 2 hopper.",
-      ]),
-    )
+function plans(): Plan[] {
+  const native: Plan[] = SEED_DOCS.map((d: SeedDoc) => ({
+    code: d.code,
+    title: d.title,
+    type: d.type,
+    area: d.area,
+    discipline: d.discipline,
+    status: d.status,
+    origin: "editor",
+    supplier: null,
+    editions: d.editions.map((e) => ({ publishedDaysAgo: e.publishedDaysAgo })),
+    nextReviewInDays: d.nextReviewInDays,
+    tags: d.tags ?? [],
+  }))
+  const wrapped: Plan[] = SEED_MANUALS.map((m: SupplierManual) => ({
+    code: m.code,
+    title: m.title,
+    type: "manual",
+    area: m.area,
+    discipline: m.discipline,
+    status: "published",
+    origin: "wrapped",
+    supplier: m.supplier,
+    editions: [{ publishedDaysAgo: m.publishedDaysAgo }],
+    nextReviewInDays: m.nextReviewInDays,
+    tags: [],
+  }))
+  return [...native, ...wrapped].sort((a, b) => a.code.localeCompare(b.code))
+}
 
-    const sawCheck = doc(
-      h(1, "Saw blade check on SAW-202"),
-      p("Daily check of the saw blade on ", asset(saw, "SAW-202"), " before the first cut."),
-      steps([
-        "Lock out the saw following the line 2 lockout procedure.",
-        "Inspect the blade for missing or chipped teeth.",
-        "Replace a damaged blade with blade type BL-7730.",
-      ]),
-    )
-
-    const mixerCleaning = doc(
-      h(1, "Cleaning mixer MXR-101"),
-      p("Cleaning procedure for ", asset(mixer, "MXR-101"), " between colours."),
-      steps([
-        "Lock out the mixer.",
-        "Scrape the paddles with paddle tool MT-5521.",
-        "Vacuum the bowl and check that no granulate of the previous colour remains.",
-      ]),
-    )
-
-    const seeds: Seed[] = [
-      {
-        code: "EXT-OPS-SOP-0001", area: "EXT", discipline: "OPS", type: "sop",
-        title: "Colour and product changeover on extrusion line 2",
-        status: "draft", live: 1,
-        editions: [
-          { body: changeoverV1, publishedDaysAgo: 165 },
-          { body: changeoverV2, publishedDaysAgo: null },
-        ],
-        assets: [extruder, mixer, saw], nextReviewInDays: 200,
-      },
-      {
-        code: "EXT-MNT-MAN-0001", area: "EXT", discipline: "MNT", type: "manual",
-        title: "EXL-201 single-screw extruder: supplier manual (excerpt)",
-        status: "published", live: 1,
-        editions: [{ body: manual, publishedDaysAgo: 345 }],
-        assets: [extruder], nextReviewInDays: 20,
-      },
-      {
-        code: "EXT-HSE-SOP-0001", area: "EXT", discipline: "HSE", type: "sop",
-        title: "Lockout/tagout on extrusion line 2",
-        status: "published", live: 1,
-        editions: [{ body: loto, publishedDaysAgo: 375 }],
-        assets: [extruder, saw], nextReviewInDays: -10,
-      },
-      {
-        code: "MIX-OPS-WI-0001", area: "MIX", discipline: "OPS", type: "work_instruction",
-        title: "Starting a batch on mixer MXR-101",
-        status: "published", live: 1,
-        editions: [{ body: mixerStart, publishedDaysAgo: 305 }],
-        assets: [mixer], nextReviewInDays: 60,
-      },
-      {
-        code: "EXT-OPS-WI-0001", area: "EXT", discipline: "OPS", type: "work_instruction",
-        title: "Saw blade check on SAW-202",
-        status: "in_review", live: null,
-        editions: [{ body: sawCheck, publishedDaysAgo: null }],
-        assets: [saw], nextReviewInDays: null,
-      },
-      {
-        code: "MIX-OPS-SOP-0001", area: "MIX", discipline: "OPS", type: "sop",
-        title: "Cleaning mixer MXR-101",
-        status: "draft", live: null,
-        editions: [{ body: mixerCleaning, publishedDaysAgo: null }],
-        assets: [mixer], nextReviewInDays: null,
-      },
-    ]
-
-    const ids: Record<string, Id<"documents">> = {}
-    const counters = new Map<string, number>()
-    for (const s of seeds) {
-      const current = s.editions.length
+export const writeDocumentRows = internalMutation({
+  args: { now: v.number() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.query("users").first()
+    const userId = user?._id ?? null
+    const out: { code: string; id: Id<"documents"> }[] = []
+    for (const p of plans()) {
+      const live = liveEdition(p)
+      const liveAgo = live != null ? p.editions[live - 1].publishedDaysAgo : null
+      const lastAgo = p.editions[p.editions.length - 1].publishedDaysAgo
       const id = await ctx.db.insert("documents", {
-        namingCode: s.code,
-        location: s.area,
-        discipline: s.discipline,
-        title: s.title,
-        type: s.type,
-        status: s.status,
-        currentVersion: current,
-        ...(s.live != null ? { liveVersion: s.live } : {}),
+        namingCode: p.code,
+        location: p.area,
+        discipline: p.discipline,
+        title: p.title,
+        type: p.type,
+        status: p.status,
+        currentVersion: p.editions.length,
+        ...(live != null ? { liveVersion: live } : {}),
         ownerId: userId,
         authorId: userId,
         reviewerId: userId,
         approverId: userId,
-        tags: [],
-        updatedAt: now,
+        tags: p.tags,
+        updatedAt: args.now - (lastAgo ?? 1) * DAY,
         reviewIntervalMonths: DEFAULT_REVIEW_MONTHS,
-        nextReviewAt: s.nextReviewInDays == null ? null : now + s.nextReviewInDays * DAY,
-        lastReviewedAt:
-          s.editions[0].publishedDaysAgo == null ? null : now - s.editions[0].publishedDaysAgo * DAY,
+        nextReviewAt: live != null && p.nextReviewInDays != null ? args.now + p.nextReviewInDays * DAY : null,
+        lastReviewedAt: liveAgo != null ? args.now - liveAgo * DAY : null,
+        origin: p.origin,
+        supplier: p.supplier,
       })
-      ids[s.code] = id
-      for (const [i, ed] of s.editions.entries()) {
+      out.push({ code: p.code, id })
+    }
+    return out
+  },
+})
+
+const refsArg = v.object({
+  docs: v.array(v.object({ code: v.string(), id: v.id("documents") })),
+  assets: v.array(v.object({ code: v.string(), id: v.id("assets") })),
+  images: v.array(v.object({ key: v.string(), id: v.id("images") })),
+  people: v.array(v.object({ name: v.string(), id: v.id("people") })),
+})
+
+/** Resolve CODE / KEY placeholders (builders.ts) to ids. Missing images are dropped. */
+function resolveBody(
+  body: Node,
+  ids: { docs: Map<string, string>; assets: Map<string, string>; images: Map<string, string> },
+): { body: Node; imageIds: string[]; assetCodes: string[] } {
+  const imageIds: string[] = []
+  const assetCodes: string[] = []
+  const visit = (n: Node): Node | null => {
+    const out: Node = { ...n, ...(n.attrs ? { attrs: { ...n.attrs } } : {}) }
+    if (n.type === "image") {
+      const ref = String(n.attrs?.["data-image-id"] ?? "")
+      if (ref.startsWith("key:")) {
+        const id = ids.images.get(ref.slice(4))
+        if (!id) return null
+        out.attrs!["data-image-id"] = id
+        imageIds.push(id)
+      }
+    }
+    if (n.type === "linkedAsset") {
+      const code = String(n.attrs?.assetCode ?? "")
+      out.attrs!.assetId = ids.assets.get(code) ?? null
+      if (ids.assets.has(code)) assetCodes.push(code)
+    }
+    if (n.type === "referenceDoc") {
+      out.attrs!.docId = ids.docs.get(String(n.attrs?.code ?? "")) ?? null
+    }
+    if (n.content) out.content = n.content.map(visit).filter((c): c is Node => c !== null)
+    return out
+  }
+  return { body: visit(body)!, imageIds, assetCodes }
+}
+
+type Signoff = NonNullable<Doc<"documentVersions">["signoffs"]>[number]
+
+function signoffsFor(
+  discipline: string,
+  stage: "published" | "approved" | "authored",
+  at: number,
+  userId: Id<"users"> | null,
+  personId: (name: string) => Id<"people"> | undefined,
+): Signoff[] {
+  if (!userId) return []
+  const s = SIGNERS[discipline] ?? SIGNERS.OPS
+  const out: Signoff[] = [{ role: "author", userId, at: at - 9 * DAY, personId: personId(s.author) }]
+  if (stage !== "authored") out.push({ role: "reviewer", userId, at: at - 3 * DAY, personId: personId(s.reviewer) })
+  if (stage === "published") out.push({ role: "approver", userId, at, personId: personId(s.approver) })
+  return out
+}
+
+async function insertChunks(
+  ctx: MutationCtx,
+  documentId: Id<"documents">,
+  version: number,
+  chunks: { text: string; section: string | null }[],
+) {
+  for (const [seq, c] of chunks.entries()) {
+    await ctx.db.insert("chunks", {
+      documentId,
+      version,
+      seq: seq + 1,
+      text: c.text,
+      pageOrSection: c.section,
+      embedding: null,
+      embeddingModel: null,
+    })
+  }
+  return chunks.length
+}
+
+/** Versions, chunks, Asset links and image usages of one Document. */
+export const writeDocumentVersions = internalMutation({
+  args: {
+    code: v.string(),
+    now: v.number(),
+    refs: refsArg,
+    manual: v.optional(
+      v.object({
+        sourceStorageId: v.id("_storage"),
+        stampedStorageId: v.id("_storage"),
+        pageTexts: v.array(v.string()),
+        pageCount: v.number(),
+        stampLabel: v.string(),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.query("users").first()
+    const userId = user?._id ?? null
+    const docs = new Map(args.refs.docs.map((d) => [d.code, d.id as string]))
+    const assets = new Map(args.refs.assets.map((a) => [a.code, a.id as string]))
+    const images = new Map(args.refs.images.map((i) => [i.key, i.id as string]))
+    const people = new Map(args.refs.people.map((p) => [p.name, p.id]))
+    const personId = (name: string) => people.get(name)
+    const documentId = docs.get(args.code) as Id<"documents"> | undefined
+    if (!documentId) throw new Error(`No document row for ${args.code}`)
+    const doc = await ctx.db.get(documentId)
+    if (!doc) throw new Error(`Document row for ${args.code} disappeared`)
+
+    let versions = 0
+    let chunks = 0
+    let usages = 0
+    const linked = new Set<string>()
+
+    const native = SEED_DOCS.find((d) => d.code === args.code)
+    const wrapped = SEED_MANUALS.find((m) => m.code === args.code)
+    if (native) {
+      native.assets.forEach((c) => linked.add(c))
+      for (const [i, ed] of native.editions.entries()) {
         const version = i + 1
-        const at = ed.publishedDaysAgo == null ? now - DAY : now - ed.publishedDaysAgo * DAY
+        const isLast = version === native.editions.length
         const published = ed.publishedDaysAgo != null
+        const at = published ? args.now - ed.publishedDaysAgo! * DAY : args.now - DAY
+        const stage = published ? "published" : isLast && native.status === "approved" ? "approved" : "authored"
+        const resolved = resolveBody(ed.body, { docs, assets, images })
         await ctx.db.insert("documentVersions", {
-          documentId: id,
+          documentId,
           version,
           bodyKind: "tiptap",
-          bodyJson: ed.body,
+          bodyJson: resolved.body,
           pdfStorageId: null,
           publishedAt: at,
-          signoffs: userId
-            ? published
-              ? [
-                  { role: "author", userId, at },
-                  { role: "reviewer", userId, at },
-                  { role: "approver", userId, at },
-                ]
-              : [{ role: "author", userId, at }]
-            : [],
+          signoffs: signoffsFor(native.discipline, stage, at, userId, personId),
+          ...(ed.significantChange != null ? { significantChange: ed.significantChange } : {}),
+          ...(ed.changeNote != null ? { changeNote: ed.changeNote } : {}),
         })
-        for (const [seq, c] of bodyChunks(ed.body).entries()) {
-          await ctx.db.insert("chunks", {
-            documentId: id,
-            version,
-            seq: seq + 1,
-            text: c.text,
-            pageOrSection: c.section,
-            embedding: null,
-            embeddingModel: null,
+        versions++
+        chunks += await insertChunks(ctx, documentId, version, bodyChunks(resolved.body))
+        // Asset links follow what the live and the working version mention.
+        if (version === doc.liveVersion || isLast) resolved.assetCodes.forEach((c) => linked.add(c))
+        for (const imageId of new Set(resolved.imageIds)) {
+          await ctx.db.insert("imageUsages", {
+            imageId: imageId as Id<"images">,
+            documentId,
+            documentVersion: version,
+            context: "body",
+            createdAt: at,
           })
+          usages++
         }
       }
-      for (const assetId of s.assets) {
-        await ctx.db.insert("documentAssets", { documentId: id, assetId })
-      }
-      const key = counterKey(s.area, s.discipline, s.type)
-      counters.set(key, (counters.get(key) ?? 0) + 1)
-    }
-    for (const [key, value] of counters) {
-      await ctx.db.insert("namingCounters", { key, value })
-    }
-
-    // ---- Example Wiki ----
-    const wikiId = await ctx.db.insert("wikis", {
-      title: "Line 2 changeover essentials",
-      purpose: "For operators on extrusion line 2 who do a colour or product changeover, especially on the night shift.",
-      scope: { areas: [], disciplines: [], assetIds: [extruder], documentIds: [] },
-      status: "generating",
-      content: null,
-      sources: [],
-      generatedAt: null,
-      generationTicket: 0,
-      requestedAt: null,
-      lastTrigger: null,
-      droppedPoints: 0,
-      error: null,
-      createdBy: userId,
-      updatedAt: now,
-    })
-    await requestGeneration(ctx, wikiId, "seed")
-
-    // Embeddings for Ask run in the background.
-    for (const id of Object.values(ids)) {
-      await ctx.scheduler.runAfter(0, internal.ai.embed.embedMissingInternal, {
-        documentId: id,
+    } else if (wrapped && args.manual) {
+      wrapped.assets.forEach((c) => linked.add(c))
+      const at = args.now - wrapped.publishedDaysAgo * DAY
+      await ctx.db.insert("documentVersions", {
+        documentId,
+        version: 1,
+        bodyKind: "pdf",
+        bodyJson: null,
+        pdfStorageId: args.manual.stampedStorageId,
+        sourcePdfStorageId: args.manual.sourceStorageId,
+        pdfPageCount: args.manual.pageCount,
+        stampLabel: args.manual.stampLabel,
+        publishedAt: at,
+        signoffs: signoffsFor(wrapped.discipline, "published", at, userId, personId),
       })
+      versions++
+      chunks += await insertChunks(ctx, documentId, 1, pdfPageChunks(args.manual.pageTexts))
+    } else {
+      throw new Error(`No content for ${args.code}`)
     }
 
-    const count = async (tbl: (typeof WIPE_TABLES)[number]) =>
-      (await ctx.db.query(tbl).collect()).length
+    for (const code of linked) {
+      const assetId = assets.get(code) as Id<"assets"> | undefined
+      if (assetId) await ctx.db.insert("documentAssets", { documentId, assetId })
+    }
+    return { versions, chunks, usages, assets: linked.size }
+  },
+})
+
+/** Naming counters: the next allocated code continues after the highest seeded one. */
+export const writeCounters = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const max = new Map<string, number>()
+    for (const d of await ctx.db.query("documents").take(2000)) {
+      const parsed = parseNamingCode(d.namingCode)
+      if (!parsed || !d.location || !d.discipline) continue
+      const key = counterKey(d.location, d.discipline, d.type)
+      max.set(key, Math.max(max.get(key) ?? 0, parsed.seq))
+    }
+    for (const [key, value] of max) await ctx.db.insert("namingCounters", { key, value })
+    return max.size
+  },
+})
+
+export const writeWikis = internalMutation({
+  args: { now: v.number() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.query("users").first()
+    let n = 0
+    for (const w of WIKIS) {
+      const assetIds: Id<"assets">[] = []
+      for (const code of w.scope.assetCodes) {
+        const a = await ctx.db.query("assets").withIndex("by_code", (q) => q.eq("code", code)).first()
+        if (a) assetIds.push(a._id)
+      }
+      const documentIds: Id<"documents">[] = []
+      for (const code of w.scope.documentCodes) {
+        const d = await ctx.db
+          .query("documents")
+          .withIndex("by_namingCode", (q) => q.eq("namingCode", code))
+          .first()
+        if (d) documentIds.push(d._id)
+      }
+      const id = await ctx.db.insert("wikis", {
+        title: w.title,
+        purpose: w.purpose,
+        scope: { areas: w.scope.areas, disciplines: w.scope.disciplines, assetIds, documentIds },
+        status: "generating",
+        content: null,
+        sources: [],
+        generatedAt: null,
+        generationTicket: 0,
+        requestedAt: null,
+        lastTrigger: null,
+        droppedPoints: 0,
+        error: null,
+        createdBy: user?._id ?? null,
+        updatedAt: args.now,
+      })
+      await requestGeneration(ctx, id, "seed")
+      n++
+    }
+    return n
+  },
+})
+
+export const counts = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<Record<string, number>> => {
+    const n = async (t: TableNames) => (await ctx.db.query(t).take(10000)).length
+    return {
+      people: await n("people"),
+      assets: await n("assets"),
+      documents: await n("documents"),
+      versions: await n("documentVersions"),
+      chunks: await n("chunks"),
+      images: await n("images"),
+      imageUsages: await n("imageUsages"),
+      documentAssets: await n("documentAssets"),
+      namingCounters: await n("namingCounters"),
+      wikis: await n("wikis"),
+      trainings: await n("trainings"),
+      trainingRecords: await n("trainingRecords"),
+      skills: await n("skills"),
+      skillLevels: await n("skillLevels"),
+      askEvents: await n("askEvents"),
+      usageEvents: await n("usageEvents"),
+    }
+  },
+})
+
+// ---- Entry point ------------------------------------------------------------------------
+
+export const run = internalAction({
+  args: {},
+  handler: async (ctx): Promise<Record<string, unknown>> => {
+    const t0 = Date.now()
+    const now = Date.now()
+
+    // 1. Images (cached; only missing or changed prompts cost anything).
+    const media = await ensureMediaImpl(ctx, {})
+    // 2. Supplier PDFs: render (original cached), stamp a Published v1 copy.
+    const manuals = await buildSupplierPdfs(ctx, SEED_MANUALS, media.media, now)
+
+    // 3. Wipe.
+    let wiped = 0
+    for (let i = 0; i < 1000; i++) {
+      const r: { done: boolean; deleted: number } = await ctx.runMutation(internal.seedKnowledge.wipeBatch, {})
+      wiped += r.deleted
+      if (r.done) break
+    }
+
+    // 4. Vocabulary, people, Assets, image rows.
+    const base: {
+      people: { name: string; id: Id<"people"> }[]
+      assets: { code: string; id: Id<"assets"> }[]
+      images: { key: string; id: Id<"images"> }[]
+    } = await ctx.runMutation(internal.seedKnowledge.writeBase, { now, media: media.media })
+
+    // 5. Documents: rows first (so references resolve), then each one's versions.
+    const docs: { code: string; id: Id<"documents"> }[] = await ctx.runMutation(
+      internal.seedKnowledge.writeDocumentRows,
+      { now },
+    )
+    const refs = { docs, ...base }
+    let versions = 0
+    let chunks = 0
+    for (const d of docs) {
+      const m = manuals.find((x) => x.code === d.code)
+      const r: { versions: number; chunks: number } = await ctx.runMutation(
+        internal.seedKnowledge.writeDocumentVersions,
+        {
+          code: d.code,
+          now,
+          refs,
+          ...(m
+            ? {
+                manual: {
+                  sourceStorageId: m.sourceStorageId,
+                  stampedStorageId: m.stampedStorageId,
+                  pageTexts: m.pageTexts,
+                  pageCount: m.pageCount,
+                  stampLabel: m.stampLabel,
+                },
+              }
+            : {}),
+        },
+      )
+      versions += r.versions
+      chunks += r.chunks
+    }
+    await ctx.runMutation(internal.seedKnowledge.writeCounters, {})
+
+    // 6. Trainings, Skills, insights (each owned by its track; a failure in
+    //    one is reported, not fatal).
+    const modules: Record<string, unknown> = {}
+    const steps = [
+      ["trainings", internal.seed.trainings.run],
+      ["skills", internal.seed.skills.run],
+      ["insights", internal.seed.insights.run],
+    ] as const
+    for (const [name, fn] of steps) {
+      try {
+        modules[name] = await ctx.runMutation(fn, {})
+      } catch (e) {
+        modules[name] = { error: e instanceof Error ? e.message : String(e) }
+        console.error(`seed module ${name} failed:`, e)
+      }
+    }
+
+    // 7. Wikis (generated in the background).
+    const wikis: number = await ctx.runMutation(internal.seedKnowledge.writeWikis, { now })
+
+    // 8. Embeddings for Ask, staggered to stay under the rate limit, then the
+    //    real Consistency check once they are written.
+    for (const [i, d] of docs.entries()) {
+      await ctx.scheduler.runAfter(i * 1500, internal.ai.embed.embedMissingInternal, { documentId: d.id })
+    }
+    await ctx.scheduler.runAfter(90_000, internal.ai.consistency.runAll, { trigger: "seed" })
+
+    const totals: Record<string, number> = await ctx.runQuery(internal.seedKnowledge.counts, {})
     return {
       ok: true,
-      assets: await count("assets"),
-      documents: await count("documents"),
-      versions: await count("documentVersions"),
-      chunks: await count("chunks"),
-      people: await count("people"),
-      wikis: await count("wikis"),
+      seconds: Math.round((Date.now() - t0) / 1000),
+      media: { generated: media.generated, reused: media.reused, failed: media.failed },
+      supplierPdfs: manuals.map((m) => `${m.code}: ${m.pageCount} pages${m.cached ? " (cached)" : ""}`),
+      wiped,
+      written: { documents: docs.length, versions, chunks, wikis },
+      modules,
+      totals,
     }
   },
 })

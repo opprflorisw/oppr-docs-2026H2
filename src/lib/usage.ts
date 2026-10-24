@@ -1,4 +1,5 @@
 import { useEffect } from "react"
+import { isMobilePath } from "@/lib/utils"
 import { useMutation } from "convex/react"
 import { useLocation } from "wouter"
 import { api } from "../../convex/_generated/api"
@@ -18,7 +19,7 @@ export function useRecordUsage(args: {
   const record = useMutation(api.usage.record)
   const { person } = useCheckIn()
   const [location] = useLocation()
-  const surface = location.startsWith("/m") ? "floor" : "desktop"
+  const surface = isMobilePath(location) ? "floor" : "desktop"
   const personId = person?._id ?? null
   const { kind, documentId, assetId } = args
   useEffect(() => {

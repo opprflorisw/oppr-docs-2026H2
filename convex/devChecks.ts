@@ -7,8 +7,10 @@ import { publishApproved } from "./documents"
 import { resolveScope } from "./lib/scope"
 import { allocate, MAX_WIKI_CHUNKS, pickChunks, requestGeneration } from "./wikis"
 import { publishedVersion } from "./lib/published"
+import { walkBodyImages } from "./lib/imageWalker"
+import { counterKey, parseNamingCode, resolveTypeToken } from "./naming"
 
-// Repeatable checks for slices 0 and 1 (docs/test-set.md). They exercise the
+// Repeatable checks for the showcase (docs/test-set.md). They exercise the
 // real code paths on the fresh seed. DEV ONLY: the regeneration check
 // publishes a document, so run `seedKnowledge:run` afterwards.
 //
@@ -31,7 +33,7 @@ export const snapshot = internalQuery({
   handler: async (ctx) => {
     const docs = await ctx.db.query("documents").take(500)
     const assets = await ctx.db.query("assets").take(500)
-    const chunks = await ctx.db.query("chunks").take(5000)
+    const links = await ctx.db.query("documentAssets").take(5000)
     const wikis = await ctx.db.query("wikis").take(100)
     return {
       docs: docs.map((d) => ({
@@ -42,7 +44,22 @@ export const snapshot = internalQuery({
         currentVersion: d.currentVersion,
       })),
       assets: assets.map((a) => a._id),
-      chunks: chunks.map((c) => ({
+      links: links.map((l) => ({ documentId: l.documentId, assetId: l.assetId })),
+      wikis,
+    }
+  },
+})
+
+// Chunks carry 768-number embeddings, so reading them all in one query would
+// pass the 16 MB read limit on a seeded plant: page through them instead.
+export const chunkPage = internalQuery({
+  args: { cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, args) => {
+    const page = await ctx.db.query("chunks").paginate({ cursor: args.cursor, numItems: 400 })
+    return {
+      isDone: page.isDone,
+      continueCursor: page.continueCursor,
+      chunks: page.page.map((c) => ({
         _id: c._id,
         documentId: c.documentId,
         version: c.version,
@@ -50,10 +67,22 @@ export const snapshot = internalQuery({
         section: c.pageOrSection,
         text: c.text,
       })),
-      wikis,
     }
   },
 })
+
+type SnapChunk = { _id: Id<"chunks">; documentId: Id<"documents">; version: number; seq: number; section: string | null; text: string }
+
+async function allChunks(ctx: { runQuery: (q: typeof internal.devChecks.chunkPage, a: { cursor: string | null }) => Promise<{ isDone: boolean; continueCursor: string; chunks: SnapChunk[] }> }): Promise<SnapChunk[]> {
+  const out: SnapChunk[] = []
+  let cursor: string | null = null
+  for (;;) {
+    const page: { isDone: boolean; continueCursor: string; chunks: SnapChunk[] } = await ctx.runQuery(internal.devChecks.chunkPage, { cursor })
+    out.push(...page.chunks)
+    if (page.isDone) return out
+    cursor = page.continueCursor
+  }
+}
 
 export const wikiScopeDocs = internalQuery({
   args: { wikiId: v.id("wikis") },
@@ -121,6 +150,90 @@ export const publishWorkingDraft = internalMutation({
   },
 })
 
+/** Seed integrity: images, wrapped manuals and naming counters. */
+export const seedIntegrity = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const docs = await ctx.db.query("documents").take(500)
+    const imageProblems: string[] = []
+    const manualProblems: string[] = []
+    let nativePublished = 0
+    let imagesChecked = 0
+    let manuals = 0
+    let manualChunks = 0
+    for (const d of docs) {
+      const live = publishedVersion(d)
+      if (live == null) continue
+      const row = await ctx.db
+        .query("documentVersions")
+        .withIndex("by_documentId_and_version", (q) => q.eq("documentId", d._id).eq("version", live))
+        .unique()
+      if (!row) {
+        imageProblems.push(`${d.namingCode}: live version v${live} missing`)
+        continue
+      }
+      if (d.origin === "wrapped" || row.bodyKind === "pdf") {
+        manuals++
+        const stamped = row.pdfStorageId ? await ctx.db.system.get(row.pdfStorageId) : null
+        const source = row.sourcePdfStorageId ? await ctx.db.system.get(row.sourcePdfStorageId) : null
+        if (!stamped) manualProblems.push(`${d.namingCode}: no stamped PDF`)
+        if (!source) manualProblems.push(`${d.namingCode}: no supplier original`)
+        if (!row.stampLabel || !row.stampLabel.includes(`Published v${live}`))
+          manualProblems.push(`${d.namingCode}: stamp says "${row.stampLabel ?? "nothing"}"`)
+        const pages = row.pdfPageCount ?? 0
+        if (pages < 1) manualProblems.push(`${d.namingCode}: no page count`)
+        const chunks = await ctx.db
+          .query("chunks")
+          .withIndex("by_documentId_and_version", (q) => q.eq("documentId", d._id).eq("version", live))
+          .take(2000)
+        manualChunks += chunks.length
+        if (chunks.length === 0) manualProblems.push(`${d.namingCode}: no page chunks`)
+        const badPage = chunks.find((c) => {
+          const m = /^Page (\d+)$/.exec(c.pageOrSection ?? "")
+          return !m || Number(m[1]) < 1 || Number(m[1]) > pages
+        })
+        if (badPage) manualProblems.push(`${d.namingCode}: chunk section "${badPage.pageOrSection}" is not a page of the PDF`)
+        continue
+      }
+      nativePublished++
+      for (const ref of walkBodyImages(row.bodyJson)) {
+        imagesChecked++
+        if (!ref.imageId || ref.imageId.startsWith("key:")) {
+          imageProblems.push(`${d.namingCode}: image "${ref.altText.slice(0, 40)}" not resolved`)
+          continue
+        }
+        const img = await ctx.db.get(ref.imageId as Id<"images">)
+        const file = img?.storageId ? await ctx.db.system.get(img.storageId) : null
+        if (!img || !file) imageProblems.push(`${d.namingCode}: image ${ref.imageId} has no ${img ? "file" : "row"}`)
+      }
+    }
+
+    const counters = new Map((await ctx.db.query("namingCounters").take(1000)).map((c) => [c.key, c.value]))
+    const codes = new Set(docs.map((d) => d.namingCode))
+    const counterProblems: string[] = []
+    for (const d of docs) {
+      const parsed = parseNamingCode(d.namingCode)
+      if (!parsed || !d.location || !d.discipline) continue
+      const key = counterKey(d.location, d.discipline, d.type)
+      const value = counters.get(key) ?? 0
+      if (value < parsed.seq) counterProblems.push(`${key} is at ${value}, below ${d.namingCode}`)
+      const token = await resolveTypeToken(ctx, d.type)
+      const next = `${d.location}-${d.discipline}-${token}-${String(value + 1).padStart(4, "0")}`
+      if (codes.has(next)) counterProblems.push(`next code ${next} already exists`)
+    }
+    return {
+      nativePublished,
+      imagesChecked,
+      imageProblems,
+      manuals,
+      manualChunks,
+      manualProblems,
+      counterKeys: counters.size,
+      counterProblems: [...new Set(counterProblems)],
+    }
+  },
+})
+
 function wikiText(w: Doc<"wikis"> | null): string {
   if (!w?.content) return ""
   return w.content.sections
@@ -151,8 +264,26 @@ export const run = internalAction({
       checks.push({ id, name, pass, evidence })
 
     const snap = await ctx.runQuery(internal.devChecks.snapshot, {})
+    const chunks = await allChunks(ctx)
+    const chunkById = new Map(chunks.map((c) => [c._id, c]))
+    const docById = new Map(snap.docs.map((d) => [d._id, d]))
     const docByCode = new Map(snap.docs.map((d) => [d.namingCode, d]))
-    const allChunkIds = snap.chunks.map((c) => c._id)
+    // What each scope is fed: every chunk that must NOT be served (drafts,
+    // older versions, never-published documents), every chunk of the scope's
+    // own documents, and a sample of other live chunks.
+    const isLiveChunk = (c: SnapChunk) => {
+      const d = docById.get(c.documentId)
+      return !!d && d.status !== "archived" && d.liveVersion != null && c.version === d.liveVersion
+    }
+    const risky = chunks.filter((c) => !isLiveChunk(c)).map((c) => c._id)
+    const sampleLive = chunks.filter(isLiveChunk).filter((_, i) => i % 25 === 0).map((c) => c._id)
+    const feedFor = (scope: { kind: "library" } | { kind: "doc"; id: Id<"documents"> } | { kind: "asset"; id: Id<"assets"> }): Id<"chunks">[] => {
+      if (scope.kind === "library") return chunks.map((c) => c._id)
+      const own = new Set<string>(
+        scope.kind === "doc" ? [scope.id] : snap.links.filter((l) => l.assetId === scope.id).map((l) => l.documentId),
+      )
+      return [...new Set([...risky, ...sampleLive, ...chunks.filter((c) => own.has(c.documentId)).map((c) => c._id)])]
+    }
 
     // ---- 3. Ask serves Published only, in every scope ----
     const scopes: ({ kind: "library" } | { kind: "doc"; id: Id<"documents"> } | { kind: "asset"; id: Id<"assets"> })[] = [
@@ -163,15 +294,18 @@ export const run = internalAction({
     let served = 0
     const askLeaks: string[] = []
     for (const scope of scopes) {
-      const rows: { text: string; documentNamingCode: string; chunkId: Id<"chunks"> }[] = await ctx.runQuery(
-        internal.ai.ask.lookupAfterSearch,
-        { chunkIds: allChunkIds, scope },
-      )
+      const feed = feedFor(scope)
+      const rows: { text: string; documentNamingCode: string; chunkId: Id<"chunks"> }[] = []
+      for (let i = 0; i < feed.length; i += 400) {
+        rows.push(
+          ...(await ctx.runQuery(internal.ai.ask.lookupAfterSearch, { chunkIds: feed.slice(i, i + 400), scope })),
+        )
+      }
       const overview: string = await ctx.runQuery(internal.ai.ask.buildScopeOverview, { scope })
       served += rows.length
       for (const r of rows) {
-        const chunk = snap.chunks.find((c) => c._id === r.chunkId)!
-        const doc = snap.docs.find((d) => d._id === chunk.documentId)!
+        const chunk = chunkById.get(r.chunkId)!
+        const doc = docById.get(chunk.documentId)!
         const okVersion = doc.status !== "archived" && doc.liveVersion != null && chunk.version === doc.liveVersion
         if (!okVersion) askLeaks.push(`${scope.kind}: ${doc.namingCode} v${chunk.version}`)
         for (const s of DRAFT_ONLY) if (r.text.includes(s)) askLeaks.push(`${scope.kind}: "${s}" in excerpt`)
@@ -221,19 +355,19 @@ export const run = internalAction({
       const inScope = new Map(
         (await ctx.runQuery(internal.devChecks.wikiScopeDocs, { wikiId: id })).map((d: { _id: Id<"documents">; version: number | null }) => [d._id, d.version]),
       )
-      const after = await ctx.runQuery(internal.devChecks.snapshot, {})
+      const after = await allChunks(ctx)
       // The generator reads table rows with their column headers; recheck
       // against exactly that text.
-      const groups = new Map<string, typeof after.chunks>()
-      for (const c of after.chunks) {
+      const groups = new Map<string, SnapChunk[]>()
+      for (const c of after) {
         const k = `${c.documentId}@${c.version}`
         groups.set(k, [...(groups.get(k) ?? []), c])
       }
-      const chunkById = new Map<Id<"chunks">, (typeof after.chunks)[number]>()
+      const readById = new Map<Id<"chunks">, SnapChunk>()
       for (const list of groups.values()) {
         list.sort((a, b) => a.seq - b.seq)
         const texts = withTableHeaders(list)
-        list.forEach((c, i) => chunkById.set(c._id, { ...c, text: texts[i] }))
+        list.forEach((c, i) => readById.set(c._id, { ...c, text: texts[i] }))
       }
       // Same label the generator gives the model (naming code, version, title).
       const titleOf = new Map(w.sources.map((src) => [src.documentId, src.title]))
@@ -243,7 +377,7 @@ export const run = internalAction({
           const provided = new Map<string, ProvidedExcerpt>()
           let traceable = p.citations.length > 0
           for (const c of p.citations) {
-            const chunk = chunkById.get(c.chunkId)
+            const chunk = readById.get(c.chunkId)
             if (!chunk || chunk.documentId !== c.documentId || inScope.get(c.documentId) !== chunk.version) {
               traceable = false
               continue
@@ -359,6 +493,44 @@ export const run = internalAction({
           `3 of 30 passages: safety passage kept ${keepsSafety ? "yes" : "no"}, document order ${inOrder ? "yes" : "no"}, bare heading skipped ${skipsHeading ? "yes" : "no"}`,
       )
     }
+
+    // ---- Seed integrity (convex/seedKnowledge.ts) ----
+    const integrity = await ctx.runQuery(internal.devChecks.seedIntegrity, {})
+    add(
+      "I",
+      "Every Published native Document shows its images",
+      integrity.nativePublished > 0 && integrity.imagesChecked > 0 && integrity.imageProblems.length === 0,
+      `${integrity.imagesChecked} images across ${integrity.nativePublished} Published native Documents` +
+        (integrity.imageProblems.length ? `; problems: ${integrity.imageProblems.slice(0, 5).join("; ")}` : ", all rows and files present"),
+    )
+    add(
+      "M",
+      "Every Published Wrapped manual has a stamped PDF and page passages",
+      integrity.manuals > 0 && integrity.manualProblems.length === 0,
+      `${integrity.manuals} Wrapped manuals, ${integrity.manualChunks} page passages` +
+        (integrity.manualProblems.length ? `; problems: ${integrity.manualProblems.slice(0, 5).join("; ")}` : ", stamps say Published"),
+    )
+    {
+      const leaks = chunks
+        .filter(isLiveChunk)
+        .flatMap((c) => DRAFT_ONLY.filter((s) => c.text.includes(s)).map((s) => `${docById.get(c.documentId)?.namingCode} v${c.version}: ${s}`))
+      add(
+        "S",
+        "No Published passage contains draft-only text",
+        leaks.length === 0,
+        leaks.length === 0
+          ? `${chunks.filter(isLiveChunk).length} Published passages checked for ${DRAFT_ONLY.join(", ")}`
+          : leaks.slice(0, 5).join("; "),
+      )
+    }
+    add(
+      "N",
+      "Naming counters continue after the seeded codes",
+      integrity.counterKeys > 0 && integrity.counterProblems.length === 0,
+      integrity.counterProblems.length === 0
+        ? `${integrity.counterKeys} counters; the next code for every area, discipline and type is free`
+        : integrity.counterProblems.slice(0, 5).join("; "),
+    )
 
     // ---- 7. Empty scope ----
     const neverPublished = snap.docs.filter((d) => d.liveVersion == null).map((d) => d._id)

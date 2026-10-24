@@ -1,8 +1,10 @@
 import { Redirect, Route, Switch, useLocation, useRoute } from "wouter"
+import { isMobilePath } from "@/lib/utils"
 import { ThemeProvider } from "next-themes"
 import { Toaster } from "@/components/ui/sonner"
 import { DesktopShell } from "@/components/layout/DesktopShell"
 import { MobileShell } from "@/components/mobile/MobileShell"
+import { MobileRoutes } from "@/components/mobile/MobileRoutes"
 import { HomePage } from "@/pages/desktop/HomePage"
 import { LearnPage } from "@/pages/desktop/LearnPage"
 import { WikiListPage } from "@/pages/desktop/WikiListPage"
@@ -20,13 +22,6 @@ import { TemplateEditPage } from "@/pages/desktop/TemplateEditPage"
 import { ImportPage } from "@/pages/desktop/ImportPage"
 import { AnalysisIndexPage } from "@/pages/desktop/AnalysisIndexPage"
 import { getAnalysisBySlug } from "@/pages/desktop/analysis/registry"
-import { MobileHomePage } from "@/pages/mobile/MobileHomePage"
-import { MobileScanPage } from "@/pages/mobile/MobileScanPage"
-import { MobileAssetsPage } from "@/pages/mobile/MobileAssetsPage"
-import { MobileAssetPage } from "@/pages/mobile/MobileAssetPage"
-import { MobileDocsPage } from "@/pages/mobile/MobileDocsPage"
-import { MobileDocPage } from "@/pages/mobile/MobileDocPage"
-import { MobileAskPage } from "@/pages/mobile/MobileAskPage"
 import { AuthGate } from "@/auth/AuthGate"
 import { FindingsPage } from "@/pages/desktop/FindingsPage"
 import { KnowledgeHealthPage } from "@/pages/desktop/KnowledgeHealthPage"
@@ -50,7 +45,7 @@ function AnalysisRoute() {
 
 function App() {
   const [location] = useLocation()
-  const isMobile = location.startsWith("/m")
+  const isMobile = isMobilePath(location)
 
   return (
     <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
@@ -58,15 +53,7 @@ function App() {
         <Toaster richColors position="bottom-right" />
         {isMobile ? (
           <MobileShell>
-            <Switch>
-              <Route path="/m" component={MobileHomePage} />
-              <Route path="/m/scan" component={MobileScanPage} />
-              <Route path="/m/assets" component={MobileAssetsPage} />
-              <Route path="/m/assets/:id" component={MobileAssetPage} />
-              <Route path="/m/docs" component={MobileDocsPage} />
-              <Route path="/m/docs/:id" component={MobileDocPage} />
-              <Route path="/m/ask" component={MobileAskPage} />
-            </Switch>
+            <MobileRoutes />
           </MobileShell>
         ) : (
           <DesktopShell>

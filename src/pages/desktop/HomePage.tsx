@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { HomeFindingsRows } from "@/components/findings/HomeFindingsRows"
+import { HomeRevisionRows } from "@/components/insights/HomeRevisionRows"
 import { HomeTrainingRows } from "@/components/learn/HomeTrainingRows"
 import { HomeSkillRows } from "@/components/learn/HomeSkillRows"
 import { HomeInsightsPanel } from "@/components/insights/HomeInsightsPanel"
@@ -120,6 +121,7 @@ export function HomePage() {
           {/* Other work for Engineers, one section per pillar. Each renders
               nothing when it has nothing to show. */}
           <HomeFindingsRows />
+          <HomeRevisionRows />
           <HomeTrainingRows />
           <HomeSkillRows />
         </section>

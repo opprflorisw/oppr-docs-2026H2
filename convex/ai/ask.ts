@@ -26,6 +26,7 @@ const SYSTEM_INSTRUCTION = [
   "  • Format with Markdown: bold, lists, short headings. Keep entity codes (HOL-OPS-SOP-0001, RMR-101, HOL-OPS-LOG-0001) verbatim — the UI auto-links them.",
   "  • An excerpt marked '(from the wider library — not linked to this asset)' may be used, but make clear that it comes from a document not linked to this asset.",
   "  • If two excerpts give different values or instructions for the same thing (for example a torque), give both, say which document gives which, cite both, and say that they disagree so the person checks with the document owner. Never pick one silently.",
+  "  • A KNOWN CONFLICT block lists contradictions between Published documents that an Engineer has not resolved yet. If your answer touches one, give both values, name both documents by naming code, cite both if they are among the excerpts, and say plainly that the documents disagree and to check with the document owner before acting. Never pick one side.",
   "  • Copy numbers, units and codes exactly as the excerpt writes them. Keep every 'never' and 'do not' and every condition of a warning.",
   "  • If neither block has the answer, say so plainly in one sentence. Do not invent facts.",
   "  • Never apologize. Never refer to 'the excerpts' or 'the scope overview'. Just answer.",
@@ -259,9 +260,19 @@ interface AskInput {
   history: { role: "user" | "assistant"; text: string }[]
 }
 
+// An open contradiction Finding touching a cited document (CONTEXT.md: Ask
+// keeps answering, but warns and names both sources).
+export interface ConflictOut {
+  findingId: string
+  summary: string
+  a: { documentId: string; code: string; title: string; quote: string }
+  b: { documentId: string; code: string; title: string; quote: string }
+}
+
 interface PreparedAsk {
   contents: { role: string; parts: { text: string }[] }[]
   citations: CitationOut[]
+  conflicts: ConflictOut[]
 }
 
 async function prepareAskContext(
@@ -412,9 +423,33 @@ async function prepareAskContext(
       .join("\n\n")
   }
 
+  // Open contradictions on the documents the answer draws from. Told to the
+  // model so the answer warns, and returned to the UI so it can show them.
+  const citedDocIds = Array.from(new Set(top.map((c) => c.documentId)))
+  let conflicts: ConflictOut[] = []
+  if (citedDocIds.length > 0) {
+    try {
+      conflicts = await ctx.runQuery(internal.findings.openConflictsForAsk, {
+        documentIds: citedDocIds,
+      })
+    } catch (err) {
+      console.warn("Ask: open Findings lookup failed", err)
+    }
+  }
+
   const promptParts: string[] = []
   if (overviewText) {
     promptParts.push(`SCOPE OVERVIEW:\n${overviewText}`, "")
+  }
+  if (conflicts.length > 0) {
+    promptParts.push(
+      "KNOWN CONFLICT (open Findings of the Consistency check):",
+      ...conflicts.map(
+        (f) =>
+          `- ${f.summary} ${f.a.code} (${f.a.title}) says: "${f.a.quote}". ${f.b.code} (${f.b.title}) says: "${f.b.quote}".`,
+      ),
+      "",
+    )
   }
   promptParts.push(
     `EXCERPTS:\n${contextBlock}`,
@@ -461,7 +496,7 @@ async function prepareAskContext(
     }
   })
 
-  return { contents, citations }
+  return { contents, citations, conflicts }
 }
 
 export const lookupAssetDocs = internalQuery({
@@ -583,7 +618,11 @@ export const askStream = httpAction(async (ctx, req) => {
         if (!anyText) {
           writeEvent({ type: "delta", text: "(no response)" })
         }
-        writeEvent({ type: "done", citations: prepared.citations })
+        writeEvent({
+          type: "done",
+          citations: prepared.citations,
+          conflicts: prepared.conflicts,
+        })
         // Append-only signal for Document insights and Knowledge health.
         // Logged server-side so it is anonymous unless checked in, and so
         // people cannot delete it with their chat history.

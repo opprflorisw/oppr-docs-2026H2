@@ -45,7 +45,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { useChatSize, type ChatSize } from "@/components/mobile/use-mobile-prefs"
-import { cn } from "@/lib/utils"
+import { cn, isMobilePath } from "@/lib/utils"
 import { LogReferenceModal } from "@/components/docs/LogReferenceModal"
 import { MessageContent } from "./MessageContent"
 import { SourcesBlock } from "./SourcesBlock"
@@ -53,6 +53,7 @@ import { RelatedRail } from "./RelatedRail"
 import { StarterPrompts } from "./StarterPrompts"
 import { ScopeChip } from "./ScopeChip"
 import { ClearChatDialog } from "./ClearChatDialog"
+import { AskConflictWarning } from "./AskConflictWarning"
 
 // Mobile font-size dial. Mounted in the AskPanel header when `compact`.
 // The size lands on the scroll container; bubbles and MessageContent inherit
@@ -286,7 +287,7 @@ export function AskPanel({
         return
       }
       const isMobile =
-        typeof window !== "undefined" && window.location.pathname.startsWith("/m")
+        isMobilePath(location)
       const base = isMobile ? `/m/docs/${citation.document_id}` : `/docs/${citation.document_id}`
       const qs = page != null ? `?page=${page}` : ""
       navigate(base + qs)
@@ -362,7 +363,7 @@ export function AskPanel({
           question,
           history,
           personId: checkedInPerson?._id ?? null,
-          surface: location.startsWith("/m") ? "floor" : "desktop",
+          surface: isMobilePath(location) ? "floor" : "desktop",
         }),
         signal: ac.signal,
       })
@@ -623,17 +624,17 @@ export function AskPanel({
                   ? `/assets/${entry.id}`
                   : `/docs/${entry.id}`
               const isMobile =
-                typeof window !== "undefined" && window.location.pathname.startsWith("/m")
+                isMobilePath(location)
               navigate(isMobile ? `/m${path}` : path)
             }}
             onAssetNavigate={(a) => {
               const isMobile =
-                typeof window !== "undefined" && window.location.pathname.startsWith("/m")
+                isMobilePath(location)
               navigate(isMobile ? `/m/assets/${a.id}` : `/assets/${a.id}`)
             }}
             onDocNavigate={(d) => {
               const isMobile =
-                typeof window !== "undefined" && window.location.pathname.startsWith("/m")
+                isMobilePath(location)
               navigate(isMobile ? `/m/docs/${d.id}` : `/docs/${d.id}`)
             }}
             onLogClick={(l) => setActiveLog(l)}
@@ -787,6 +788,13 @@ function MessageBlock({
             citations={message.citations}
             domIdPrefix={`citation-${message.id}`}
             onOpen={onCitationOpen}
+          />
+        )}
+
+        {/* Open contradiction Findings on the cited documents. */}
+        {!streaming && message.citations && message.citations.length > 0 && (
+          <AskConflictWarning
+            citations={message.citations.map((c) => ({ documentId: c.document_id, chunkId: c.chunk_id }))}
           />
         )}
 

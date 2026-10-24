@@ -67,7 +67,9 @@ export function pdfPageChunks(pages: string[], max = 800): ChunkInput[] {
       .filter(Boolean)
     let buf = ""
     for (const para of paras) {
-      if (buf && buf.length + para.length + 1 > max) {
+      // Short paragraphs (table rows, list items) are merged; a paragraph of
+      // some length stands alone, so a warning is never diluted by its neighbours.
+      if (buf && (buf.length >= 240 || buf.length + para.length + 1 > max)) {
         out.push({ text: buf, section })
         buf = ""
       }
