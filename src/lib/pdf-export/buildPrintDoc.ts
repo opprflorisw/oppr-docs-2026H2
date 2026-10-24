@@ -212,13 +212,13 @@ export function buildPrintDoc(args: BuildArgs): string {
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>${escapeHtml(doc.naming_code)} — ${escapeHtml(doc.title)}</title>
-<meta name="generator" content="Oppr DOCS" />
+<title>${escapeHtml(doc.naming_code)} · ${escapeHtml(doc.title)}</title>
+<meta name="generator" content="Oppr Knowledge" />
 <style>${styles}</style>
 </head>
 <body>
 <div class="preview-toolbar no-print">
-  <h1>${escapeHtml(doc.naming_code)} · v${displayVersion} — ${escapeHtml(doc.title)}</h1>
+  <h1>${escapeHtml(doc.naming_code)} · v${displayVersion} · ${escapeHtml(doc.title)}</h1>
   <button onclick="window.print()" class="primary">Print / Save as PDF</button>
   <button onclick="window.close()">Close</button>
 </div>
@@ -259,7 +259,7 @@ function renderTitlePage(args: {
     cover,
     overviewHtml,
   } = args
-  const ownerLabel = ownerName ? escapeHtml(ownerName) : "—"
+  const ownerLabel = ownerName ? escapeHtml(ownerName) : "Not assigned"
   const ppe = ppeOnDoc
     .map((slug) => {
       const meta = CURRENT_PPE_MAP?.get(slug)
@@ -268,7 +268,7 @@ function renderTitlePage(args: {
       return `<span class="ppe-chip"><img src="${escapeAttr(src)}" alt="" width="16" height="16" />${escapeHtml(label)}</span>`
     })
     .join("")
-  const eyebrowCompany = cover?.companyName?.trim() || "Oppr DOCS"
+  const eyebrowCompany = cover?.companyName?.trim() || "Oppr Knowledge"
   const logo = cover?.logoDataUrl
     ? `<img class="title-logo" src="${escapeAttr(cover.logoDataUrl)}" alt="${escapeAttr(eyebrowCompany)} logo" />`
     : ""
@@ -298,7 +298,7 @@ function renderTitlePage(args: {
   <div class="title-controlled">
     ${confidentiality}
     <div class="stamp">Controlled copy</div>
-    <div>Print date ${escapeHtml(formatToday())}. Verify the latest revision in Oppr DOCS before use. Uncontrolled when printed and not stamped or registered.</div>
+    <div>Print date ${escapeHtml(formatToday())}. Verify the latest revision in Oppr Knowledge before use. Uncontrolled when printed and not stamped or registered.</div>
   </div>
 </section>`
 }
@@ -415,7 +415,7 @@ function renderReferences(
       ${refs
         .map((r) => {
           const title = titleById?.[r.docId] ?? deriveTitle(r.label, r.code)
-          return `<tr><td class="fm-code">${r.code ? escapeHtml(r.code) : "—"}</td><td>${escapeHtml(title)}</td></tr>`
+          return `<tr><td class="fm-code">${r.code ? escapeHtml(r.code) : ""}</td><td>${escapeHtml(title)}</td></tr>`
         })
         .join("")}
     </tbody>
@@ -429,7 +429,7 @@ function deriveTitle(label: string, code: string): string {
     const stripped = label.replace(code, "").replace(/^\s*[—-]\s*/, "").trim()
     if (stripped) return stripped
   }
-  return "—"
+  return "Untitled"
 }
 
 // ---------------------------------------------------------------------------
@@ -508,8 +508,8 @@ function renderLinkedLogs(
         .map((e) => {
           const info = e.logId ? logsById?.[e.logId] : undefined
           const code = info?.code ?? null
-          const name = info?.name || e.label || "—"
-          return `<tr><td class="fm-code">${code ? escapeHtml(code) : "—"}</td><td>${escapeHtml(name)}</td></tr>`
+          const name = info?.name || e.label || "Unnamed"
+          return `<tr><td class="fm-code">${code ? escapeHtml(code) : ""}</td><td>${escapeHtml(name)}</td></tr>`
         })
         .join("")}
     </tbody>
@@ -761,7 +761,7 @@ function renderPdfAttachment(node: TipTapNode): string {
   const filename = String(node.attrs?.filename ?? "Attached PDF")
   const pageCount = Number(node.attrs?.pageCount ?? 0)
   const pages = storageId ? CURRENT_PDF_PAGES?.[storageId] : undefined
-  const head = `<div class="pdf-attachment-head">Attached PDF — ${escapeHtml(filename)}${
+  const head = `<div class="pdf-attachment-head">Attached PDF: ${escapeHtml(filename)}${
     pageCount ? ` · ${pageCount} page${pageCount === 1 ? "" : "s"}` : ""
   }</div>`
   if (pages && pages.length > 0) {
@@ -773,7 +773,7 @@ function renderPdfAttachment(node: TipTapNode): string {
       .join("")
     return `<section class="pdf-attachment">${head}${imgs}</section>`
   }
-  return `<section class="pdf-attachment-note">${head}<p>Open the source document in Oppr DOCS to view the PDF.</p></section>`
+  return `<section class="pdf-attachment-note">${head}<p>Open the source document in Oppr Knowledge to view the PDF.</p></section>`
 }
 
 // ---------------------------------------------------------------------------
@@ -837,10 +837,10 @@ function watermarkLabel(
 ): string | null {
   if (choice === "none") return null
   if (choice === "controlled") return "Controlled copy"
-  if (choice === "draft") return "Draft — not for use"
+  if (choice === "draft") return "Draft, not for use"
   if (choice === "review") return "Under review"
   // Auto: derive from status when supplied
-  if (status === "draft") return "Draft — not for use"
+  if (status === "draft") return "Draft, not for use"
   if (status === "in_review") return "Under review"
   return null
 }

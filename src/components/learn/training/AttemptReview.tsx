@@ -1,6 +1,7 @@
 import type { FunctionReturnType } from "convex/server"
 import { Camera, CheckCircle2, Flag, MapPin, StickyNote, XCircle } from "lucide-react"
 import { api } from "../../../../convex/_generated/api"
+import { useCheckIn } from "@/lib/checkIn"
 import { cn } from "@/lib/utils"
 import { fmtDateTime, KIND_LABEL, SourceChip } from "./lib"
 
@@ -16,6 +17,8 @@ const LETTERS = ["A", "B", "C", "D", "E", "F"]
  */
 export function AttemptReview({ a }: { a: AttemptView }) {
   const passed = a.status === "passed"
+  const { person } = useCheckIn()
+  const printedAt = fmtDateTime(Date.now())
   return (
     <div className="space-y-4">
       <div className="rounded-lg border p-4 print:border-black/30">
@@ -23,7 +26,13 @@ export function AttemptReview({ a }: { a: AttemptView }) {
           <p className="text-sm font-semibold">
             {passed ? "Training record" : a.status === "failed" ? "Attempt (not passed)" : "Attempt"}
           </p>
-          <p className="text-[11px] text-muted-foreground">Printed from Oppr Knowledge, Pijpwerk Noord</p>
+          <p className="text-[11px] text-muted-foreground">
+            <span className="print:hidden">Oppr Knowledge, Pijpwerk Noord</span>
+            <span className="hidden print:inline">
+              Printed {printedAt}
+              {person ? ` by ${person.name}` : ""} from Oppr Knowledge, Pijpwerk Noord
+            </span>
+          </p>
         </div>
         <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
           <Field label="Person" value={`${a.personName}${a.personRole ? `, ${a.personRole}` : ""}`} />
@@ -50,6 +59,10 @@ export function AttemptReview({ a }: { a: AttemptView }) {
             label="Questions"
             value={`${a.progress.correct} of ${a.progress.total} correct, ${a.objectives.length} Learning ${a.objectives.length === 1 ? "objective" : "objectives"} tested`}
           />
+          <Field
+            label={a.recordId ? "Record ID" : "Attempt ID"}
+            value={<span className="font-mono text-xs">{a.recordId ?? a._id}</span>}
+          />
           {a.round && <Field label="Round" value={`${a.stops.length} stops visited in order, ${a.round.wrongScans} wrong ${a.round.wrongScans === 1 ? "scan" : "scans"}`} />}
         </dl>
       </div>
@@ -67,12 +80,17 @@ export function AttemptReview({ a }: { a: AttemptView }) {
                 {s.evidenceGiven.map((e, i) => (
                   <span key={i} className="flex w-full items-start gap-1.5 pl-6 text-xs text-muted-foreground">
                     {e.kind === "photo" ? <Camera className="mt-0.5 h-3 w-3" /> : <StickyNote className="mt-0.5 h-3 w-3" />}
-                    {e.url ? (
-                      <a href={e.url} target="_blank" rel="noreferrer">
-                        <img src={e.url} alt={`Photo at ${s.code}`} className="h-20 rounded border object-cover" />
-                      </a>
+                    {e.kind === "photo" ? (
+                      <span className="space-y-1">
+                        <span className="block">Photo recorded at this stop</span>
+                        {e.url && (
+                          <a href={e.url} target="_blank" rel="noreferrer" className="block">
+                            <img src={e.url} alt={`Photo recorded at ${s.code}`} className="h-20 rounded border object-cover" />
+                          </a>
+                        )}
+                      </span>
                     ) : (
-                      <span>{e.text}</span>
+                      <span>Note recorded at this stop: {e.text}</span>
                     )}
                     <span className="ml-auto shrink-0">{fmtDateTime(e.at)}</span>
                   </span>

@@ -158,7 +158,7 @@ function SourceGroup({
     >
       <div className="flex items-center gap-1.5 text-xs font-medium">
         <FileText className="h-3 w-3 text-muted-foreground" />
-        <span className="truncate">{group.title}</span>
+        <span className="line-clamp-2 min-w-0 break-words">{group.title}</span>
         <OriginBadge origin={group.origin} title={group.title} />
       </div>
       <div className="mt-1.5 flex flex-wrap gap-1">
@@ -200,8 +200,8 @@ function SectionPill({
         title={primary.citation.excerpt}
       >
         <span className="font-semibold text-primary">{primary.index}</span>
-        <span className="max-w-[16ch] truncate text-muted-foreground">
-          {bucket.label ?? "Unlabelled section"}
+        <span className="max-w-[22ch] truncate text-muted-foreground">
+          {bucket.label ?? firstWords(primary.citation.excerpt)}
         </span>
         {bucket.items.length > 1 && (
           <span className="rounded bg-muted px-1 text-[9px] font-medium text-muted-foreground">
@@ -270,6 +270,13 @@ function OriginBadge({
       Asset log
     </span>
   )
+}
+
+// A passage without a section heading is named by its opening words.
+function firstWords(text: string, n = 5): string {
+  const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean)
+  if (words.length === 0) return "Passage"
+  return words.length > n ? `${words.slice(0, n).join(" ")}…` : words.join(" ")
 }
 
 function extractPageNumber(label: string | null): number | null {

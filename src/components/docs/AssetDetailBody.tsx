@@ -43,6 +43,14 @@ export interface AssetDetailBodyProps {
   onOpenAsset: (assetId: string) => void
   onOpenLog: (log: AssetLog) => void
   onDocAction: (action: DocumentRowAction, doc: Doc) => void
+  /**
+   * Which part to render: the edit form, the linked documents, or both (the
+   * default, used by the dialog). The asset page shows a read-only header and
+   * opens the form only behind its Edit button.
+   */
+  part?: "form" | "documents" | "all"
+  /** Shown next to Save in the form, e.g. to close it again. */
+  onCancel?: () => void
 }
 
 export function AssetDetailBody({
@@ -56,6 +64,8 @@ export function AssetDetailBody({
   onOpenAsset,
   onOpenLog,
   onDocAction,
+  part = "all",
+  onCancel,
 }: AssetDetailBodyProps) {
   const [name, setName] = useState(asset.name)
   const [code, setCode] = useState(asset.code)
@@ -94,7 +104,8 @@ export function AssetDetailBody({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
+      {part !== "documents" && (
       <div className="space-y-5 rounded-md border bg-card p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 space-y-2">
@@ -211,7 +222,7 @@ export function AssetDetailBody({
                       </div>
                       <div className="text-xs text-muted-foreground">
                         {log.name}
-                        {log.description ? ` — ${log.description}` : ""}
+                        {log.description ? `: ${log.description}` : ""}
                       </div>
                     </div>
                   </button>
@@ -221,29 +232,39 @@ export function AssetDetailBody({
           </div>
         )}
 
-        <div className="flex justify-end border-t pt-4">
+        <div className="flex justify-end gap-2 border-t pt-4">
+          {onCancel && (
+            <Button variant="ghost" onClick={onCancel} disabled={saving}>
+              Cancel
+            </Button>
+          )}
           <Button onClick={() => void handleSave()} disabled={!canSave}>
             {saving ? "Saving…" : "Save changes"}
           </Button>
         </div>
       </div>
+      )}
 
-      <div className="space-y-3">
+      {part !== "form" && (
+      <div className="min-w-0 space-y-3">
         <div className="flex items-baseline justify-between">
           <h2 className="text-sm font-semibold">Linked documents</h2>
           <span className="text-xs text-muted-foreground">
             {docs.length} document{docs.length === 1 ? "" : "s"}
           </span>
         </div>
-        <DocumentLibraryTable
-          docs={docs}
-          assetsByDoc={assetsByDoc}
-          onRowClick={(d) => onOpenDoc(d.id)}
-          onAssetClick={onOpenAsset}
-          onAction={onDocAction}
-          emptyMessage="No documents are linked to this asset yet."
-        />
+        <div className="min-w-0 overflow-x-auto">
+          <DocumentLibraryTable
+            docs={docs}
+            assetsByDoc={assetsByDoc}
+            onRowClick={(d) => onOpenDoc(d.id)}
+            onAssetClick={onOpenAsset}
+            onAction={onDocAction}
+            emptyMessage="No documents are linked to this asset yet."
+          />
+        </div>
       </div>
+      )}
     </div>
   )
 }

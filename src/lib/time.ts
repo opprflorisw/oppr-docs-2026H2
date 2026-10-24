@@ -1,3 +1,22 @@
+import { format } from "date-fns"
+
+// One date and time format for the whole app: en-GB, 24-hour clock.
+//   formatDate(ts)        -> "24 Oct 2026"
+//   formatDate(ts, true)  -> "24 October 2026"
+//   formatTime(ts)        -> "09:40"
+//   formatDateTime(ts)    -> "24 Oct 2026, 09:40"
+export function formatDate(ts: number | Date, long = false): string {
+  return format(ts, long ? "d MMMM yyyy" : "d MMM yyyy")
+}
+
+export function formatTime(ts: number | Date): string {
+  return format(ts, "HH:mm")
+}
+
+export function formatDateTime(ts: number | Date): string {
+  return `${formatDate(ts)}, ${formatTime(ts)}`
+}
+
 // "just now", "5 min ago", "3 h ago", "2 days ago", then a date.
 export function formatAgo(ts: number): string {
   const s = Math.round((Date.now() - ts) / 1000)
@@ -8,5 +27,5 @@ export function formatAgo(ts: number): string {
   if (h < 24) return `${h} h ago`
   const d = Math.round(h / 24)
   if (d < 7) return `${d} ${d === 1 ? "day" : "days"} ago`
-  return new Date(ts).toLocaleDateString()
+  return formatDate(ts)
 }

@@ -1,6 +1,7 @@
 import { httpRouter } from "convex/server"
 import { auth } from "./auth"
 import { askStream, askStreamOptions } from "./ai/ask"
+import { mcpGet, mcpOptions, mcpPost } from "./mcp/server"
 
 const http = httpRouter()
 
@@ -17,5 +18,10 @@ http.route({
   method: "OPTIONS",
   handler: askStreamOptions,
 })
+
+// MCP server for outside models (docs/adr/0004), Streamable HTTP, stateless.
+http.route({ path: "/mcp", method: "POST", handler: mcpPost })
+http.route({ path: "/mcp", method: "OPTIONS", handler: mcpOptions })
+http.route({ path: "/mcp", method: "GET", handler: mcpGet })
 
 export default http

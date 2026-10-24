@@ -126,7 +126,7 @@ export function WikiPage() {
       />
 
       <div className="mx-auto grid w-full max-w-6xl gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <main className="min-w-0 space-y-4">
+        <article className="min-w-0 space-y-4">
           {building && (
             <StatusBar tone="info">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -193,7 +193,7 @@ export function WikiPage() {
           )}
 
           {content && (
-            <article className="space-y-6 rounded-lg border bg-background p-6">
+            <div className="space-y-6 rounded-lg border bg-background p-6">
               <p className="text-xs text-muted-foreground">{content.intro}</p>
               {content.sections.map((section, i) => (
                 <section key={i} className="space-y-2">
@@ -204,15 +204,17 @@ export function WikiPage() {
                         <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
                         <span>
                           {point.text}{" "}
-                          {point.citations.map((c) => (
+                          {groupByDocument(point.citations).map((g) => (
                             <SourceChip
-                              key={c.chunkId}
+                              key={g.documentId}
                               wikiId={wiki._id}
-                              documentId={c.documentId}
-                              namingCode={c.namingCode}
-                              version={c.version}
-                              section={c.section}
-                              excerpt={wiki.excerpts[c.chunkId]}
+                              documentId={g.documentId}
+                              namingCode={g.namingCode}
+                              version={g.version}
+                              passages={g.items.map((c) => ({
+                                section: c.section,
+                                excerpt: wiki.excerpts[c.chunkId],
+                              }))}
                             />
                           ))}
                         </span>
@@ -221,9 +223,9 @@ export function WikiPage() {
                   </ul>
                 </section>
               ))}
-            </article>
+            </div>
           )}
-        </main>
+        </article>
 
         <aside className="space-y-4">
           <div className="space-y-2 rounded-lg border p-3">
@@ -253,7 +255,7 @@ export function WikiPage() {
                             <span className="block text-muted-foreground">
                               {s.excerptsUsed === 0
                                 ? "Not read: the Scope has more documents than one Wiki can read"
-                                : `Read in part: ${s.excerptsUsed} of ${s.excerptsTotal} passages`}
+                                : `Most relevant passages: ${s.excerptsUsed} of ${s.excerptsTotal}`}
                             </span>
                           )}
                         {s.outdated && (
@@ -348,42 +350,66 @@ function ScopeLine({ label, items }: { label: string; items: string[] }) {
   )
 }
 
+// One chip per document on a point: several passages of the same document
+// would otherwise repeat its code. The hover lists every passage.
+function groupByDocument<
+  C extends { documentId: Id<"documents">; namingCode: string; version: number },
+>(citations: C[]): { documentId: Id<"documents">; namingCode: string; version: number; items: C[] }[] {
+  const out: { documentId: Id<"documents">; namingCode: string; version: number; items: C[] }[] = []
+  for (const c of citations) {
+    const g = out.find((x) => x.documentId === c.documentId)
+    if (g) g.items.push(c)
+    else out.push({ documentId: c.documentId, namingCode: c.namingCode, version: c.version, items: [c] })
+  }
+  return out
+}
+
 function SourceChip({
   wikiId,
   documentId,
   namingCode,
   version,
-  section,
-  excerpt,
+  passages,
 }: {
   wikiId: Id<"wikis">
   documentId: Id<"documents">
   namingCode: string
   version: number
-  section: string | null
-  excerpt: string | undefined
+  passages: { section: string | null; excerpt: string | undefined }[]
 }) {
-  const hl = excerpt ? excerpt.split(" | ")[0].slice(0, 80) : ""
+  const first = passages[0]
+  const hl = first?.excerpt ? first.excerpt.split(" | ")[0].slice(0, 80) : ""
   const params = new URLSearchParams({ wiki: wikiId })
   if (hl) params.set("hl", hl)
   const href = `/docs/${documentId}?${params.toString()}`
+  const many = passages.length > 1
   return (
     <HoverCard openDelay={150}>
       <HoverCardTrigger asChild>
         <Link
           href={href}
-          className="ml-0.5 inline-flex items-center rounded border bg-muted/60 px-1.5 py-0 align-baseline font-mono text-[10px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+          className="ml-0.5 inline-flex items-center gap-1 rounded border bg-muted/60 px-1.5 py-0 align-baseline font-mono text-[10px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
         >
           {namingCode}
+          {many && <span className="font-sans opacity-80">{passages.length} passages</span>}
         </Link>
       </HoverCardTrigger>
-      <HoverCardContent className="w-80 space-y-1.5 text-xs" align="start">
+      <HoverCardContent className="max-h-96 w-80 space-y-2 overflow-y-auto text-xs" align="start">
         <p className="font-mono text-[10px] text-muted-foreground">
           {namingCode} · v{version}
-          {section ? ` · ${section}` : ""}
+          {!many && first?.section ? ` · ${first.section}` : ""}
         </p>
-        <p className="leading-relaxed">{excerpt ?? "This passage is no longer in the published version."}</p>
-        <p className="text-[10px] text-primary">Click to open it in the document</p>
+        {passages.map((p, i) => (
+          <div key={i} className="space-y-0.5">
+            {many && p.section && (
+              <p className="text-[10px] font-medium text-muted-foreground">{p.section}</p>
+            )}
+            <p className="leading-relaxed">{p.excerpt ?? "This passage is no longer in the published version."}</p>
+          </div>
+        ))}
+        <p className="text-[10px] text-primary">
+          Click to open {many ? "the first passage" : "it"} in the document
+        </p>
       </HoverCardContent>
     </HoverCard>
   )

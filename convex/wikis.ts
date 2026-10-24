@@ -34,6 +34,10 @@ export const scopeValidator = v.object({
 
 // Cap per generation so a broad Scope stays within one model call.
 export const MAX_WIKI_CHUNKS = 160
+// A small Scope (a handful of documents) is read in full, up to this many
+// passages: a 3 to 6 document Wiki should never skip parts of its sources.
+const SMALL_SCOPE_DOCS = 6
+const SMALL_SCOPE_MAX_CHUNKS = 480
 // Every document that is read at all gets at least this many passages, so a
 // very broad Scope reads fewer documents properly instead of all of them
 // by one line each.
@@ -455,7 +459,12 @@ export const loadForGeneration = internalQuery({
     // A Scope too broad to read every document properly reads the documents
     // whose title fits the Wiki best. The rest are listed as not read, never
     // silently ignored.
-    const maxDocs = Math.floor(MAX_WIKI_CHUNKS / MIN_CHUNKS_PER_DOC)
+    const totalChunks = all.reduce((n, x) => n + x.chunks.length, 0)
+    const budget =
+      all.length <= SMALL_SCOPE_DOCS
+        ? Math.max(MAX_WIKI_CHUNKS, Math.min(totalChunks, SMALL_SCOPE_MAX_CHUNKS))
+        : MAX_WIKI_CHUNKS
+    const maxDocs = Math.floor(budget / MIN_CHUNKS_PER_DOC)
     const readable = new Set(
       all
         .map((x, i) => ({ i, s: contentStems(x.d.title).filter((s) => topic.has(s)).length }))
@@ -465,7 +474,7 @@ export const loadForGeneration = internalQuery({
     )
     const budgets = allocate(
       all.map((x, i) => (readable.has(i) ? x.chunks.length : 0)),
-      MAX_WIKI_CHUNKS,
+      budget,
     )
     const docs = all.map((x, i) => ({
       documentId: x.d._id,

@@ -64,6 +64,8 @@ export function SkillCellSheet({
       <SheetContent className="w-full overflow-y-auto sm:max-w-md">
         {data === undefined ? (
           <div className="space-y-3 pt-6">
+            <SheetTitle className="sr-only">Loading the Skill</SheetTitle>
+            <SheetDescription className="sr-only">The level, its history and its proof.</SheetDescription>
             <Skeleton className="h-5 w-2/3" />
             <Skeleton className="h-4 w-1/2" />
             <Skeleton className="h-24 w-full" />

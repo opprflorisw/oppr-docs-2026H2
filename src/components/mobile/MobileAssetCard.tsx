@@ -1,14 +1,15 @@
 // Compact asset list-card for the mobile assets list and the Ask scope picker.
-// Mirrors data shown on the desktop assets table (pin no., docs count,
-// logs count) at a tap-friendly density.
+// Shows the floor pin and the number of Published documents, each labelled,
+// at a tap-friendly density.
 
-import { ChevronRight, FileText, Files, MapPin, Star } from "lucide-react"
+import { ChevronRight, Files, MapPin, Star } from "lucide-react"
 import type { Asset } from "@/types"
 import { cn } from "@/lib/utils"
 
 interface MobileAssetCardProps {
   asset: Asset
   docCount?: number
+  /** Not shown: asset logs are not used on the floor. */
   logCount?: number
   onClick: () => void
   pinned?: boolean
@@ -18,7 +19,6 @@ interface MobileAssetCardProps {
 export function MobileAssetCard({
   asset,
   docCount,
-  logCount,
   onClick,
   pinned,
   onTogglePin,
@@ -40,7 +40,7 @@ export function MobileAssetCard({
           {asset.pin_number != null && (
             <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary">
               <MapPin className="h-2.5 w-2.5" />
-              {String(asset.pin_number).padStart(2, "0")}
+              Pin {String(asset.pin_number).padStart(2, "0")}
             </span>
           )}
           {docCount != null && (
@@ -53,20 +53,7 @@ export function MobileAssetCard({
               )}
             >
               <Files className="h-2.5 w-2.5" />
-              {docCount}
-            </span>
-          )}
-          {logCount != null && (
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-                logCount > 0
-                  ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                  : "border border-dashed border-muted-foreground/20 text-muted-foreground",
-              )}
-            >
-              <FileText className="h-2.5 w-2.5" />
-              {logCount}
+              {docCount} {docCount === 1 ? "doc" : "docs"}
             </span>
           )}
           {asset.location && (

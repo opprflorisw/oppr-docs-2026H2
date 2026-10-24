@@ -33,7 +33,7 @@ export function HomeTrainingRows() {
                   action: "Review after change",
                 }
               : t.status === "in_review"
-                ? { icon: ShieldCheck, tone: "primary" as const, note: `${kind} waiting for your review. Open it to approve.`, action: "Review" }
+                ? { icon: ShieldCheck, tone: "primary" as const, note: `${kind} waiting for review. Open it to approve.`, action: "Review" }
                 : { icon: ShieldCheck, tone: "primary" as const, note: `${kind} approved. Open it to publish.`, action: "Publish" }
             const Icon = row.icon
             return (

@@ -3,7 +3,7 @@
 // The panel is the single chat surface across desktop and mobile. It owns:
 //   • Scope chip header — switch between Library / Document / Asset live.
 //   • Markdown-rendered messages with inline [N] citation anchors and
-//     auto-linked entity codes (HOL-OPS-SOP-0001 / RMR-101 / HOL-OPS-LOG-0001).
+//     auto-linked entity codes (EXT-OPS-SOP-0001 / EXL-201).
 //   • Citation pills with hover preview + "Open at this location" deep link.
 //   • A "Related" rail under each assistant turn (other docs, assets, logs)
 //     populated by pure DB joins from the cited document set.
@@ -121,6 +121,56 @@ function ChatSizeToggle({
   )
 }
 
+// Ask history is per person (convex/qa.ts). Anonymous questions share one
+// thread on this device, and a fresh one starts after someone checks out or
+// after a long quiet spell, so the next person never sees earlier questions.
+const ANON_KEY = "oppr.ask.anonThread"
+const LAST_WHO_KEY = "oppr.ask.lastWho"
+const ANON_IDLE_MS = 8 * 60 * 60 * 1000
+
+function readStore(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+function writeStore(key: string, value: string) {
+  try {
+    window.localStorage.setItem(key, value)
+  } catch {
+    // private mode: the thread lives for this page only
+  }
+}
+
+function useAskThreadKey(personId: string | null): string {
+  const [anon, setAnon] = useState<string>(() => {
+    const stored = readStore(ANON_KEY)
+    const [key, at] = (stored ?? "").split("@")
+    const fresh = key && Date.now() - Number(at || 0) < ANON_IDLE_MS
+    return fresh ? key : newAnonKey()
+  })
+  useEffect(() => {
+    if (personId) {
+      writeStore(LAST_WHO_KEY, "person")
+      return
+    }
+    // Back to Anonymous after a checked-in person: start a fresh thread.
+    let key = anon
+    if (readStore(LAST_WHO_KEY) === "person") {
+      key = newAnonKey()
+      setAnon(key)
+    }
+    writeStore(LAST_WHO_KEY, "anon")
+    writeStore(ANON_KEY, `${key}@${Date.now()}`)
+  }, [personId, anon])
+  return personId ? `person:${personId}` : `anon:${anon}`
+}
+
+function newAnonKey(): string {
+  return Math.random().toString(36).slice(2, 12) + Date.now().toString(36)
+}
+
 interface SpeechRecognitionInstance {
   lang: string
   interimResults: boolean
@@ -157,6 +207,12 @@ export interface AskPanelProps {
    */
   onCitationClick?: (citation: Citation) => void
   className?: string
+  /** Focus the question box on open (the phone's Ask tab). */
+  autoFocus?: boolean
+  /** Ask this question once on open, e.g. from a search with no match. */
+  initialQuestion?: string | null
+  /** Called once the initial question has been sent. */
+  onInitialQuestionSent?: () => void
 }
 
 export function AskPanel({
@@ -167,6 +223,9 @@ export function AskPanel({
   sessionId: sessionIdProp,
   onCitationClick,
   className,
+  autoFocus = false,
+  initialQuestion = null,
+  onInitialQuestionSent,
 }: AskPanelProps) {
   const [location, navigate] = useLocation()
   // Logged with each question (convex/usage.logAsk): who asked, if checked in.
@@ -189,10 +248,13 @@ export function AskPanel({
 
   const scopeKindArg = scope.kind
   const scopeIdArg = scope.kind === "library" ? "library" : scope.id
+  // Whose thread this is: the checked-in person, or the current Anonymous one.
+  const who = useAskThreadKey(checkedInPerson?._id ?? null)
 
   const sessionsList = useQuery(api.qa.listSessions, {
     scopeKind: scopeKindArg,
     scopeId: scopeIdArg,
+    who,
   })
   const sessionId =
     sessionIdProp ?? sessionsList?.[0]?._id ?? null
@@ -289,10 +351,16 @@ export function AskPanel({
       const isMobile =
         isMobilePath(location)
       const base = isMobile ? `/m/docs/${citation.document_id}` : `/docs/${citation.document_id}`
-      const qs = page != null ? `?page=${page}` : ""
-      navigate(base + qs)
+      // Open at the cited passage: its opening words (a table row's first
+      // cell) are found and highlighted in the body; a PDF opens at its page.
+      const params = new URLSearchParams()
+      if (page != null) params.set("page", String(page))
+      const hl = citation.excerpt.replace(/…$/, "").split(" | ")[0].trim().slice(0, 80)
+      if (hl && !hl.startsWith("Figure:")) params.set("hl", hl)
+      const qs = params.toString()
+      navigate(qs ? `${base}?${qs}` : base)
     },
-    [navigate, onCitationClick],
+    [location, navigate, onCitationClick],
   )
 
   function scrollToCitation(messageId: string, n: number) {
@@ -320,6 +388,7 @@ export function AskPanel({
     setInput("")
     setPending(true)
     setStreamingText("")
+    if (who.startsWith("anon:")) writeStore(ANON_KEY, `${who.slice(5)}@${Date.now()}`)
 
     const ac = new AbortController()
     abortRef.current = ac
@@ -329,6 +398,7 @@ export function AskPanel({
       activeSessionId = await ensureSession({
         scopeKind: scopeKindArg,
         scopeId: scopeIdArg,
+        who,
       })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to start chat")
@@ -457,6 +527,22 @@ export function AskPanel({
       if (abortRef.current === ac) abortRef.current = null
     }
   }
+
+  useEffect(() => {
+    if (autoFocus) taRef.current?.focus()
+  }, [autoFocus])
+
+  // A question handed over by the host is asked once, after the thread loads.
+  const initialSentRef = useRef(false)
+  useEffect(() => {
+    if (!initialQuestion?.trim() || initialSentRef.current) return
+    if (!authToken || sessionsList === undefined) return
+    if (sessionId && messagesRaw === undefined) return
+    initialSentRef.current = true
+    void send(initialQuestion)
+    onInitialQuestionSent?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuestion, authToken, sessionsList, sessionId, messagesRaw])
 
   function handleRegenerate() {
     if (pending || !sessionId) return
@@ -602,6 +688,7 @@ export function AskPanel({
           <MessageBlock
             key={m.id}
             message={m}
+            question={visibleMessages[i - 1]?.role === "user" ? visibleMessages[i - 1].text : null}
             scope={scope}
             isLast={i === visibleMessages.length - 1}
             streaming={m.id === "__streaming__"}
@@ -731,6 +818,8 @@ export function AskPanel({
 
 interface MessageBlockProps {
   message: QaMessage
+  /** The question this answer replies to. */
+  question: string | null
   scope: AskPanelScope
   isLast: boolean
   streaming: boolean
@@ -747,6 +836,7 @@ interface MessageBlockProps {
 
 function MessageBlock({
   message,
+  question,
   scope,
   isLast,
   streaming,
@@ -795,6 +885,7 @@ function MessageBlock({
         {!streaming && message.citations && message.citations.length > 0 && (
           <AskConflictWarning
             citations={message.citations.map((c) => ({ documentId: c.document_id, chunkId: c.chunk_id }))}
+            text={`${question ?? ""} ${message.text}`}
           />
         )}
 

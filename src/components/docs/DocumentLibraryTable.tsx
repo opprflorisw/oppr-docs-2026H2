@@ -1,7 +1,12 @@
+import { useMemo, useState } from "react"
 import { format } from "date-fns"
 import { Link } from "wouter"
+import { useQuery } from "convex/react"
 import {
   Archive,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   Copy,
   CopyPlus,
   ExternalLink,
@@ -34,7 +39,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { Doc } from "@/types"
-import { StatusBadge } from "./StatusBadge"
+import { api } from "../../../convex/_generated/api"
+import { STATUS_LABELS, StatusBadge } from "./StatusBadge"
 import { TypeBadge } from "./TypeBadge"
 
 export interface AssetPreview {
@@ -76,8 +82,31 @@ function formatUpdated(iso: string): string {
   }
 }
 
+const DAY = 24 * 60 * 60 * 1000
+
+/** Next periodic review: overdue in red, due within 30 days in amber. */
+function NextReviewCell({ at, now }: { at: number | null | undefined; now: number }) {
+  if (at == null) return <span className="text-muted-foreground">None</span>
+  const overdue = at < now
+  const soon = !overdue && at - now < 30 * DAY
+  return (
+    <span
+      className={cn(
+        "whitespace-nowrap",
+        overdue && "font-medium text-red-700 dark:text-red-400",
+        soon && "text-amber-700 dark:text-amber-300",
+        !overdue && !soon && "text-muted-foreground",
+      )}
+      title={overdue ? "Periodic review overdue" : soon ? "Periodic review due soon" : undefined}
+    >
+      {overdue ? "Overdue, " : ""}
+      {formatUpdated(new Date(at).toISOString())}
+    </span>
+  )
+}
+
 export function DocumentLibraryTable({
-  docs,
+  docs: unsortedDocs,
   assetsByDoc,
   onRowClick,
   onAssetClick,
@@ -85,6 +114,24 @@ export function DocumentLibraryTable({
   emptyMessage = "No documents match the current filters.",
   className,
 }: DocumentLibraryTableProps) {
+  const nextReviews = useQuery(api.documents.nextReviews, {})
+  const [reviewSort, setReviewSort] = useState<"asc" | "desc" | null>(null)
+  const [now] = useState(() => Date.now())
+  const docs = useMemo(() => {
+    if (!reviewSort || !nextReviews) return unsortedDocs
+    const dir = reviewSort === "asc" ? 1 : -1
+    // Documents without a review date sort last either way.
+    return [...unsortedDocs].sort((a, b) => {
+      const x = nextReviews[a.id] ?? null
+      const y = nextReviews[b.id] ?? null
+      if (x == null && y == null) return 0
+      if (x == null) return 1
+      if (y == null) return -1
+      return (x - y) * dir
+    })
+  }, [unsortedDocs, nextReviews, reviewSort])
+  const SortIcon = reviewSort === "asc" ? ArrowUp : reviewSort === "desc" ? ArrowDown : ArrowUpDown
+
   if (docs.length === 0) {
     return (
       <div
@@ -110,6 +157,19 @@ export function DocumentLibraryTable({
             <TableHead className="w-[120px]">Status</TableHead>
             <TableHead className="w-[100px]">Version</TableHead>
             <TableHead className="w-[140px]">Linked assets</TableHead>
+            <TableHead className="w-[150px]">
+              <button
+                type="button"
+                onClick={() =>
+                  setReviewSort((s) => (s === null ? "asc" : s === "asc" ? "desc" : null))
+                }
+                className="inline-flex items-center gap-1 hover:text-foreground"
+                aria-label="Sort by next review"
+              >
+                Next review
+                <SortIcon className="h-3 w-3" />
+              </button>
+            </TableHead>
             <TableHead className="w-[140px]">Updated</TableHead>
             <TableHead className="w-[60px]" />
           </TableRow>
@@ -147,11 +207,11 @@ export function DocumentLibraryTable({
                       <Link
                         href={`/docs/${doc.id}?v=${doc.current_version}`}
                         onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                        title={`A v${doc.current_version} ${doc.status} is in progress — view it`}
+                        title={`v${doc.current_version} is ${STATUS_LABELS[doc.status].toLowerCase()}: view it`}
                         className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
                       >
                         <GitBranch className="h-2.5 w-2.5" />
-                        v{doc.current_version} {doc.status}
+                        v{doc.current_version} {STATUS_LABELS[doc.status]}
                       </Link>
                     )}
                   </div>
@@ -166,6 +226,9 @@ export function DocumentLibraryTable({
                     assets={assets}
                     onAssetClick={onAssetClick}
                   />
+                </TableCell>
+                <TableCell>
+                  <NextReviewCell at={nextReviews?.[doc.id]} now={now} />
                 </TableCell>
                 <TableCell className="text-muted-foreground">
                   {formatUpdated(doc.updated_at)}

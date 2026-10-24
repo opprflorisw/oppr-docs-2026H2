@@ -45,12 +45,15 @@ export function SkillDialog({
   onOpenChange,
   skill,
   catalogue,
+  engineerPersonId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Null to add a new Skill. */
   skill: CatalogueSkill | null
   catalogue: Catalogue
+  /** The checked-in Engineer who makes the change. */
+  engineerPersonId: Id<"people">
 }) {
   const createSkill = useMutation(api.skills.createSkill)
   const updateSkill = useMutation(api.skills.updateSkill)
@@ -97,10 +100,10 @@ export function SkillDialog({
     }
     try {
       if (skill) {
-        await updateSkill({ id: skill._id, ...fields })
+        await updateSkill({ id: skill._id, ...fields, engineerPersonId })
         toast.success("Skill saved")
       } else {
-        await createSkill(fields)
+        await createSkill({ ...fields, engineerPersonId })
         toast.success(`Skill "${name.trim()}" added`)
       }
       onOpenChange(false)
@@ -115,7 +118,7 @@ export function SkillDialog({
     if (!skill) return
     setBusy(true)
     try {
-      await removeSkill({ id: skill._id })
+      await removeSkill({ id: skill._id, engineerPersonId })
       toast.success(`Skill "${skill.name}" removed`)
       onOpenChange(false)
     } catch (err) {
@@ -278,11 +281,14 @@ export function ProfileDialog({
   onOpenChange,
   profile,
   catalogue,
+  engineerPersonId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   profile: CatalogueProfile | null
   catalogue: Catalogue
+  /** The checked-in Engineer who makes the change. */
+  engineerPersonId: Id<"people">
 }) {
   const createProfile = useMutation(api.skills.createProfile)
   const updateProfile = useMutation(api.skills.updateProfile)
@@ -314,10 +320,10 @@ export function ProfileDialog({
       .map((s) => ({ skillId: s._id, level: targets[s._id] }))
     try {
       if (profile) {
-        await updateProfile({ id: profile._id, name, description, targets: list })
+        await updateProfile({ id: profile._id, name, description, targets: list, engineerPersonId })
         toast.success("Skill profile saved")
       } else {
-        await createProfile({ name, description, targets: list })
+        await createProfile({ name, description, targets: list, engineerPersonId })
         toast.success(`Skill profile "${name.trim()}" added`)
       }
       onOpenChange(false)
@@ -332,7 +338,7 @@ export function ProfileDialog({
     if (!profile) return
     setBusy(true)
     try {
-      await removeProfile({ id: profile._id })
+      await removeProfile({ id: profile._id, engineerPersonId })
       toast.success(`Skill profile "${profile.name}" removed`)
       onOpenChange(false)
     } catch (err) {

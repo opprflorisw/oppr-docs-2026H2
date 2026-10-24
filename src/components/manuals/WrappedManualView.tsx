@@ -108,16 +108,21 @@ export function WrappedManualStrip({
           <Button
             size="sm"
             className="gap-1.5"
-            disabled={!data.stampedUrl || data.stamping}
+            variant={published ? "default" : "outline"}
+            disabled={!data.stampedUrl || data.stamping || data.stampError != null}
             onClick={() => data.stampedUrl && void downloadFile(data.stampedUrl, data.stampedFilename)}
-            title="The PDF with naming code, version and status on every page"
+            title={
+              published
+                ? "The PDF with naming code, version and status on every page"
+                : "Not the controlled copy: every page is stamped not for use"
+            }
           >
             {data.stamping ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <Download className="h-3.5 w-3.5" />
             )}
-            {data.stamping ? "Stamping…" : "Download controlled copy"}
+            {data.stamping ? "Stamping…" : `Download ${data.copyKind}`}
           </Button>
           <Button
             size="sm"
@@ -150,9 +155,18 @@ export function WrappedManualStrip({
           )}
         </div>
       )}
+      {data.stampError != null && (
+        <div className="flex flex-wrap items-center gap-2 border-t bg-red-50 px-4 py-2 text-xs text-red-900 dark:bg-red-500/10 dark:text-red-100">
+          <span className="flex-1">Stamping failed: {data.stampError}</span>
+          <Button size="sm" variant="outline" className="h-7 gap-1" disabled={retrying} onClick={() => void retry()}>
+            <RefreshCw className="h-3 w-3" />
+            Try again
+          </Button>
+        </div>
+      )}
       {data.stampStatus === "superseded" && (
         <div className="border-t px-4 py-2 text-xs text-muted-foreground">
-          A newer version replaced this one. This copy keeps the stamp it had while it was in use.
+          A newer version replaced this one. Every page of this copy is stamped not for use.
         </div>
       )}
     </div>

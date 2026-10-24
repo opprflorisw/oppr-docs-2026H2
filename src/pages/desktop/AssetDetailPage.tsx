@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link, useLocation, useRoute } from "wouter"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, Factory, MapPin, Pencil, QrCode } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { TopBar } from "@/components/layout/TopBar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useMutation, useQuery } from "convex/react"
@@ -15,7 +16,7 @@ import { type AssetPreview, type DocumentRowAction } from "@/components/docs/Doc
 import { DeleteDocumentDialog } from "@/components/docs/DeleteDocumentDialog"
 import { AssetDetailBody } from "@/components/docs/AssetDetailBody"
 import { AssetTrainingsCard } from "@/components/learn/AssetTrainingsCard"
-import type { AssetLog, Doc } from "@/types"
+import type { Asset, AssetLog, Doc } from "@/types"
 import { AssetPreviewModal } from "@/components/docs/AssetPreviewModal"
 import { LogReferenceModal } from "@/components/docs/LogReferenceModal"
 import { toast } from "sonner"
@@ -26,12 +27,14 @@ export function AssetDetailPage() {
   const [, navigate] = useLocation()
   const [previewOpen, setPreviewOpen] = useState(false)
   const [activeLog, setActiveLog] = useState<AssetLog | null>(null)
+  const [editing, setEditing] = useState(false)
 
   const result = useQuery(
     api.assets.getWithDocs,
     id ? { id: id as Id<"assets"> } : "skip",
   )
   const previewBundle = useQuery(api.documents.listWithAssetPreviews, {})
+  const photoUrl = useQuery(api.assets.imageUrlFor, id ? { id: id as Id<"assets"> } : "skip")
   const updateAssetMut = useMutation(api.assets.update)
   const archive = useMutation(api.documents.archive)
   const remove = useMutation(api.documents.remove)
@@ -148,8 +151,43 @@ export function AssetDetailPage() {
         ]}
       />
 
-      <div className="p-6">
+      <div className="space-y-6 p-6">
+        <AssetHeader
+          asset={asset}
+          photoUrl={photoUrl ?? null}
+          docCount={docs.length}
+          onShowQr={() => setPreviewOpen(true)}
+          onEdit={() => setEditing((e) => !e)}
+          editing={editing}
+        />
+        {editing && (
+          <AssetDetailBody
+            part="form"
+            asset={asset}
+            docs={docs}
+            logs={logs}
+            assetsByDoc={assetsByDoc}
+            onShowQr={() => setPreviewOpen(true)}
+            onSave={async (patch) => {
+              try {
+                await updateAssetMut({ id: asset.id as Id<"assets">, ...patch })
+                toast.success("Asset updated")
+                setEditing(false)
+              } catch (err) {
+                toast.error(
+                  err instanceof Error ? err.message : "Failed to update asset",
+                )
+              }
+            }}
+            onCancel={() => setEditing(false)}
+            onOpenDoc={(docId) => navigate(`/docs/${docId}`)}
+            onOpenAsset={(aid) => navigate(`/assets/${aid}`)}
+            onOpenLog={(log) => setActiveLog(log)}
+            onDocAction={handleAction}
+          />
+        )}
         <AssetDetailBody
+          part="documents"
           asset={asset}
           docs={docs}
           logs={logs}
@@ -170,9 +208,7 @@ export function AssetDetailPage() {
           onOpenLog={(log) => setActiveLog(log)}
           onDocAction={handleAction}
         />
-        <div className="mt-6">
-          <AssetTrainingsCard assetId={asset.id as Id<"assets">} />
-        </div>
+        <AssetTrainingsCard assetId={asset.id as Id<"assets">} />
       </div>
 
       <AssetPreviewModal
@@ -193,6 +229,76 @@ export function AssetDetailPage() {
         onConfirmDelete={() => void handleDeleteConfirm()}
         busy={deleting}
       />
+    </div>
+  )
+}
+
+// Read-only header: what the Asset is and where it stands. Editing sits
+// behind the Edit button.
+function AssetHeader({
+  asset,
+  photoUrl,
+  docCount,
+  onShowQr,
+  onEdit,
+  editing,
+}: {
+  asset: Asset
+  photoUrl: string | null
+  docCount: number
+  onShowQr: () => void
+  onEdit: () => void
+  editing: boolean
+}) {
+  return (
+    <div className="flex flex-col gap-5 rounded-md border bg-card p-5 sm:flex-row">
+      <div className="flex h-40 w-full shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted sm:w-56">
+        {photoUrl ? (
+          <img src={photoUrl} alt={asset.name} className="h-full w-full object-cover" />
+        ) : (
+          <Factory className="h-10 w-10 text-muted-foreground/40" aria-label="No photo" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1 space-y-2">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
+              {asset.code}
+            </div>
+            <h1 className="text-xl font-semibold leading-tight">{asset.name}</h1>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={onShowQr}>
+              <QrCode className="h-4 w-4" />
+              QR code
+            </Button>
+            <Button
+              variant={editing ? "secondary" : "outline"}
+              size="sm"
+              className="gap-1.5"
+              onClick={onEdit}
+            >
+              <Pencil className="h-4 w-4" />
+              Edit
+            </Button>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+          <span className="inline-flex items-center gap-1">
+            <MapPin className="h-3.5 w-3.5" />
+            {[asset.site, asset.location].filter(Boolean).join(" · ") || "Location not set"}
+          </span>
+          {asset.pin_number != null && (
+            <span>Pin {String(asset.pin_number).padStart(2, "0")} on the floor plan</span>
+          )}
+          <span>
+            {docCount} linked document{docCount === 1 ? "" : "s"}
+          </span>
+        </div>
+        {asset.description && (
+          <p className="max-w-2xl text-sm leading-relaxed">{asset.description}</p>
+        )}
+      </div>
     </div>
   )
 }

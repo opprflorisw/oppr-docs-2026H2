@@ -292,7 +292,7 @@ export const generate = internalAction({
     const partly = input.docs.filter((d) => d.chunks.length < d.excerptsTotal).length
     const partlyNote =
       partly > 0
-        ? ` The Scope was too large to read in full: ${partly} ${partly === 1 ? "document was" : "documents were"} read in part, see Built from.`
+        ? ` Built from the most relevant passages of ${partly} ${partly === 1 ? "document" : "documents"}, see Built from.`
         : ""
     await save({
       status: "ready",

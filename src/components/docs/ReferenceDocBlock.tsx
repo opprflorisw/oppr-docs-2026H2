@@ -13,6 +13,7 @@ import {
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react"
+import { Link, useLocation } from "wouter"
 import { BookMarked } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery } from "convex/react"
@@ -27,17 +28,36 @@ import {
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 
-function ReferenceDocNodeView({ node, selected }: NodeViewProps) {
+function ReferenceDocNodeView({ node, selected, editor }: NodeViewProps) {
   const label = (node.attrs.label as string) || "(unknown doc)"
+  const docId = node.attrs.docId as string | null
+  // On the floor app (/m) the chip opens the mobile page.
+  const [location] = useLocation()
+  const base = location.startsWith("/m/") || location === "/m" ? "/m" : ""
+  const chip = cn(
+    "mx-0.5 inline-flex items-center gap-1 rounded-md border border-indigo-300 bg-indigo-50 px-1.5 py-0.5 align-baseline text-xs font-medium text-indigo-800",
+    selected && "ring-2 ring-indigo-400 ring-offset-1",
+  )
+  // Reading: the chip opens the referenced Document. Editing: a plain chip.
+  if (!editor.isEditable && docId) {
+    return (
+      <NodeViewWrapper as="span" data-reference-doc contentEditable={false}>
+        <Link
+          href={`${base}/docs/${docId}`}
+          className={cn(chip, "no-underline transition-colors hover:border-indigo-500 hover:bg-indigo-100")}
+        >
+          <BookMarked className="h-3 w-3" />
+          <span>{label}</span>
+        </Link>
+      </NodeViewWrapper>
+    )
+  }
   return (
     <NodeViewWrapper
       as="span"
       data-reference-doc
       contentEditable={false}
-      className={cn(
-        "mx-0.5 inline-flex items-center gap-1 rounded-md border border-indigo-300 bg-indigo-50 px-1.5 py-0.5 align-baseline text-xs font-medium text-indigo-800",
-        selected && "ring-2 ring-indigo-400 ring-offset-1",
-      )}
+      className={chip}
     >
       <BookMarked className="h-3 w-3" />
       <span>{label}</span>
@@ -147,7 +167,7 @@ export function ReferenceDocPicker({
 
   function pick(d: { _id: string; namingCode: string; title: string }) {
     const label =
-      labelMode === "codeTitle" ? `${d.namingCode} — ${d.title}` : d.namingCode
+      labelMode === "codeTitle" ? `${d.namingCode} · ${d.title}` : d.namingCode
     onSelect({ docId: d._id, code: d.namingCode, label })
     onOpenChange(false)
     setQuery("")
@@ -218,7 +238,7 @@ export function ReferenceDocPicker({
                 <BookMarked className="h-3.5 w-3.5 text-indigo-600" />
                 <span className="font-mono text-sm">{d.namingCode}</span>
                 <span className="flex-1 truncate text-muted-foreground">
-                  — {d.title}
+                  · {d.title}
                 </span>
               </Button>
             ))}

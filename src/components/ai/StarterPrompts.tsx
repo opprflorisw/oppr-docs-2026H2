@@ -44,9 +44,9 @@ export function StarterPrompts({
 function getStarters(scope: AskPanelScope): string[] {
   if (scope.kind === "library") {
     return [
-      "What documents do I have? Group by type.",
-      "Which assets have an SOP linked, and which don't?",
-      "Summarise every document in one line.",
+      "How long do I dry PE granulate before extrusion?",
+      "How do I lock out line 2 before I reach into the haul-off?",
+      "Which documents cover the EXL-201 extruder?",
     ]
   }
   if (scope.kind === "asset") {

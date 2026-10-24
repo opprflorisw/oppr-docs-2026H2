@@ -1,21 +1,14 @@
-// Project Assets — table view modeled on the LOGS module's asset list.
+// Assets: the equipment in the plant, one row per Asset.
 //
-// Each row shows a static row number, the asset, a Pin No. badge (its
-// floorplan pin), a docs count + hover popover, a logs count + hover popover
-// (logs live in the Oppr LOGS module — clicking one opens a reference modal),
-// the floorplan name, the created date, and three row actions: open the
-// QR/preview modal, open the edit modal, or (visual-only) delete.
-//
-// A third icon button next to the grid/list view toggle opens a Floorplan
-// modal that renders the floorplan image with pin overlays and a connected
-// assets table beneath.
+// Each row shows a row number, the Asset, its pin on the floor plan, its
+// documents (count + hover list), its location and the created date. A row
+// opens the Asset page; the pencil opens the edit dialog in place, the QR
+// button the QR preview. The plant plan itself lives on /floor.
 
 import { useMemo, useState } from "react"
 import { useLocation } from "wouter"
 import {
   Factory,
-  LayoutGrid,
-  List,
   Map as MapIcon,
   MapPin,
   Pencil,
@@ -37,7 +30,7 @@ import {
 import { useMutation, useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
-import { toLegacyAsset, toLegacyAssetLog } from "@/lib/convex-adapters"
+import { toLegacyAsset } from "@/lib/convex-adapters"
 import type { Asset, AssetLog, Doc } from "@/types"
 import type { DocumentRowAction } from "@/components/docs/DocumentLibraryTable"
 import { cn } from "@/lib/utils"
@@ -46,37 +39,21 @@ import { AssetDetailModal } from "@/components/docs/AssetDetailModal"
 import { AddAssetModal } from "@/components/docs/AddAssetModal"
 import { LogReferenceModal } from "@/components/docs/LogReferenceModal"
 import { DeleteDocumentDialog } from "@/components/docs/DeleteDocumentDialog"
-import {
-  DocsHoverPill,
-  FloorplanModal,
-  FLOORPLAN_IMAGE_SRC,
-  LogsHoverPill,
-  type DocPreview,
-} from "@/components/docs/FloorplanModal"
+import { DocsHoverPill, type DocPreview } from "@/components/docs/FloorplanModal"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
+import { formatDate } from "@/lib/time"
 import { toast } from "sonner"
 
-const FLOORPLAN_NAME = "Pigment Calcination Floorplan"
-
 function formatCreated(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    })
-  } catch {
-    return iso
-  }
+  const t = Date.parse(iso)
+  return Number.isFinite(t) ? formatDate(t) : iso
 }
 
 export function AssetsPage() {
   const [, navigate] = useLocation()
 
-  const [view, setView] = useState<"grid" | "list">("list")
   const [tab, setTab] = useState<"list" | "hierarchy">("list")
-  const [floorplanOpen, setFloorplanOpen] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
 
   const [detailAssetId, setDetailAssetId] = useState<Id<"assets"> | null>(null)
@@ -101,15 +78,6 @@ export function AssetsPage() {
     if (!result) return map
     for (const [k, v] of Object.entries(result.docsByAsset)) {
       map.set(k, v)
-    }
-    return map
-  }, [result])
-
-  const logsByAsset = useMemo(() => {
-    const map = new Map<string, AssetLog[]>()
-    if (!result) return map
-    for (const [k, v] of Object.entries(result.logsByAsset)) {
-      map.set(k, v.map(toLegacyAssetLog))
     }
     return map
   }, [result])
@@ -209,47 +177,12 @@ export function AssetsPage() {
       />
 
       <div className="space-y-4 p-6">
-        {/* Tabs + view toggle + floorplan picker (in-page filter) */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
-            <TabsList>
-              <TabsTrigger value="list">Asset List</TabsTrigger>
-              <TabsTrigger value="hierarchy">Asset Hierarchy</TabsTrigger>
-            </TabsList>
-          </Tabs>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 rounded-md border bg-background p-0.5">
-              <Button
-                variant={view === "grid" ? "secondary" : "ghost"}
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => setView("grid")}
-                aria-label="Grid view"
-              >
-                <LayoutGrid className="h-4 w-4" />
-              </Button>
-              <Button
-                variant={view === "list" ? "secondary" : "ghost"}
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => setView("list")}
-                aria-label="List view"
-              >
-                <List className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => setFloorplanOpen(true)}
-                aria-label="Open floorplan"
-                title="Open floorplan"
-              >
-                <MapIcon className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
+        <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+          <TabsList>
+            <TabsTrigger value="list">Asset List</TabsTrigger>
+            <TabsTrigger value="hierarchy">Asset Hierarchy</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         {!ready ? (
           <div className="space-y-2">
@@ -276,8 +209,7 @@ export function AssetsPage() {
                   <TableHead className="text-xs uppercase tracking-wide">Asset</TableHead>
                   <TableHead className="w-24 text-xs uppercase tracking-wide">Pin No.</TableHead>
                   <TableHead className="w-24 text-xs uppercase tracking-wide">Docs</TableHead>
-                  <TableHead className="w-24 text-xs uppercase tracking-wide">Logs</TableHead>
-                  <TableHead className="text-xs uppercase tracking-wide">Floorplan</TableHead>
+                  <TableHead className="text-xs uppercase tracking-wide">Location</TableHead>
                   <TableHead className="text-xs uppercase tracking-wide">Created</TableHead>
                   <TableHead className="w-32 text-right text-xs uppercase tracking-wide">
                     Actions
@@ -289,7 +221,7 @@ export function AssetsPage() {
                   <TableRow
                     key={asset.id}
                     className="cursor-pointer"
-                    onClick={() => setDetailAssetId(asset.id as Id<"assets">)}
+                    onClick={() => navigate(`/assets/${asset.id}`)}
                   >
                     {/* # */}
                     <TableCell className="align-middle text-sm font-medium tabular-nums">
@@ -321,11 +253,11 @@ export function AssetsPage() {
                           {String(asset.pin_number).padStart(2, "0")}
                         </span>
                       ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
+                        <span className="text-xs text-muted-foreground">Not placed</span>
                       )}
                     </TableCell>
 
-                    {/* Linked documents — count + hover list */}
+                    {/* Linked documents: count + hover list */}
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <DocsHoverPill
                         docs={docsByAsset.get(asset.id) ?? []}
@@ -333,20 +265,9 @@ export function AssetsPage() {
                       />
                     </TableCell>
 
-                    {/* Logs (Oppr LOGS) — count + hover list */}
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <LogsHoverPill
-                        logs={logsByAsset.get(asset.id) ?? []}
-                        onLogClick={(log) => setActiveLog(log)}
-                      />
-                    </TableCell>
-
-                    {/* Floorplan */}
-                    <TableCell>
-                      <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                        <Factory className="h-3.5 w-3.5" />
-                        <span>{asset.floorplan ?? "—"}</span>
-                      </div>
+                    {/* Location */}
+                    <TableCell className="text-sm text-muted-foreground">
+                      {asset.location ?? "Not set"}
                     </TableCell>
 
                     {/* Created */}
@@ -425,21 +346,6 @@ export function AssetsPage() {
         onOpenChange={(o) => !o && setActiveLog(null)}
       />
       <AddAssetModal open={addOpen} onOpenChange={setAddOpen} />
-      <FloorplanModal
-        open={floorplanOpen}
-        onOpenChange={setFloorplanOpen}
-        floorplanName={FLOORPLAN_NAME}
-        imageSrc={FLOORPLAN_IMAGE_SRC}
-        assets={assets}
-        docsByAsset={docsByAsset}
-        logsByAsset={logsByAsset}
-        onPreviewAsset={(a) => setPreviewAsset(a)}
-        onOpenDoc={(docId) => {
-          setFloorplanOpen(false)
-          navigate(`/docs/${docId}`)
-        }}
-        onOpenLog={(log) => setActiveLog(log)}
-      />
       <DeleteDocumentDialog
         doc={docToDelete}
         open={!!docToDelete}
@@ -459,8 +365,8 @@ function AssetHierarchyView({ assets }: { assets: Asset[] }) {
     <div className="rounded-md border bg-card p-6">
       <div className="mb-4 flex items-center gap-2 text-sm">
         <Factory className="h-4 w-4 text-muted-foreground" />
-        <span className="font-semibold">{stations[0]?.floorplan ?? "Floorplan"}</span>
-        <span className="text-muted-foreground">— {assets.length} asset{assets.length === 1 ? "" : "s"}</span>
+        <span className="font-semibold">{assets[0]?.site || "Plant"}</span>
+        <span className="text-muted-foreground">· {assets.length} asset{assets.length === 1 ? "" : "s"}</span>
       </div>
       {roots.length > 0 && (
         <div className="mb-4">

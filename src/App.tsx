@@ -28,6 +28,7 @@ import { KnowledgeHealthPage } from "@/pages/desktop/KnowledgeHealthPage"
 import { TrainingPage } from "@/pages/desktop/TrainingPage"
 import { AttemptPage } from "@/pages/desktop/AttemptPage"
 import { PersonSkillsPage } from "@/pages/desktop/PersonSkillsPage"
+import { McpPage } from "@/pages/desktop/McpPage"
 
 function AnalysisRoute() {
   const [, params] = useRoute<{ slug: string }>("/analysis/:slug")
@@ -94,6 +95,7 @@ function App() {
               </Route>
               <Route path="/import" component={ImportPage} />
               <Route path="/import/:jobId" component={ImportPage} />
+              <Route path="/mcp" component={McpPage} />
               <Route path="/analysis" component={AnalysisIndexPage} />
               <Route path="/analysis/:slug" component={AnalysisRoute} />
               <Route>

@@ -41,13 +41,13 @@ export default function WrappedManualMobile({
         {data.stampedUrl && !data.stamping ? (
           <button
             type="button"
-            aria-label="Download controlled copy"
+            aria-label={`Download ${data.copyKind}`}
             onClick={() => data.stampedUrl && void downloadFile(data.stampedUrl, data.stampedFilename)}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-primary transition hover:bg-muted active:scale-95"
           >
             <Download className="h-4 w-4" />
           </button>
-        ) : (
+        ) : data.stampError != null ? null : (
           <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
         )}
       </div>

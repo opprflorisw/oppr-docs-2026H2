@@ -3,6 +3,7 @@ import { Footprints, GraduationCap } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
 import { cn } from "@/lib/utils"
+import { formatDate, formatDateTime } from "@/lib/time"
 import type { Id } from "../../../../convex/_generated/dataModel"
 
 export type TrainingKind = "course" | "round"
@@ -20,22 +21,12 @@ export function errorText(err: unknown, fallback = "Something went wrong. Try ag
 
 export function fmtDate(at: number | null | undefined, long = false): string {
   if (at == null) return ""
-  return new Date(at).toLocaleDateString(undefined, {
-    day: "numeric",
-    month: long ? "long" : "short",
-    year: "numeric",
-  })
+  return formatDate(at, long)
 }
 
 export function fmtDateTime(at: number | null | undefined): string {
   if (at == null) return ""
-  return new Date(at).toLocaleString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  return formatDateTime(at)
 }
 
 export function daysAgo(at: number): string {
@@ -48,7 +39,7 @@ export function daysAgo(at: number): string {
   return `${Math.round(d / 365)} years ago`
 }
 
-export const KIND_LABEL: Record<TrainingKind, string> = { course: "Course", round: "Round" }
+export const KIND_LABEL: Record<TrainingKind, string> = { course: "Training", round: "Round" }
 
 export function KindIcon({ kind, className }: { kind: TrainingKind; className?: string }) {
   const Icon = kind === "round" ? Footprints : GraduationCap
@@ -93,7 +84,11 @@ export function SourceChip({
   className?: string
 }) {
   const hl = quote ? quote.split(" | ")[0].slice(0, 80) : ""
-  const href = hl ? `/docs/${documentId}?hl=${encodeURIComponent(hl)}` : `/docs/${documentId}`
+  const params = new URLSearchParams()
+  if (version != null) params.set("v", String(version))
+  if (hl) params.set("hl", hl)
+  const qs = params.toString()
+  const href = qs ? `/docs/${documentId}?${qs}` : `/docs/${documentId}`
   return (
     <HoverCard openDelay={150}>
       <HoverCardTrigger asChild>
@@ -109,13 +104,13 @@ export function SourceChip({
         </Link>
       </HoverCardTrigger>
       <HoverCardContent className="w-80 space-y-1.5 text-xs" align="start">
-        <p className="font-mono text-[10px] text-muted-foreground">
+        <span className="block font-mono text-[10px] text-muted-foreground">
           {namingCode}
           {version != null ? ` · v${version}` : ""}
           {section ? ` · ${section}` : ""}
-        </p>
-        <p className="leading-relaxed">{quote ?? "The passage shows once you have answered."}</p>
-        <p className="text-[10px] text-primary">Click to open it in the document</p>
+        </span>
+        <span className="block leading-relaxed">{quote ?? "The passage shows once you have answered."}</span>
+        <span className="block text-[10px] text-primary">Click to open it in the document</span>
       </HoverCardContent>
     </HoverCard>
   )

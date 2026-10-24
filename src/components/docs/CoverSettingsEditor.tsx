@@ -135,16 +135,16 @@ export function CoverSettingsEditor() {
         <CardHeader>
           <CardTitle className="text-sm">PDF cover</CardTitle>
           <CardDescription className="text-xs">
-            Configured once, applied to every PDF export — cover page, recurring
+            Configured once, applied to every PDF export: cover page, recurring
             header and footer.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          <Field label="Company name" hint="Replaces 'Oppr DOCS' in the cover eyebrow.">
+          <Field label="Company name" hint="Replaces 'Oppr Knowledge' in the cover eyebrow.">
             <Input
               value={form.companyName}
               onChange={(e) => set("companyName", e.target.value)}
-              placeholder="e.g. Holliday Recycling"
+              placeholder="e.g. Pijpwerk Noord"
             />
           </Field>
 
@@ -232,7 +232,7 @@ export function CoverSettingsEditor() {
               <Input
                 value={form.footerText}
                 onChange={(e) => set("footerText", e.target.value)}
-                placeholder="e.g. Property of Holliday Recycling"
+                placeholder="e.g. Property of Pijpwerk Noord"
               />
             </Field>
             <Field
@@ -329,7 +329,7 @@ function CoverPreview({ form }: { form: FormState }) {
   const accent = HEX_PATTERN.test(form.accentColor.trim())
     ? form.accentColor.trim()
     : DEFAULT_ACCENT
-  const company = form.companyName.trim() || "Oppr DOCS"
+  const company = form.companyName.trim() || "Oppr Knowledge"
   const titleClass =
     form.titleSize === "sm"
       ? "text-sm"
@@ -367,15 +367,15 @@ function CoverPreview({ form }: { form: FormState }) {
           Document title
         </div>
         <span className="mt-2 inline-block self-start rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 font-mono text-[8px] font-bold text-slate-900">
-          HOL-OPS-SOP-0001
+          EXT-OPS-SOP-0001
         </span>
         <div className="mt-1.5 text-[7px] font-semibold uppercase tracking-wider text-slate-500">
           Version 1 · published
         </div>
         <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-0.5 border-y border-slate-200 py-1.5 text-[7px] text-slate-600">
-          <span>Owner —</span>
-          <span>Effective —</span>
-          <span>Review by —</span>
+          <span>Owner: Not assigned</span>
+          <span>Effective: Not set</span>
+          <span>Review by: Not set</span>
           <span>Revision 1</span>
         </div>
         <div className="mt-auto border-t border-slate-200 pt-2 text-[7px] leading-snug text-slate-500">
@@ -387,7 +387,7 @@ function CoverPreview({ form }: { form: FormState }) {
           <div className="font-bold uppercase tracking-[0.18em] text-slate-900">
             Controlled copy
           </div>
-          <div>Verify the latest revision in Oppr DOCS before use.</div>
+          <div>Verify the latest revision in Oppr Knowledge before use.</div>
         </div>
         <div className="mt-2 flex items-center justify-between text-[6px] text-slate-400">
           <span>{footerParts.join(" · ") || "Effective date"}</span>

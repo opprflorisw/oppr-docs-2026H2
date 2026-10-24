@@ -3,6 +3,7 @@ import { useLocation, useRoute, useSearch } from "wouter"
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowRight,
   Edit,
   FileDown,
   GitBranch,
@@ -44,6 +45,7 @@ import { DocumentInsightsCard } from "@/components/insights/DocumentInsightsCard
 import { DocumentTrainingsCard } from "@/components/learn/DocumentTrainingsCard"
 import { WrappedManualView } from "@/components/manuals/WrappedManualView"
 import { useRecordUsage } from "@/lib/usage"
+import { STATUS_LABELS } from "@/components/docs/StatusBadge"
 
 export function DocumentReadPage() {
   const [, params] = useRoute<{ id: string }>("/docs/:id")
@@ -67,6 +69,8 @@ export function DocumentReadPage() {
   const [forking, setForking] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   const createNewVersion = useMutation(api.documents.createNewVersion)
+  const submitForReview = useMutation(api.documents.submitForReview)
+  const [submitting, setSubmitting] = useState(false)
 
   const initialPage = useMemo(() => {
     const p = new URLSearchParams(search).get("page")
@@ -99,6 +103,12 @@ export function DocumentReadPage() {
       ? { storageId: currentVersion.pdfStorageId }
       : "skip",
   )
+  // Every version with its sign-offs resolved to named Engineers: the hero
+  // shows the sign-offs of the version on screen.
+  const versionList = useQuery(
+    api.documents.listVersions,
+    id ? { documentId: id as Id<"documents"> } : "skip",
+  )
   const ready = docResult !== undefined
   useRecordUsage({ kind: "view", documentId: id as Id<"documents"> | undefined })
 
@@ -125,6 +135,13 @@ export function DocumentReadPage() {
 
   const owner = null
 
+  // The title already heads the page and the hero: in read mode, drop the
+  // body's opening H1 when it only repeats it.
+  const readBody = useMemo(
+    () => withoutTitleHeading(version?.body_json, docResult?.doc.title ?? ""),
+    [version?.body_json, docResult?.doc.title],
+  )
+
   const rawDoc = docResult?.doc
   const isWrapped = rawDoc?.origin === "wrapped"
   const liveVer = rawDoc?.liveVersion ?? null
@@ -143,6 +160,18 @@ export function DocumentReadPage() {
     // Published editions are read-only — confirm forking a new version first.
     if (isPublished) setForkOpen(true)
     else goEdit()
+  }
+  async function handleSubmitForReview() {
+    if (!rawDoc) return
+    setSubmitting(true)
+    try {
+      await submitForReview({ id: rawDoc._id })
+      toast.success("Submitted for review")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't submit for review")
+    } finally {
+      setSubmitting(false)
+    }
   }
   async function confirmFork() {
     if (!rawDoc) return
@@ -169,24 +198,58 @@ export function DocumentReadPage() {
   // Only a well-formed id reaches the query; a hand-edited URL falls back to Documents.
   const fromWikiId = wikiParam && /^[a-z0-9]{32}$/.test(wikiParam) ? (wikiParam as Id<"wikis">) : null
   const fromWiki = useQuery(api.wikis.get, fromWikiId ? { id: fromWikiId } : "skip")
-  const bodyReady = Boolean(currentVersion)
+  const bodyKey = currentVersion?._id ?? null
   useEffect(() => {
-    if (!highlight || !bodyReady) return
+    if (!highlight || !bodyKey) return
     const needle = normaliseText(highlight).slice(0, 60)
     if (!needle) return
-    const timer = window.setTimeout(() => {
+    let target: HTMLElement | null = null
+    let observer: ResizeObserver | null = null
+    let userScrolled = false
+    const timers: number[] = []
+    const centre = (behavior: ScrollBehavior) => {
+      if (target && !userScrolled) target.scrollIntoView({ behavior, block: "center" })
+    }
+    // Images, PPE pictograms and the banners above the body keep moving the
+    // passage while they load: re-centre on every layout change for about
+    // two seconds, unless the reader starts scrolling themselves.
+    const stopFollowing = () => {
+      userScrolled = true
+    }
+    const find = () => {
       const root = contentRef.current
-      if (!root) return
+      if (!root) return false
       const blocks = root.querySelectorAll<HTMLElement>("p, li, td, th, h1, h2, h3, h4")
       const hit = Array.from(blocks).find((el) => normaliseText(el.textContent ?? "").includes(needle))
-      if (!hit) return
-      const target = hit.closest<HTMLElement>("li, tr") ?? hit
-      target.scrollIntoView({ behavior: "smooth", block: "center" })
+      if (!hit) return false
+      target = hit.closest<HTMLElement>("li, tr") ?? hit
       target.classList.add("wiki-cited-passage")
-      window.setTimeout(() => target.classList.remove("wiki-cited-passage"), 8000)
-    }, 350)
-    return () => window.clearTimeout(timer)
-  }, [highlight, bodyReady])
+      centre("smooth")
+      observer = new ResizeObserver(() => centre("auto"))
+      observer.observe(root)
+      observer.observe(document.body)
+      window.addEventListener("wheel", stopFollowing, { passive: true })
+      window.addEventListener("touchmove", stopFollowing, { passive: true })
+      window.addEventListener("keydown", stopFollowing)
+      timers.push(window.setTimeout(() => observer?.disconnect(), 2000))
+      return true
+    }
+    // The body renders lazily: try until it is there (up to ~3 s).
+    let tries = 0
+    const attempt = () => {
+      if (find() || ++tries > 12) return
+      timers.push(window.setTimeout(attempt, 250))
+    }
+    timers.push(window.setTimeout(attempt, 350))
+    return () => {
+      timers.forEach((t) => window.clearTimeout(t))
+      observer?.disconnect()
+      window.removeEventListener("wheel", stopFollowing)
+      window.removeEventListener("touchmove", stopFollowing)
+      window.removeEventListener("keydown", stopFollowing)
+      target?.classList.remove("wiki-cited-passage")
+    }
+  }, [highlight, bodyKey])
 
   if (!ready) {
     return (
@@ -219,6 +282,12 @@ export function DocumentReadPage() {
   const renderedVersionNumber = version?.version ?? docWithAssets.current_version
   const ppeItems =
     version?.body_kind === "tiptap" ? extractPpeItems(version.body_json) : []
+  const renderedSigners =
+    versionList?.find((v) => v.version === renderedVersionNumber)?.signers
+  // A role is awaited only on the working version that has not been published.
+  const onWorkingVersion =
+    renderedVersionNumber === workingVer && (liveVer == null || workingVer > liveVer)
+  const statusLabel = (s: typeof workingStatus) => (s ? STATUS_LABELS[s] : "")
 
   return (
     <div className="flex h-full flex-col print:block">
@@ -241,7 +310,7 @@ export function DocumentReadPage() {
               ? `v${renderedVersionNumber} · draft in progress`
               : hasWorkingDraft
                 ? `v${renderedVersionNumber} · published, in use`
-                : `v${renderedVersionNumber} · ${docWithAssets.status.replace("_", " ")}`
+                : `v${renderedVersionNumber} · ${statusLabel(docWithAssets.status).toLowerCase()}`
           }
           actions={
             <>
@@ -272,7 +341,7 @@ export function DocumentReadPage() {
                     size="sm"
                     variant="outline"
                     className="gap-1.5"
-                    title={`Export v${renderedVersionNumber} — the version you are viewing — as a PDF`}
+                    title={`Export v${renderedVersionNumber}, the version you are viewing, as a PDF`}
                   >
                     <FileDown className="h-3.5 w-3.5" />
                     PDF
@@ -302,7 +371,7 @@ export function DocumentReadPage() {
                 <span>
                   You are viewing the live v{liveVer}. A newer edition (v
                   {workingVer}
-                  {workingStatus ? ` · ${workingStatus}` : ""}) is in progress
+                  {workingStatus ? ` · ${statusLabel(workingStatus)}` : ""}) is in progress
                   and will replace it once published.
                 </span>
                 <span className="flex shrink-0 gap-2">
@@ -327,7 +396,7 @@ export function DocumentReadPage() {
               <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
                 <span>
                   You are viewing the v{workingVer} draft
-                  {workingStatus ? ` (${workingStatus})` : ""}. Operators still
+                  {workingStatus ? ` (${statusLabel(workingStatus).toLowerCase()})` : ""}. Operators still
                   see the live v{liveVer}. The PDF button exports this draft.
                 </span>
                 <span className="flex shrink-0 gap-2">
@@ -369,10 +438,36 @@ export function DocumentReadPage() {
           {overrideVersion == null && (workingStatus === "archived" || liveVer == null) && (
             <Alert className="border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
               <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>
-                {workingStatus === "archived"
-                  ? "This document is archived. It is no longer valid and is not shown to Operators, Ask or Wikis."
-                  : "This document is not published yet. It does not count as knowledge: Operators, Ask and Wikis cannot see it."}
+              <AlertDescription className="space-y-2">
+                <p>
+                  {workingStatus === "archived"
+                    ? "This document is archived. It is no longer valid and is not shown to Operators, Ask or Wikis."
+                    : "This document is not published yet. It does not count as knowledge: Operators, Ask and Wikis cannot see it."}
+                </p>
+                {workingStatus !== "archived" && rawDoc && (
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-amber-300/60 pt-2 print:hidden">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      <ArrowRight className="h-3.5 w-3.5" />
+                      {nextStepText(workingStatus, Boolean(rawDoc.reviewerId), Boolean(rawDoc.approverId))}
+                    </span>
+                    <span className="flex shrink-0 gap-2">
+                      {workingStatus === "draft" && rawDoc.reviewerId && (
+                        <Button size="sm" onClick={() => void handleSubmitForReview()} disabled={submitting}>
+                          {submitting ? "Submitting…" : "Submit for review"}
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant={workingStatus === "draft" && rawDoc.reviewerId ? "outline" : "default"}
+                        onClick={goEdit}
+                      >
+                        {workingStatus === "draft" && !rawDoc.reviewerId
+                          ? "Assign reviewer"
+                          : "Open in editor"}
+                      </Button>
+                    </span>
+                  </div>
+                )}
               </AlertDescription>
             </Alert>
           )}
@@ -387,6 +482,13 @@ export function DocumentReadPage() {
             versionNumber={renderedVersionNumber}
             ppeItems={ppeItems}
             roles={docResult?.roles}
+            signers={renderedSigners}
+            assigned={{
+              reviewer: onWorkingVersion && Boolean(rawDoc?.reviewerId),
+              approver: onWorkingVersion && Boolean(rawDoc?.approverId),
+            }}
+            effectiveAt={docResult?.effectiveAt ?? null}
+            createdAt={docResult?.createdAt}
             statusOverride={
               hasWorkingDraft && !isViewingHistorical ? "published" : undefined
             }
@@ -406,7 +508,7 @@ export function DocumentReadPage() {
             <PdfViewer url={pdfUrl ?? null} pageNumber={initialPage} />
           ) : (
             <div ref={contentRef} className="rounded-md border bg-background p-6">
-              <TiptapReadOnly content={version.body_json} />
+              <TiptapReadOnly content={readBody} />
             </div>
           )}
         </div>
@@ -423,7 +525,7 @@ export function DocumentReadPage() {
           {rawDoc && <DocumentInsightsCard documentId={rawDoc._id} />}
           {version?.body_kind === "tiptap" && (
             <div className="sticky top-28">
-              <DocumentToc body={version.body_json} contentRef={contentRef} />
+              <DocumentToc body={readBody} contentRef={contentRef} />
             </div>
           )}
         </aside>
@@ -448,7 +550,7 @@ export function DocumentReadPage() {
             <div className="space-y-1.5 rounded-md border border-sky-200 bg-sky-50/60 p-3 dark:border-sky-900/40 dark:bg-sky-950/20">
               <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-sky-700 dark:text-sky-300">
                 <Pencil className="h-3 w-3" />
-                Carried over — editable in v{workingVer + 1}
+                Carried over, editable in v{workingVer + 1}
               </p>
               <ul className="list-disc space-y-0.5 pl-4 text-xs text-sky-900/90 dark:text-sky-100/90">
                 {isWrapped ? (
@@ -469,7 +571,7 @@ export function DocumentReadPage() {
             <div className="space-y-1.5 rounded-md border bg-muted/40 p-3">
               <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 <Lock className="h-3 w-3" />
-                Fixed — never changes
+                Fixed, never changes
               </p>
               <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
                 <li>
@@ -478,7 +580,7 @@ export function DocumentReadPage() {
                 </li>
                 <li>Type, location &amp; discipline (part of the code)</li>
                 <li>
-                  v{liveVer ?? workingVer} history and sign-offs — the live
+                  v{liveVer ?? workingVer} history and sign-offs: the live
                   version keeps serving operators, QR codes, Ask and Wikis
                 </li>
               </ul>
@@ -505,6 +607,7 @@ export function DocumentReadPage() {
         currentVersion={docWithAssets.current_version}
         liveVersion={liveVer}
         archived={workingStatus === "archived"}
+        workingStatus={workingStatus}
         selectedVersion={overrideVersion ?? servingVer}
         onSelect={(v) =>
           setOverrideVersion(v === servingVer ? null : v)
@@ -514,6 +617,39 @@ export function DocumentReadPage() {
       />
     </div>
   )
+}
+
+function nextStepText(
+  status: string | undefined,
+  hasReviewer: boolean,
+  hasApprover: boolean,
+): string {
+  if (status === "draft")
+    return hasReviewer
+      ? "Next step: submit it for review."
+      : "Next step: assign a reviewer in the editor, then submit it for review."
+  if (status === "in_review")
+    return hasApprover
+      ? "Next step: the reviewer approves it in the editor."
+      : "Next step: assign an approver in the editor, then the reviewer approves it."
+  if (status === "approved") return "Next step: publish it in the editor."
+  return "Next step: finish the draft in the editor."
+}
+
+type BodyNode = { type?: string; attrs?: Record<string, unknown>; content?: BodyNode[]; text?: string }
+
+function textOf(n: BodyNode): string {
+  return n.text ?? (n.content ?? []).map(textOf).join("")
+}
+
+/** The body without its first H1 when that heading repeats the title. */
+function withoutTitleHeading(body: unknown, title: string): unknown {
+  const root = body as BodyNode | null
+  if (!root || root.type !== "doc" || !root.content?.length || !title) return body
+  const first = root.content[0]
+  if (first.type !== "heading" || Number(first.attrs?.level) !== 1) return body
+  if (normaliseText(textOf(first)) !== normaliseText(title)) return body
+  return { ...root, content: root.content.slice(1) }
 }
 
 function normaliseText(text: string): string {

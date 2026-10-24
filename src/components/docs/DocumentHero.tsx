@@ -14,6 +14,13 @@ import type { Asset, Doc, User } from "@/types"
 import { cn } from "@/lib/utils"
 import { usePpeCatalog, ppeImageSrc } from "@/lib/ppeCatalog"
 
+export interface Signer {
+  role: "author" | "reviewer" | "approver"
+  name: string | null
+  title: string | null
+  at: number
+}
+
 interface DocumentHeroProps {
   doc: Doc
   assets: Asset[]
@@ -26,6 +33,14 @@ interface DocumentHeroProps {
     reviewer: string | null
     approver: string | null
   }
+  /** Sign-offs of the version shown, resolved to the named Engineers. */
+  signers?: Signer[]
+  /** Which roles are assigned but not signed yet (shown as awaiting). */
+  assigned?: { reviewer: boolean; approver: boolean }
+  /** When the version in use was published; null before a first publish. */
+  effectiveAt?: number | null
+  /** When the first version was started (ms). */
+  createdAt?: number
   /** Override the status badge — the reader shows the live edition's status. */
   statusOverride?: Doc["status"]
   className?: string
@@ -38,10 +53,17 @@ export function DocumentHero({
   versionNumber,
   ppeItems = [],
   roles,
+  signers,
+  assigned,
+  effectiveAt,
+  createdAt,
   statusOverride,
   className,
 }: DocumentHeroProps) {
   const [, navigate] = useLocation()
+  const signer = (role: Signer["role"]) =>
+    [...(signers ?? [])].reverse().find((x) => x.role === role && x.name) ?? null
+  const author = signer("author")
   return (
     <div
       className={cn(
@@ -65,10 +87,23 @@ export function DocumentHero({
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-muted-foreground">
             <div className="flex items-center gap-1">
               <UserIcon className="h-3.5 w-3.5" />
-              <span>{roles?.author ?? owner?.name ?? "Unknown author"}</span>
+              <span>
+                {author
+                  ? `${author.name}${author.title ? `, ${author.title}` : ""}`
+                  : (roles?.author ?? owner?.name ?? "Unknown author")}
+              </span>
             </div>
-            <span>Updated {formatDate(doc.updated_at)}</span>
-            <span>Created {formatDate(doc.created_at)}</span>
+            <span>
+              {effectiveAt != null
+                ? `Effective ${formatDate(new Date(effectiveAt).toISOString())}`
+                : "Not published yet"}
+            </span>
+            <span>
+              Created{" "}
+              {formatDate(
+                createdAt != null ? new Date(createdAt).toISOString() : doc.created_at,
+              )}
+            </span>
           </div>
         </div>
       </div>
@@ -94,19 +129,57 @@ export function DocumentHero({
             )}
           </Section>
           <Section label="Review & approval">
-            <div className="space-y-0.5 text-[11px]">
-              <div className="flex justify-between gap-2">
-                <span className="text-muted-foreground">Reviewer</span>
-                <span className="truncate">{roles?.reviewer ?? "—"}</span>
-              </div>
-              <div className="flex justify-between gap-2">
-                <span className="text-muted-foreground">Approver</span>
-                <span className="truncate">{roles?.approver ?? "—"}</span>
-              </div>
+            <div className="space-y-1.5 text-[11px]">
+              <SignoffRow
+                label="Reviewer"
+                signer={signers ? signer("reviewer") : null}
+                fallback={signers ? null : (roles?.reviewer ?? null)}
+                awaiting={assigned?.reviewer ?? false}
+              />
+              <SignoffRow
+                label="Approver"
+                signer={signers ? signer("approver") : null}
+                fallback={signers ? null : (roles?.approver ?? null)}
+                awaiting={assigned?.approver ?? false}
+              />
             </div>
           </Section>
           <HeroPpeSection ppeItems={ppeItems} />
         </div>
+    </div>
+  )
+}
+
+function SignoffRow({
+  label,
+  signer,
+  fallback,
+  awaiting,
+}: {
+  label: string
+  signer: Signer | null
+  fallback: string | null
+  awaiting: boolean
+}) {
+  return (
+    <div className="flex justify-between gap-2">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      {signer ? (
+        <span className="min-w-0 text-right">
+          <span className="block truncate font-medium">{signer.name}</span>
+          <span className="block truncate text-muted-foreground">
+            {[signer.title, formatDate(new Date(signer.at).toISOString())]
+              .filter(Boolean)
+              .join(", ")}
+          </span>
+        </span>
+      ) : fallback ? (
+        <span className="truncate">{fallback}</span>
+      ) : (
+        <span className="text-muted-foreground">
+          {awaiting ? "Awaiting sign-off" : "Not assigned"}
+        </span>
+      )}
     </div>
   )
 }

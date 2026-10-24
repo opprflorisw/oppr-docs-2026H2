@@ -56,10 +56,13 @@ import { buildSupplierPdfs } from "./seed/supplierPdfs"
 //   npx convex run seedKnowledge:run
 
 const DAY = 24 * 60 * 60 * 1000
+const COMPANY = "Pijpwerk Noord"
 
 // Every app table, in delete order. Kept: users and auth tables, templates,
 // coverSettings, seedMedia.
 const WIPE_TABLES: TableNames[] = [
+  "mcpCalls",
+  "mcpKeys",
   "skillEvents",
   "skillLevels",
   "skillProfiles",
@@ -196,6 +199,26 @@ export const writeBase = internalMutation({
         builtIn: true,
         sortOrder: i,
       })
+    }
+
+    // Cover settings are kept across reseeds; the company on exported PDFs is
+    // the seeded plant unless someone already set their own.
+    const cover = await ctx.db.query("coverSettings").first()
+    if (!cover) {
+      await ctx.db.insert("coverSettings", {
+        companyName: COMPANY,
+        headerText: null,
+        footerText: null,
+        titleSize: "md",
+        logoImageId: null,
+        showPageNumbers: true,
+        confidentialityLabel: null,
+        defaultWatermark: null,
+        accentColor: null,
+        updatedAt: args.now,
+      })
+    } else if (!cover.companyName || /holliday/i.test(cover.companyName)) {
+      await ctx.db.patch(cover._id, { companyName: COMPANY, updatedAt: args.now })
     }
 
     const people: { name: string; id: Id<"people"> }[] = []

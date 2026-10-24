@@ -13,6 +13,8 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
+import type { DocumentStatus } from "@/types"
+import { STATUS_LABELS } from "./StatusBadge"
 
 interface VersionHistoryDrawerProps {
   documentId: string
@@ -21,6 +23,8 @@ interface VersionHistoryDrawerProps {
   liveVersion: number | null
   /** An archived Document has no version in use any more. */
   archived?: boolean
+  /** The Document's status, which is the state of its working version. */
+  workingStatus?: DocumentStatus
   /** The version the parent is currently rendering (so we can highlight it). */
   selectedVersion?: number
   onSelect: (version: number) => void
@@ -36,11 +40,22 @@ function formatDate(ms: number): string {
   }
 }
 
+function formatDay(ms: number): string {
+  try {
+    return format(new Date(ms), "MMM d, yyyy")
+  } catch {
+    return String(ms)
+  }
+}
+
+const ROLE_LABELS = { author: "Author", reviewer: "Reviewer", approver: "Approver" } as const
+
 export function VersionHistoryDrawer({
   documentId,
   currentVersion,
   liveVersion,
   archived,
+  workingStatus,
   selectedVersion,
   onSelect,
   open,
@@ -83,11 +98,21 @@ export function VersionHistoryDrawer({
                   selectedVersion != null
                     ? v.version === selectedVersion
                     : isCurrent
+                // The working version (ahead of the live one) carries the
+                // Document's own status: draft, in review or approved.
+                const working =
+                  !wasPublished && isCurrent && workingStatus && workingStatus !== "archived"
+                    ? workingStatus
+                    : "draft"
                 const state = isLive
                   ? { label: "Published, in use", variant: "success" as const }
                   : wasPublished
                     ? { label: archived && v.version === liveVersion ? "Archived" : "Superseded", variant: "secondary" as const }
-                    : { label: "Draft, not published", variant: "outline" as const }
+                    : { label: STATUS_LABELS[working], variant: "outline" as const }
+                // Latest sign-off per role, in lifecycle order.
+                const signers = (["author", "reviewer", "approver"] as const)
+                  .map((role) => [...v.signers].reverse().find((x) => x.role === role))
+                  .filter((x) => x != null)
                 return (
                   <li
                     key={v._id}
@@ -107,12 +132,45 @@ export function VersionHistoryDrawer({
                               Viewing
                             </Badge>
                           )}
+                          {v.significantChange && (
+                            <Badge
+                              variant="outline"
+                              className="border-amber-300 bg-amber-50 text-[10px] text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
+                            >
+                              Significant change
+                            </Badge>
+                          )}
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {wasPublished
                             ? `Published ${formatDate(v.publishedAt)}`
                             : `Started ${formatDate(v.publishedAt)}`}
                         </div>
+                        {v.changeNote && (
+                          <p className="text-xs italic text-foreground/80">
+                            {v.changeNote}
+                          </p>
+                        )}
+                        {signers.length > 0 && (
+                          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 pt-1 text-[11px]">
+                            {signers.map((x) => (
+                              <div key={x.role} className="contents">
+                                <dt className="text-muted-foreground">
+                                  {ROLE_LABELS[x.role]}
+                                </dt>
+                                <dd>
+                                  <span className="font-medium">
+                                    {x.name ?? "Unknown"}
+                                  </span>
+                                  <span className="text-muted-foreground">
+                                    {x.title ? `, ${x.title}` : ""}
+                                    {`, ${formatDay(x.at)}`}
+                                  </span>
+                                </dd>
+                              </div>
+                            ))}
+                          </dl>
+                        )}
                       </div>
                       <Button
                         size="sm"

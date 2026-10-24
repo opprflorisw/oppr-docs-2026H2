@@ -1,4 +1,4 @@
-import { format } from "date-fns"
+import { formatDate } from "@/lib/time"
 import { AlertTriangle, RotateCcw } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -139,7 +139,7 @@ export function SkillLegend() {
 }
 
 export function fmtDate(at: number | null | undefined) {
-  return at ? format(at, "d MMM yyyy") : "–"
+  return at ? formatDate(at) : "–"
 }
 
 const DAY = 24 * 60 * 60 * 1000

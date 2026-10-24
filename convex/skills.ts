@@ -30,16 +30,26 @@ export const EXPIRING_WINDOW_DAYS = 30
 
 export type CellStatus = "ok" | "gap" | "expired" | "expiring" | "retrain" | "none"
 
+/** Adds whole months, clamped to the last day of the target month (31 Jan + 1 = 28/29 Feb). */
 export function addMonths(at: number, months: number): number {
   const d = new Date(at)
+  const day = d.getUTCDate()
+  d.setUTCDate(1)
   d.setUTCMonth(d.getUTCMonth() + months)
+  const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()
+  d.setUTCDate(Math.min(day, last))
   return d.getTime()
 }
 
+/** The plant's shifts: early 06:00-14:00, late 14:00-22:00, night 22:00-06:00. */
+export type Shift = "early" | "late" | "night"
+export const SHIFTS: Shift[] = ["early", "late", "night"]
+
 /** Shift, derived from the person's role text ("Line operator, night shift"). */
-export function shiftOf(person: Doc<"people">): string | null {
-  if (/night/i.test(person.role)) return "Night shift"
-  if (/\bday\b/i.test(person.role)) return "Day shift"
+export function shiftOf(person: Doc<"people">): Shift | null {
+  if (/\bnight\b/i.test(person.role)) return "night"
+  if (/\blate\b/i.test(person.role)) return "late"
+  if (/\b(early|day)\b/i.test(person.role)) return "early"
   return null
 }
 
@@ -300,14 +310,14 @@ export const coverage = query({
       _id: Id<"people">
       name: string
       role: string
-      shift: string | null
+      shift: Shift | null
       expiringSoon: string[]
     }[] = []
     const almost: {
       _id: Id<"people">
       name: string
       role: string
-      shift: string | null
+      shift: Shift | null
       missing: { skillName: string; reason: string }[]
     }[] = []
     if (requirements.length > 0) {
@@ -336,8 +346,11 @@ export const coverage = query({
       }
     }
 
-    const shiftNames = [...new Set(people.map(shiftOf).filter((s): s is string => !!s))].sort()
-    const groups: { shift: string | null; people: typeof qualified }[] = shiftNames.map((shift) => ({
+    // Every shift someone works, in the order of the day: early, late, night
+    // ("tonight" is the night shift).
+    const worked = new Set(people.map(shiftOf))
+    const shiftNames = SHIFTS.filter((s) => worked.has(s))
+    const groups: { shift: Shift | null; people: typeof qualified }[] = shiftNames.map((shift) => ({
       shift,
       people: qualified.filter((p) => p.shift === shift),
     }))
@@ -794,12 +807,16 @@ export const onTrainingPassed = internalMutation({
     const training = await ctx.db.get(args.trainingId)
     if (!training || training.liveVersion == null || training.status === "archived")
       return { updated: 0 }
+    // A Training under review after a Significant change, or a pass of a
+    // version that is no longer live, proves nothing about today's Knowledge.
+    if (training.needsReview) return { updated: 0 }
+    const record = await ctx.db.get(args.recordId)
+    if (!record || record.trainingVersion !== training.liveVersion) return { updated: 0 }
     const pt = (await publishedTrainings(ctx)).find((t) => t._id === training._id)
     if (!pt) return { updated: 0 }
-    const record = await ctx.db.get(args.recordId)
-    const at = record?.passedAt ?? Date.now()
+    const at = record.passedAt
     const now = Date.now()
-    const label = `${training.code} v${record?.trainingVersion ?? pt.liveVersion}`
+    const label = `${training.code} v${record.trainingVersion}`
     let updated = 0
     for (const skill of await allSkills(ctx)) {
       if (!covers(pt, skill)) continue
@@ -940,10 +957,13 @@ async function assertUniqueProfileName(ctx: MutationCtx, name: string, exceptId?
     throw new Error(`A Skill profile called "${name}" already exists.`)
 }
 
+// Changing the catalogue changes what everyone is measured against: only a
+// checked-in Engineer may do it (engineerPersonId, as for sign-offs).
 export const createSkill = mutation({
-  args: skillFields,
-  handler: async (ctx, args) => {
+  args: { ...skillFields, engineerPersonId: v.id("people") },
+  handler: async (ctx, { engineerPersonId, ...args }) => {
     await requireUserId(ctx)
+    await requireEngineer(ctx, engineerPersonId)
     const clean = cleanSkill(args)
     await assertUniqueSkillName(ctx, clean.name)
     const last = (await ctx.db.query("skills").take(500)).reduce((m, s) => Math.max(m, s.sortOrder), -1)
@@ -952,9 +972,10 @@ export const createSkill = mutation({
 })
 
 export const updateSkill = mutation({
-  args: { id: v.id("skills"), ...skillFields },
-  handler: async (ctx, { id, ...args }) => {
+  args: { id: v.id("skills"), ...skillFields, engineerPersonId: v.id("people") },
+  handler: async (ctx, { id, engineerPersonId, ...args }) => {
     await requireUserId(ctx)
+    await requireEngineer(ctx, engineerPersonId)
     const skill = await ctx.db.get(id)
     if (!skill) throw new Error("This Skill no longer exists.")
     const clean = cleanSkill(args)
@@ -963,18 +984,35 @@ export const updateSkill = mutation({
   },
 })
 
-/** Removes a Skill, its levels and its place in profiles. Its history stays. */
+/**
+ * Removes a Skill, its levels and its place in profiles. Its history stays,
+ * with an entry for every level removed, so the matrix change is traceable.
+ */
 export const removeSkill = mutation({
-  args: { id: v.id("skills") },
-  handler: async (ctx, { id }) => {
+  args: { id: v.id("skills"), engineerPersonId: v.id("people") },
+  handler: async (ctx, { id, engineerPersonId }) => {
     await requireUserId(ctx)
+    const engineer = await requireEngineer(ctx, engineerPersonId)
     const skill = await ctx.db.get(id)
     if (!skill) return
     const levels = await ctx.db
       .query("skillLevels")
       .withIndex("by_skillId", (q) => q.eq("skillId", id))
       .take(1000)
-    for (const l of levels) await ctx.db.delete(l._id)
+    const now = Date.now()
+    for (const l of levels) {
+      if (l.level >= 1)
+        await ctx.db.insert("skillEvents", {
+          personId: l.personId,
+          skillId: id,
+          fromLevel: l.level,
+          toLevel: 0,
+          reason: `Skill "${skill.name}" removed from the catalogue by ${engineer.name}`,
+          byPersonId: engineer._id,
+          at: now,
+        })
+      await ctx.db.delete(l._id)
+    }
     for (const p of await ctx.db.query("skillProfiles").take(200)) {
       if (p.targets.some((t) => t.skillId === id))
         await ctx.db.patch(p._id, { targets: p.targets.filter((t) => t.skillId !== id) })
@@ -1000,9 +1038,10 @@ async function cleanTargets(ctx: MutationCtx, targets: { skillId: Id<"skills">; 
 }
 
 export const createProfile = mutation({
-  args: { name: v.string(), description: v.string(), targets: targetsValidator },
+  args: { name: v.string(), description: v.string(), targets: targetsValidator, engineerPersonId: v.id("people") },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineer(ctx, args.engineerPersonId)
     const name = args.name.trim()
     if (!name) throw new Error("Give the Skill profile a name.")
     await assertUniqueProfileName(ctx, name)
@@ -1025,9 +1064,11 @@ export const updateProfile = mutation({
     name: v.string(),
     description: v.string(),
     targets: targetsValidator,
+    engineerPersonId: v.id("people"),
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineer(ctx, args.engineerPersonId)
     if (!(await ctx.db.get(args.id))) throw new Error("This Skill profile no longer exists.")
     const name = args.name.trim()
     if (!name) throw new Error("Give the Skill profile a name.")
@@ -1042,9 +1083,10 @@ export const updateProfile = mutation({
 
 /** Removes a profile and unassigns it from everyone. Levels stay. */
 export const removeProfile = mutation({
-  args: { id: v.id("skillProfiles") },
-  handler: async (ctx, { id }) => {
+  args: { id: v.id("skillProfiles"), engineerPersonId: v.id("people") },
+  handler: async (ctx, { id, engineerPersonId }) => {
     await requireUserId(ctx)
+    await requireEngineer(ctx, engineerPersonId)
     for (const p of await ctx.db.query("people").take(500)) {
       if ((p.profileIds ?? []).includes(id))
         await ctx.db.patch(p._id, { profileIds: (p.profileIds ?? []).filter((x) => x !== id) })

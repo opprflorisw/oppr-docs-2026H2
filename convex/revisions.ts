@@ -17,6 +17,7 @@ import { Doc, Id } from "./_generated/dataModel"
 import { requireUser, requireUserId } from "./lib/auth"
 import { isPublished } from "./lib/published"
 import { bodyChunks } from "./lib/chunking"
+import { openFindingsTouching, stillStands } from "./findings"
 
 const DAY = 24 * 60 * 60 * 1000
 
@@ -326,6 +327,24 @@ async function sourceInfo(ctx: QueryCtx, p: Doc<"proposedRevisions">) {
   }
 }
 
+// One block key or a list/range of them: "B12", "B3, B4 and B7", "B3-B5".
+const KEYS = String.raw`\b[Bb]locks?\s+B\d+(?:\s*(?:,|and|to|-)\s*B\d+)*\b|\bB\d+(?:\s*(?:,|and|to|-)\s*B\d+)*\b`
+
+/**
+ * The generator numbers blocks B1, B2, ... for the model. Those keys mean
+ * nothing to an Engineer, so they never reach a reason or a summary.
+ */
+export function stripBlockKeys(text: string): string {
+  return text
+    .replace(new RegExp(String.raw`\s*\((?:[Ss]ee |[Pp]er |[Ii]n |[Ff]rom )?(?:${KEYS})\)`, "g"), "")
+    .replace(new RegExp(String.raw`\b(?:[Pp]er|[Ss]ee|[Ii]n|[Ff]rom|[Aa]t)\s+(?:${KEYS})`, "g"), "")
+    .replace(new RegExp(KEYS, "g"), "this passage")
+    .replace(/\s+([.,;:])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .replace(/^this passage/, "This passage")
+}
+
 async function present(ctx: QueryCtx, p: Doc<"proposedRevisions">, doc: Doc<"documents"> | null) {
   return {
     _id: p._id,
@@ -336,8 +355,8 @@ async function present(ctx: QueryCtx, p: Doc<"proposedRevisions">, doc: Doc<"doc
     draftVersion: p.draftVersion,
     state: p.state,
     status: statusOf(p, doc),
-    summary: p.summary,
-    changes: p.changes.map((c) => ({ before: c.before, after: c.after, reason: c.reason })),
+    summary: stripBlockKeys(p.summary),
+    changes: p.changes.map((c) => ({ before: c.before, after: c.after, reason: stripBlockKeys(c.reason) })),
     error: p.error,
     createdAt: p.createdAt,
     source: await sourceInfo(ctx, p),
@@ -517,6 +536,26 @@ export const loadForGeneration = internalQuery({
       }
     }
 
+    // Passages of other Published documents that this document already
+    // contradicts (open Findings): the revision must not copy these values,
+    // and must not add a value one of them contradicts.
+    const conflicts: {
+      mine: string
+      other: { namingCode: string; title: string; quote: string; section: string | null }
+    }[] = []
+    for (const f of await openFindingsTouching(ctx, doc._id)) {
+      if (f.kind !== "contradiction" || f._id === p.source.findingId) continue
+      if (!(await stillStands(ctx, f))) continue
+      const mineIsA = f.a.documentId === doc._id
+      const mine = mineIsA ? f.a : f.b
+      const other = mineIsA ? f.b : f.a
+      conflicts.push({
+        mine: mine.quote,
+        other: { namingCode: other.namingCode, title: other.title, quote: other.quote, section: other.section },
+      })
+      if (conflicts.length >= 12) break
+    }
+
     // Insight signal: the latest report's themes and recent questions/flags.
     const since = Date.now() - 90 * DAY
     const asks = (
@@ -552,6 +591,7 @@ export const loadForGeneration = internalQuery({
       doc: { _id: doc._id, namingCode: doc.namingCode, title: doc.title },
       blocks,
       finding,
+      conflicts,
       themes: report?.state === "ready" ? report.themes : [],
       questions,
       flags: flags.slice(0, 30).map((f) => f.note),
@@ -628,7 +668,7 @@ export const applyProposal = internalMutation({
 
     const now = Date.now()
     const newVersion = doc.currentVersion + 1
-    const summary = args.summary.trim()
+    const summary = stripBlockKeys(args.summary)
     await ctx.db.patch(doc._id, {
       liveVersion: p.baseVersion,
       currentVersion: newVersion,
@@ -676,7 +716,7 @@ export const applyProposal = internalMutation({
       changes: result.applied.map((c) => ({
         before: c.before,
         after: c.after,
-        reason: c.reason,
+        reason: stripBlockKeys(c.reason),
         chunkId: chunkFor(c.before),
       })),
       error: null,

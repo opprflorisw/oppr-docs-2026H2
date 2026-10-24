@@ -8,7 +8,8 @@ import {
   FileCheck2,
   History,
   Moon,
-  Sun,
+  Sunrise,
+  Sunset,
   Target,
   UserRound,
 } from "lucide-react"
@@ -73,7 +74,8 @@ export function PersonSkillsPage() {
   }
 
   const { person } = data
-  const ShiftIcon = person.shift === "Night shift" ? Moon : person.shift === "Day shift" ? Sun : null
+  const ShiftIcon =
+    person.shift === "night" ? Moon : person.shift === "late" ? Sunset : person.shift === "early" ? Sunrise : null
   const attention = data.retrain.length + data.expired.length + data.gaps.length
 
   return (

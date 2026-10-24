@@ -30,6 +30,7 @@ import {
 import { toast } from "sonner"
 import { Link, useLocation, useSearch } from "wouter"
 import {
+  Cable,
   FileDown,
   GraduationCap,
   Hash,
@@ -56,6 +57,7 @@ import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { cn } from "@/lib/utils"
 import { SkillsSettings } from "@/components/learn/SkillsSettings"
+import { AuditLog, KeysPanel } from "@/components/mcp/KeysPanel"
 
 const ROLE = "Login account (who acts is the check-in)"
 
@@ -71,6 +73,7 @@ const TABS = [
   { value: "naming", label: "Naming", icon: Hash },
   { value: "images", label: "Images", icon: ImageIcon },
   { value: "ai", label: "AI", icon: Sparkles },
+  { value: "mcp", label: "MCP", icon: Cable },
 ] as const
 type TabValue = (typeof TABS)[number]["value"]
 
@@ -331,6 +334,29 @@ export function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="mcp" className="space-y-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">MCP: connect your own AI</CardTitle>
+                <CardDescription className="text-xs">
+                  Let the assistant your company already uses read Published
+                  knowledge and bring documents in as drafts. It can never
+                  publish, approve, sign off or delete.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" asChild>
+                  <Link href="/mcp">See how it works</Link>
+                </Button>
+                <Button size="sm" variant="outline" asChild>
+                  <a href="/mcp#connect">Endpoint and config</a>
+                </Button>
+              </CardContent>
+            </Card>
+            <KeysPanel />
+            <AuditLog />
           </TabsContent>
         </Tabs>
       </div>

@@ -300,21 +300,43 @@ export const run = internalMutation({
         views++
       }
     }
-    // Scans: always on the floor.
+    // Scans: always on the floor. A Scan lists the Asset's Documents, and the
+    // Operator opens one of them: that is a view too, so Scans never outnumber
+    // views. Documents seeded as never viewed stay unviewed.
     let scans = 0
     for (const [code, n] of Object.entries(SCANS)) {
       const assetId = assets.get(code)
       if (!assetId) continue
+      const linked: Id<"documents">[] = []
+      for (const l of await ctx.db
+        .query("documentAssets")
+        .withIndex("by_assetId", (q) => q.eq("assetId", assetId))
+        .take(50)) {
+        const d = await ctx.db.get(l.documentId)
+        if (d && published(d.namingCode) && (VIEWS[d.namingCode] ?? 0) > 0) linked.push(d._id)
+      }
       for (let i = 0; i < n; i++) {
+        const at = when()
+        const personId = rand() < 0.35 && operators.length ? pick(operators) : null
         await ctx.db.insert("usageEvents", {
-          at: when(),
+          at,
           kind: "scan",
           documentId: null,
           assetId,
-          personId: rand() < 0.35 && operators.length ? pick(operators) : null,
+          personId,
           surface: "floor",
         })
         scans++
+        if (linked.length === 0) continue
+        await ctx.db.insert("usageEvents", {
+          at: Math.min(now, at + 20_000 + Math.floor(rand() * 60_000)),
+          kind: "view",
+          documentId: pick(linked),
+          assetId: null,
+          personId,
+          surface: "floor",
+        })
+        views++
       }
     }
 

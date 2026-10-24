@@ -30,6 +30,7 @@ export function CheckInChip() {
             mode === "checked-in" && "border-primary/40 bg-primary/5",
           )}
           aria-label={person ? `Checked in as ${person.name}` : "Anonymous. Check in"}
+          title={person ? undefined : "You are anonymous. Check in for Trainings, Rounds and sign-offs."}
         >
           {person ? (
             <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[8px] font-semibold text-primary-foreground">
@@ -38,7 +39,7 @@ export function CheckInChip() {
           ) : (
             <UserRound className="h-3.5 w-3.5 text-muted-foreground" />
           )}
-          {person ? person.name : "Anonymous"}
+          {person ? person.name : "Check in"}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 p-0">

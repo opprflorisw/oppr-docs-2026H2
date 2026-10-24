@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server"
+import { mutation, query, type QueryCtx } from "./_generated/server"
 import { v } from "convex/values"
 import { internal } from "./_generated/api"
 import { Doc, Id } from "./_generated/dataModel"
@@ -74,6 +74,49 @@ function effectiveStatus(d: Doc<"documents">): Doc<"documents">["status"] {
   return d.liveVersion != null ? "published" : d.status
 }
 
+// A sign-off as people read it (CONTEXT.md: Checked in): the named Engineer
+// who signed, with their role, falling back to the login account only for
+// sign-offs recorded without a person.
+export type SignerView = {
+  role: "author" | "reviewer" | "approver"
+  name: string | null
+  title: string | null
+  at: number
+}
+
+function signerResolver(ctx: QueryCtx) {
+  const cache = new Map<string, { name: string | null; title: string | null }>()
+  return async (s: {
+    role: SignerView["role"]
+    userId: Id<"users">
+    at: number
+    personId?: Id<"people">
+  }): Promise<SignerView> => {
+    const key = s.personId ?? s.userId
+    if (!cache.has(key)) {
+      const person = s.personId ? await ctx.db.get(s.personId) : null
+      if (person) cache.set(key, { name: person.name, title: person.role })
+      else {
+        const u = await ctx.db.get(s.userId)
+        cache.set(key, { name: u ? (u.name ?? u.email ?? null) : null, title: null })
+      }
+    }
+    return { role: s.role, at: s.at, ...cache.get(key)! }
+  }
+}
+
+/** The latest sign-off per role of one version, resolved to names. */
+async function signersOf(
+  ctx: QueryCtx,
+  row: Doc<"documentVersions"> | null,
+): Promise<SignerView[]> {
+  if (!row) return []
+  const resolve = signerResolver(ctx)
+  const latest = new Map<string, NonNullable<Doc<"documentVersions">["signoffs"]>[number]>()
+  for (const s of row.signoffs ?? []) latest.set(s.role, s)
+  return await Promise.all([...latest.values()].map(resolve))
+}
+
 export const list = query({
   args: {
     status: v.optional(docStatusValidator),
@@ -113,7 +156,14 @@ export const listWithAssetPreviews = query({
   handler: async (ctx, args) => {
     await requireUser(ctx)
     let docs = await ctx.db.query("documents").take(500)
-    if (args.status) docs = docs.filter((d) => effectiveStatus(d) === args.status)
+    // "In review" also finds a Published Document whose next version is in
+    // review: that is the work a reviewer is looking for.
+    if (args.status)
+      docs = docs.filter(
+        (d) =>
+          effectiveStatus(d) === args.status ||
+          (args.status === "in_review" && d.status === "in_review"),
+      )
     if (args.type) docs = docs.filter((d) => d.type === args.type)
     if (args.search) {
       const needle = args.search.toLowerCase()
@@ -216,13 +266,45 @@ export const getWithAssets = query({
       if (!u) return null
       return u.name ?? u.email ?? null
     }
+    const versionRow = async (n: number | undefined) =>
+      n != null && n >= 1
+        ? await ctx.db
+            .query("documentVersions")
+            .withIndex("by_documentId_and_version", (q) =>
+              q.eq("documentId", args.id).eq("version", n),
+            )
+            .unique()
+        : null
+    // Sign-offs name the Engineer who gave them, from the version in use (or
+    // the working version before a first publish).
+    const serving = await versionRow(doc.liveVersion ?? doc.currentVersion)
+    const signers = await signersOf(ctx, serving)
+    const signer = (role: SignerView["role"]) => signers.find((s) => s.role === role) ?? null
+    const label = (s: SignerView | null) =>
+      s?.name ? (s.title ? `${s.name} (${s.title})` : s.name) : null
     const roles = {
-      owner: await nameOf(doc.ownerId),
-      author: await nameOf(doc.authorId),
-      reviewer: await nameOf(doc.reviewerId),
-      approver: await nameOf(doc.approverId),
+      owner: signer("author")?.name ?? (await nameOf(doc.ownerId)),
+      author: label(signer("author")),
+      reviewer: label(signer("reviewer")),
+      approver: label(signer("approver")),
     }
-    return { doc, assets, roles }
+    // Created: when the first version was started, which can predate this
+    // row (seeded or imported history). Effective: when the version in use
+    // was published.
+    const first = serving?.version === 1 ? serving : await versionRow(1)
+    const firstAuthored = first?.signoffs?.find((s) => s.role === "author")?.at
+    const createdAt = Math.min(
+      doc._creationTime,
+      firstAuthored ?? Infinity,
+      first?.publishedAt ?? Infinity,
+    )
+    const live =
+      doc.liveVersion == null
+        ? null
+        : doc.liveVersion === serving?.version
+          ? serving
+          : await versionRow(doc.liveVersion)
+    return { doc, assets, roles, createdAt, effectiveAt: live?.publishedAt ?? null }
   },
 })
 
@@ -311,7 +393,14 @@ export const listVersions = query({
       )
       .take(500)
     versions.sort((a, b) => b.version - a.version)
-    return versions
+    // Each version with its sign-offs resolved to the named Engineers.
+    const resolve = signerResolver(ctx)
+    return await Promise.all(
+      versions.map(async (row) => ({
+        ...row,
+        signers: await Promise.all((row.signoffs ?? []).map(resolve)),
+      })),
+    )
   },
 })
 
@@ -830,25 +919,24 @@ export const reviewRecord = query({
       )
       .unique()
     if (!row) return null
-    const names = new Map<string, string | null>()
-    async function nameOf(uid: Id<"users">) {
-      if (!names.has(uid)) {
-        const u = await ctx.db.get(uid)
-        names.set(uid, u ? (u.name ?? u.email ?? null) : null)
-      }
-      return names.get(uid) ?? null
-    }
+    // The named Engineer (with their role); the login account only when a
+    // sign-off was recorded without a person.
+    const resolve = signerResolver(ctx)
+    const byLine = (s: SignerView) => (s.name && s.title ? `${s.name} (${s.title})` : s.name)
     const approval = [...(row.signoffs ?? [])].reverse().find((s) => s.role === "approver")
     const events: { kind: "published" | "confirmed"; at: number; by: string | null }[] = [
       {
         kind: "published",
         at: approval?.at ?? row.publishedAt,
-        by: approval ? await nameOf(approval.userId) : null,
+        by: approval ? byLine(await resolve(approval)) : null,
       },
     ]
     for (const c of row.reviewConfirmations ?? []) {
-      const person = c.personId ? await ctx.db.get(c.personId) : null
-      events.push({ kind: "confirmed", at: c.at, by: person?.name ?? (await nameOf(c.userId)) })
+      events.push({
+        kind: "confirmed",
+        at: c.at,
+        by: byLine(await resolve({ ...c, role: "reviewer" })),
+      })
     }
     events.sort((a, b) => b.at - a.at)
     return { version: live, events }
@@ -1260,5 +1348,18 @@ export const remove = mutation({
     if (doc.liveVersion != null) {
       await regenerateWikisForDocument(ctx, args.id, `deleted ${doc.namingCode}`)
     }
+  },
+})
+
+// Next periodic review per Published Document, for the library's "Next
+// review" column. Documents without a version in use have none.
+export const nextReviews = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx)
+    const docs = await ctx.db.query("documents").take(500)
+    const out: Record<string, number | null> = {}
+    for (const d of docs) out[d._id] = isPublished(d) ? (d.nextReviewAt ?? null) : null
+    return out
   },
 })

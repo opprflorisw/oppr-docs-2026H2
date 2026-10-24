@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import type { DocumentStatus } from "@/types"
 
-const LABELS: Record<DocumentStatus, string> = {
+export const STATUS_LABELS: Record<DocumentStatus, string> = {
   pre_draft: "Pre-draft",
   draft: "Draft",
   in_review: "In review",
@@ -24,7 +24,7 @@ interface StatusBadgeProps {
  *   archived   → outline w/ muted text
  */
 export function StatusBadge({ status, className }: StatusBadgeProps) {
-  const label = LABELS[status] ?? status
+  const label = STATUS_LABELS[status] ?? status
 
   switch (status) {
     case "pre_draft":

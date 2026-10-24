@@ -467,11 +467,16 @@ export const publish = mutation({
   },
 })
 
-/** Starts the next version as a draft, copied from the live one. The live version stays in use. */
+/**
+ * Starts the next version as a draft, copied from the live one. The live
+ * version stays in use. Authoring a controlled Training needs a checked-in
+ * Engineer.
+ */
 export const newVersion = mutation({
-  args: { id: v.id("trainings"), personId: v.optional(v.id("people")) },
+  args: { id: v.id("trainings"), personId: v.id("people") },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
+    await requireEngineerPerson(ctx, args.personId)
     const t = await loadTraining(ctx, args.id)
     if (t.status !== "published" || t.liveVersion == null)
       throw new ConvexError("A new version starts from the published one. Finish the version in progress first.")
@@ -495,7 +500,7 @@ export const newVersion = mutation({
       stops: live.stops,
       passMark: live.passMark,
       questionsPerObjective: live.questionsPerObjective,
-      signoffs: [{ role: "author", personId: await personOrNull(ctx, args.personId), userId, at: Date.now() }],
+      signoffs: [{ role: "author", personId: args.personId, userId, at: Date.now() }],
       publishedAt: null,
     })
     await ctx.db.patch(t._id, { status: "draft", currentVersion: next, updatedAt: Date.now() })

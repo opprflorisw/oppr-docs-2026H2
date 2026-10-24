@@ -4,8 +4,8 @@
 //   1. The text node walker replaces `[1]`, `[2]`, … with clickable
 //      footnote anchors (button-style spans) that scroll to the matching
 //      citation pill in the Sources block.
-//   2. The same walker auto-links Oppr DOCS entity codes (HOL-OPS-SOP-0001,
-//      RMR-101, HOL-OPS-LOG-0001) when those codes exist in the local DB.
+//   2. The same walker auto-links Oppr Knowledge entity codes (EXT-OPS-SOP-0001,
+//      EXL-201) when those codes exist in the local DB.
 //      Fabricated codes stay plain text.
 //   3. Streaming text is debounced — Markdown is re-parsed at most ~30 Hz
 //      so partial `**bo` tokens don't flicker bold on/off.
@@ -247,8 +247,8 @@ function CitationAnchor({
       type="button"
       onClick={onClick}
       className="mx-0.5 inline-flex h-[1.4em] min-w-[1.5em] items-center justify-center rounded bg-primary/15 px-1 text-[0.78em] font-semibold text-primary align-baseline transition-colors hover:bg-primary/25"
-      aria-label={`Source ${n} — scrolls to the source list below`}
-      title={`Source ${n} — tap to see where this comes from`}
+      aria-label={`Source ${n}: scrolls to the source list below`}
+      title={`Source ${n}: tap to see where this comes from`}
     >
       {n}
     </button>

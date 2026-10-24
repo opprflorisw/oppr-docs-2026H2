@@ -91,9 +91,10 @@ export default defineSchema({
     reviewIntervalMonths: v.optional(v.number()),
     lastReviewedAt: v.optional(v.union(v.number(), v.null())),
     // Where the body comes from (CONTEXT.md): written in the editor, converted
-    // from a PDF, or a supplier PDF wrapped unchanged (Wrapped manual).
+    // from a PDF, a supplier PDF wrapped unchanged (Wrapped manual), or
+    // imported as a draft through the MCP server (prepared outside Oppr).
     origin: v.optional(
-      v.union(v.literal("editor"), v.literal("convert"), v.literal("wrapped")),
+      v.union(v.literal("editor"), v.literal("convert"), v.literal("wrapped"), v.literal("mcp")),
     ),
     // Wrapped manuals: the manufacturer that supplied the PDF.
     supplier: v.optional(v.union(v.string(), v.null())),
@@ -670,7 +671,7 @@ export default defineSchema({
     documentId: v.id("documents"),
     version: v.number(),
     chunkId: v.union(v.id("chunks"), v.null()),
-    source: v.union(v.literal("attempt"), v.literal("ask"), v.literal("reader")),
+    source: v.union(v.literal("attempt"), v.literal("ask"), v.literal("reader"), v.literal("mcp")),
     attemptId: v.optional(v.union(v.id("trainingAttempts"), v.null())),
     note: v.string(),
     personId: v.union(v.id("people"), v.null()),
@@ -908,4 +909,45 @@ export default defineSchema({
       v.null(),
     ),
   }).index("by_sessionId", ["sessionId"]),
+
+  // ---- MCP server (docs/adr/0004) -------------------------------------------
+  // A connection key for an outside assistant or system. Only the hash of the
+  // secret is stored; the secret is shown once. Scopes decide which tools the
+  // key may call; MCP can never publish, approve, sign off or delete.
+  mcpKeys: defineTable({
+    name: v.string(),
+    // First characters of the secret, to recognise a key in lists ("opk_ab12").
+    prefix: v.string(),
+    hash: v.string(),
+    scopes: v.array(
+      v.union(
+        v.literal("read:published"),
+        v.literal("read:people"),
+        v.literal("write:drafts"),
+        v.literal("write:signals"),
+      ),
+    ),
+    // Optional limit to some areas (MIX, EXT, QCL); empty means all areas.
+    areaCodes: v.array(v.string()),
+    // Where the client's model runs, as declared when the key was made.
+    modelHost: v.union(v.literal("customer-cloud"), v.literal("self-hosted"), v.literal("other")),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    lastUsedAt: v.union(v.number(), v.null()),
+    revokedAt: v.union(v.number(), v.null()),
+  }).index("by_hash", ["hash"]),
+
+  // Audit log: one row per MCP tool call.
+  mcpCalls: defineTable({
+    keyId: v.id("mcpKeys"),
+    tool: v.string(),
+    ok: v.boolean(),
+    // Short human-readable result ("3 passages", "draft EXT-OPS-SOP-0004 created", "refused: missing scope").
+    summary: v.string(),
+    documentId: v.union(v.id("documents"), v.null()),
+    durationMs: v.number(),
+    at: v.number(),
+  })
+    .index("by_keyId", ["keyId"])
+    .index("by_at", ["at"]),
 })

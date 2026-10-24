@@ -7,7 +7,7 @@ import { useState } from "react"
 import { Redirect, useLocation } from "wouter"
 import { WrapManualDialog } from "@/components/manuals/WrapManualDialog"
 import { useQuery } from "convex/react"
-import { BookLock, FileText, LayoutTemplate, PlusCircle, Sparkles, Upload } from "lucide-react"
+import { BookLock, Cable, FileText, LayoutTemplate, PlusCircle, Sparkles, Upload } from "lucide-react"
 import {
   Card,
   CardContent,
@@ -88,6 +88,18 @@ export function NewDocumentChooserDialog({
             }}
           />
         </div>
+
+        <button
+          type="button"
+          onClick={() => navigate("/mcp")}
+          className="flex w-full items-center gap-2 rounded-md border border-dashed px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Cable className="h-3.5 w-3.5 shrink-0 text-primary" />
+          <span>
+            <span className="font-medium text-foreground">Bring documents in with your own AI.</span>{" "}
+            Many files at once? Let your company's assistant prepare them over MCP.
+          </span>
+        </button>
 
         <div className="space-y-3">
           <div className="flex items-center gap-2">

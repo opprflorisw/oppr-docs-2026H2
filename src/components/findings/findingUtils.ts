@@ -21,7 +21,7 @@ export function errorText(err: unknown, fallback: string): string {
 
 export const KIND_LABEL: Record<FindingKind, string> = {
   contradiction: "Contradiction",
-  duplicate: "Duplicate",
+  duplicate: "Overlap",
 }
 
 export const TRIGGER_LABEL: Record<FindingView["detectedBy"], string> = {

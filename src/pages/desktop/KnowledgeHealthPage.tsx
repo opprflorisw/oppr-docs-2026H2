@@ -82,7 +82,7 @@ export function KnowledgeHealthPage() {
 
 function HealthBody({ data }: { data: Health }) {
   const s = data.stats
-  const todo = s.neverUsed + s.unclear + s.overlaps + s.contradictions
+  const todo = s.needsDecision
   const pct = s.answeredRate == null ? null : Math.round(s.answeredRate * 100)
 
   return (
@@ -94,7 +94,7 @@ function HealthBody({ data }: { data: Health }) {
               ? "No Published documents yet."
               : todo === 0
                 ? `${s.published} Published documents, all used and consistent.`
-                : `${s.published} Published documents. ${todo} ${todo === 1 ? "needs" : "need"} a decision to keep the library lean.`}
+                : `${todo} of ${s.published} Published documents ${todo === 1 ? "needs" : "need"} a decision to keep the library lean.`}
           </h2>
           <p className="text-sm text-muted-foreground">
             {s.views} views, {s.scans} Scans and {s.questions} questions in the last {data.windowDays} days
@@ -104,7 +104,6 @@ function HealthBody({ data }: { data: Health }) {
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <Tile href="#never-used" icon={Archive} label="Never used" value={s.neverUsed} tone={s.neverUsed ? "warn" : "ok"} />
           <Tile href="#unclear" icon={HelpCircle} label="Asked but unclear" value={s.unclear} tone={s.unclear ? "warn" : "ok"} />
-          <Tile href="#overlaps" icon={Copy} label="Overlaps" value={s.overlaps} tone={s.overlaps ? "warn" : "ok"} />
           <Tile
             href="#contradictions"
             icon={Split}
@@ -112,6 +111,7 @@ function HealthBody({ data }: { data: Health }) {
             value={s.contradictions}
             tone={s.contradictions ? "danger" : "ok"}
           />
+          <Tile href="#overlaps" icon={Copy} label="Overlaps" value={s.overlaps} tone={s.overlaps ? "warn" : "ok"} />
           <Tile
             href="#reviews"
             icon={CalendarClock}
@@ -142,20 +142,20 @@ function HealthBody({ data }: { data: Health }) {
       />
       <NotInLibrary data={data} />
       <Section
-        id="overlaps"
-        icon={Copy}
-        title="Overlaps"
-        intro="Two documents say the same thing. Keep it in one place and refer to it from the other."
-        items={data.overlaps}
-        empty="The Consistency check found no duplicated passages between Published documents."
-      />
-      <Section
         id="contradictions"
         icon={Split}
         title="Contradictions"
         intro="Two Published documents disagree. Ask warns people about these until one side is revised."
         items={data.contradictions}
         empty="The Consistency check found no Published documents that disagree."
+      />
+      <Section
+        id="overlaps"
+        icon={Copy}
+        title="Overlaps"
+        intro="Two documents repeat the same section. Lower priority than a contradiction: keep it in one place and refer to it from the other."
+        items={data.overlaps}
+        empty="The Consistency check found no duplicated passages between Published documents."
       />
       <Section
         id="reviews"

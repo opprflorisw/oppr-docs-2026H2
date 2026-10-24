@@ -6,7 +6,7 @@
 // version by keywords, so wording changes in the seed content are tolerated.
 // Past Attempts use static questions written here (the live ones are
 // generated); each cites the real passage.
-import { internalMutation, MutationCtx } from "../_generated/server"
+import { internalMutation, internalQuery, MutationCtx } from "../_generated/server"
 import { Doc, Id } from "../_generated/dataModel"
 import { loadLiveDoc, LiveDoc } from "../trainings"
 import { normalise } from "../ai/grounding"
@@ -25,6 +25,12 @@ interface ObjectiveDef {
   text: string
   /** Where to find the passage: first document and keyword set that matches. */
   sources: { doc: string; match: string[][] }[]
+  /**
+   * Key words of the fact the objective tests. The cited quote must contain
+   * every one of them, or the passage is not used (checked at seed time, so
+   * an objective never cites a step that says something else).
+   */
+  fact: string[]
   q: StaticQuestion
 }
 
@@ -83,6 +89,7 @@ const TRAININGS: TrainingDef[] = [
         key: "c1",
         text: "Tell the mixing operator when a changeover starts and which colour comes next",
         sources: [{ doc: "EXT-OPS-SOP-0001", match: [["tell the mixing operator"], ["mixing operator", "colour"]] }],
+        fact: ["mixing operator", "colour"],
         q: {
           prompt: "A colour changeover on line 2 is about to start. What is the first thing you do?",
           correct: "Tell the mixing operator the changeover is starting and which colour comes next",
@@ -98,6 +105,7 @@ const TRAININGS: TrainingDef[] = [
         key: "c2",
         text: "Stop dosing at the mixer at the right hopper level",
         sources: [{ doc: "EXT-OPS-SOP-0001", match: [["stop dosing", "hopper"]] }],
+        fact: ["stop dosing", "20 percent"],
         q: {
           prompt: "During a changeover, when do you stop dosing at MXR-101?",
           correct: "When the extruder hopper is below 20 percent",
@@ -113,6 +121,7 @@ const TRAININGS: TrainingDef[] = [
         key: "c3",
         text: "Purge the barrel with the right compound at the right temperature",
         sources: [{ doc: "EXT-OPS-SOP-0001", match: [["PX-4400", "190"], ["purge", "190"]] }],
+        fact: ["PX-4400", "190"],
         q: {
           prompt: "Which purge compound and temperature do you use to purge the barrel?",
           correct: "Purge compound PX-4400 at 190 °C",
@@ -128,6 +137,7 @@ const TRAININGS: TrainingDef[] = [
         key: "c4",
         text: "Tighten the die bolts in the right pattern and to the right torque",
         sources: [{ doc: "EXT-OPS-SOP-0001", match: [["tighten the die bolts crosswise"], ["die bolts", "40 Nm"]] }],
+        fact: ["crosswise", "40 Nm"],
         q: {
           prompt: "You have fitted the new die. How do you tighten the die bolts?",
           correct: "Crosswise to 40 Nm",
@@ -139,6 +149,7 @@ const TRAININGS: TrainingDef[] = [
         key: "c5",
         text: "Protect yourself from the hot die and barrel during a changeover",
         sources: [{ doc: "EXT-OPS-SOP-0001", match: [["150", "gloves"]] }],
+        fact: ["150", "heat-resistant gloves"],
         q: {
           prompt: "Why do you wear heat-resistant gloves for any contact with the die during a changeover?",
           correct: "The die and barrel stay above 150 °C during a changeover",
@@ -154,6 +165,7 @@ const TRAININGS: TrainingDef[] = [
         key: "c6",
         text: "Check the first pipes after restarting the line",
         sources: [{ doc: "EXT-OPS-SOP-0001", match: [["first 3 metres"], ["first 10 pipes"]] }],
+        fact: ["first 3 metres", "first 10 pipes"],
         q: {
           prompt: "The line runs again after the changeover. What do you do with the first pipe?",
           correct: "Scrap the first 3 metres and measure wall thickness on each of the first 10 pipes",
@@ -185,7 +197,8 @@ const TRAININGS: TrainingDef[] = [
       {
         key: "r1",
         text: "Isolate line 2 at the main isolator with your own lock and tag",
-        sources: [{ doc: "EXT-HSE-SOP-0001", match: [["switch off the main isolator", "personal lock"], ["main isolator", "personal lock"], ["main isolator", "lock"]] }],
+        sources: [{ doc: "EXT-HSE-SOP-0001", match: [["switch off the main isolator", "personal lock"], ["main isolator", "personal lock"]] }],
+        fact: ["main isolator", "personal lock"],
         q: {
           prompt: "You need to work inside the guarding of line 2. How do you isolate the line?",
           correct: "Switch off the main isolator of line 2 and attach your personal lock and tag",
@@ -201,9 +214,10 @@ const TRAININGS: TrainingDef[] = [
         key: "r2",
         text: "Wear the right protection when working at the hot die",
         sources: [
-          { doc: "EXT-HSE-LMRA-0001", match: [["EN 407"], ["heat-resistant gloves"]] },
-          { doc: "EXT-OPS-SOP-0001", match: [["heat-resistant gloves"]] },
+          { doc: "EXT-HSE-LMRA-0001", match: [["wear heat-resistant gloves", "EN 407"], ["heat-resistant gloves"]] },
+          { doc: "EXT-OPS-SOP-0001", match: [["wear heat-resistant gloves"]] },
         ],
+        fact: ["heat-resistant gloves"],
         q: {
           prompt: "You are at the die head of EXL-201. What protects your hands?",
           correct: "Heat-resistant gloves",
@@ -214,7 +228,8 @@ const TRAININGS: TrainingDef[] = [
       {
         key: "r3",
         text: "Check the vacuum in the calibration tank",
-        sources: [{ doc: "EXT-OPS-WI-0002", match: [["-0.3 bar"], ["0.3 bar"]] }],
+        sources: [{ doc: "EXT-OPS-WI-0002", match: [["vacuum pump", "set the vacuum to -0.3 bar"], ["-0.3 bar"]] }],
+        fact: ["-0.3 bar"],
         q: {
           prompt: "What vacuum should the calibration tank VAC-203 run at?",
           correct: "-0.3 bar",
@@ -226,6 +241,7 @@ const TRAININGS: TrainingDef[] = [
         key: "r4",
         text: "Never reach into the haul-off or saw area of a line that is only stopped",
         sources: [{ doc: "EXT-HSE-SOP-0001", match: [["never reach", "haul-off"]] }],
+        fact: ["never reach", "stopped"],
         q: {
           prompt: "The line is stopped from the panel but not locked out. A pipe is stuck in the haul-off. What do you do?",
           correct: "Never reach in: a stopped line can restart, so lock it out first",
@@ -240,7 +256,9 @@ const TRAININGS: TrainingDef[] = [
       {
         key: "r5",
         text: "Release stored energy before working on the haul-off",
-        sources: [{ doc: "EXT-HSE-SOP-0001", match: [["dump valve"], ["stored energy"]] }],
+        sources: [{ doc: "EXT-HSE-SOP-0001", match: [["release stored energy", "open the pneumatic dump valve"], ["stored energy", "open", "dump valve"]] }],
+        // Not "Close the pneumatic dump valve": that is the restore step after the work.
+        fact: ["stored energy", "open", "dump valve"],
         q: {
           prompt: "After isolating line 2, how do you release the stored energy?",
           correct: "Open the pneumatic dump valve on the haul-off",
@@ -256,6 +274,7 @@ const TRAININGS: TrainingDef[] = [
         key: "r6",
         text: "Remove only your own lock after the work",
         sources: [{ doc: "EXT-HSE-SOP-0001", match: [["only the person who placed"], ["own lock"]] }],
+        fact: ["only the person who placed"],
         q: {
           prompt: "The work on line 2 is finished. Whose locks may you remove?",
           correct: "Only your own lock: only the person who placed a lock may remove it",
@@ -276,9 +295,13 @@ const TRAININGS: TrainingDef[] = [
     ],
     versions: [{ keys: ["r1", "r2", "r3", "r4", "r5", "r6"], publishedDaysAgo: 500, author: MARK, reviewer: SANNE, approver: INGRID }],
     attempts: [
-      { person: "Ahmed Yilmaz", daysAgo: 410 },
+      // Ahmed passed before his lockout/tagout sign-off (426 days ago), which
+      // has since expired. Fatima passed before her sign-off (347 days ago),
+      // which expires soon. Lotte, three weeks in, passed it 9 days ago.
+      { person: "Ahmed Yilmaz", daysAgo: 430 },
+      { person: "Fatima El Amrani", daysAgo: 360 },
       { person: "Jan de Vries", daysAgo: 200 },
-      { person: "Fatima El Amrani", daysAgo: 90 },
+      { person: "Lotte Smit", daysAgo: 9 },
     ],
   },
   {
@@ -292,7 +315,8 @@ const TRAININGS: TrainingDef[] = [
       {
         key: "m1",
         text: "Dose the masterbatch in the right ratio",
-        sources: [{ doc: "MIX-OPS-WI-0001", match: [["2 kg", "100 kg"]] }],
+        sources: [{ doc: "MIX-OPS-WI-0001", match: [["weigh the masterbatch", "2 kg per 100 kg"], ["2 kg per 100 kg"]] }],
+        fact: ["2 kg per 100 kg"],
         q: {
           prompt: "How much colour masterbatch goes into a batch, unless the batch card says otherwise?",
           correct: "2 kg per 100 kg of PE granulate",
@@ -303,7 +327,8 @@ const TRAININGS: TrainingDef[] = [
       {
         key: "m2",
         text: "Load the mixer in the right order and close the lid",
-        sources: [{ doc: "MIX-OPS-WI-0001", match: [["granulate first"], ["lid"]] }],
+        sources: [{ doc: "MIX-OPS-WI-0001", match: [["granulate first", "close the lid"], ["granulate first"]] }],
+        fact: ["granulate first", "masterbatch", "lid"],
         q: {
           prompt: "In which order do you load MXR-101?",
           correct: "Granulate first, then masterbatch, and close the lid before starting",
@@ -318,7 +343,8 @@ const TRAININGS: TrainingDef[] = [
       {
         key: "m3",
         text: "Mix for the right time before releasing the batch",
-        sources: [{ doc: "MIX-OPS-WI-0001", match: [["4 minutes"]] }],
+        sources: [{ doc: "MIX-OPS-WI-0001", match: [["mix for 4 minutes"], ["4 minutes"]] }],
+        fact: ["mix for 4 minutes"],
         q: {
           prompt: "How long do you mix a batch before releasing it to the line 2 hopper?",
           correct: "4 minutes",
@@ -329,7 +355,8 @@ const TRAININGS: TrainingDef[] = [
       {
         key: "m4",
         text: "Protect yourself from dust when handling masterbatch",
-        sources: [{ doc: "MIX-HSE-LMRA-0001", match: [["FFP2"], ["dust mask"]] }],
+        sources: [{ doc: "MIX-HSE-LMRA-0001", match: [["wear an FFP2 dust mask", "emptying bags"], ["FFP2", "emptying bags"]] }],
+        fact: ["FFP2", "emptying bags"],
         q: {
           prompt: "You empty bags of masterbatch into the mixer. What do you wear?",
           correct: "A dust mask (FFP2)",
@@ -340,7 +367,8 @@ const TRAININGS: TrainingDef[] = [
       {
         key: "m5",
         text: "Dry the PE granulate at the right temperature for long enough",
-        sources: [{ doc: "MIX-OPS-SOP-0002", match: [["80 °C", "4 hours"], ["80", "hours"]] }],
+        sources: [{ doc: "MIX-OPS-SOP-0002", match: [["dried at 80 °C for at least 4 hours"], ["80 °C", "at least 4 hours"]] }],
+        fact: ["80 °C", "at least 4 hours"],
         q: {
           prompt: "How is PE granulate dried on DRY-102 before mixing?",
           correct: "At 80 °C for at least 4 hours",
@@ -370,9 +398,11 @@ const TRAININGS: TrainingDef[] = [
         key: "w1",
         text: "Calibrate the gauge on the step block",
         sources: [
-          { doc: "QCL-QA-MAN-0001", match: [["two-point calibration", "step block"], ["step block"]] },
-          { doc: "QCL-QA-SOP-0001", match: [["step block"]] },
+          // The calibration section of the Sonatek manual, not a table row or the error list.
+          { doc: "QCL-QA-MAN-0001", match: [["calibrate the UT-200 with a two-point calibration", "step block"], ["two-point calibration on the step block"]] },
+          { doc: "QCL-QA-SOP-0001", match: [["two-point calibration", "step block"]] },
         ],
+        fact: ["two-point calibration", "step block"],
         q: {
           prompt: "How is the UT-200 gauge calibrated?",
           correct: "A two-point calibration on the step block",
@@ -388,6 +418,7 @@ const TRAININGS: TrainingDef[] = [
         key: "w2",
         text: "Measure at enough points around the pipe",
         sources: [{ doc: "QCL-QA-SOP-0001", match: [["8 points"], ["eight points"]] }],
+        fact: ["8 points", "circumference"],
         q: {
           prompt: "At how many points do you measure the wall thickness at each pipe end?",
           correct: "8 points evenly around the circumference",
@@ -398,7 +429,8 @@ const TRAININGS: TrainingDef[] = [
       {
         key: "w3",
         text: "Measure at the required frequency",
-        sources: [{ doc: "QCL-QA-SOP-0001", match: [["every 2 hours"], ["2 hours"]] }],
+        sources: [{ doc: "QCL-QA-SOP-0001", match: [["every 2 hours"]] }],
+        fact: ["every 2 hours"],
         q: {
           prompt: "After the first pipes following start-up, how often do you measure?",
           correct: "Every 2 hours per line",
@@ -410,6 +442,7 @@ const TRAININGS: TrainingDef[] = [
         key: "w4",
         text: "Know the wall thickness tolerance for 110 mm SDR 11",
         sources: [{ doc: "QCL-QA-SOP-0001", match: [["110", "SDR 11", "11.1"], ["110", "11.1"]] }],
+        fact: ["110", "10.0", "11.1"],
         q: {
           prompt: "What wall thickness is allowed for 110 mm SDR 11 pipe?",
           correct: "10.0 to 11.1 mm",
@@ -420,7 +453,8 @@ const TRAININGS: TrainingDef[] = [
       {
         key: "w5",
         text: "Quarantine pipe that is out of tolerance",
-        sources: [{ doc: "QCL-QA-WI-0001", match: [["only the quality manager releases"], ["only the quality manager"], ["quality manager", "QUARANTINE"]] }],
+        sources: [{ doc: "QCL-QA-WI-0001", match: [["only the quality manager releases"], ["only the quality manager"]] }],
+        fact: ["only the quality manager", "releases"],
         q: {
           prompt: "Who may release or scrap pipe that is in quarantine?",
           correct: "Only the quality manager",
@@ -444,9 +478,10 @@ const TRAININGS: TrainingDef[] = [
         key: "s1",
         text: "Know when the screen pack must be changed",
         sources: [
-          { doc: "EXT-MNT-SOP-0001", match: [["500 operating hours"], ["500"]] },
-          { doc: "EXT-MNT-MAN-0001", match: [["500 operating hours"]] },
+          { doc: "EXT-MNT-SOP-0001", match: [["at least every 500 operating hours"]] },
+          { doc: "EXT-MNT-MAN-0001", match: [["at least every 500 operating hours"], ["500 operating hours"]] },
         ],
+        fact: ["500 operating hours"],
         q: {
           prompt: "Besides every product change, when must the screen pack be changed at the latest?",
           correct: "At least every 500 operating hours",
@@ -458,9 +493,10 @@ const TRAININGS: TrainingDef[] = [
         key: "s2",
         text: "Recognise a clogged screen pack from the melt pressure",
         sources: [
-          { doc: "EXT-MNT-SOP-0001", match: [["30 bar"]] },
-          { doc: "EXT-MNT-MAN-0001", match: [["30 bar"]] },
+          { doc: "EXT-MNT-SOP-0001", match: [["change the screen pack", "more than 30 bar above the baseline"]] },
+          { doc: "EXT-MNT-MAN-0001", match: [["change the screen pack", "more than 30 bar above the baseline"]] },
         ],
+        fact: ["more than 30 bar above the baseline"],
         q: {
           prompt: "Which melt pressure sign tells you the screen pack needs changing?",
           correct: "Melt pressure more than 30 bar above the baseline for that product",
@@ -476,9 +512,10 @@ const TRAININGS: TrainingDef[] = [
         key: "s3",
         text: "Fit the screens in the right order on the breaker plate",
         sources: [
-          { doc: "EXT-MNT-SOP-0001", match: [["40/80/40"], ["breaker plate", "screens"]] },
+          { doc: "EXT-MNT-SOP-0001", match: [["three new screens", "40 mesh, 80 mesh, 40 mesh"], ["40/80/40"]] },
           { doc: "EXT-MNT-MAN-0001", match: [["40/80/40"]] },
         ],
+        fact: ["40", "80", "mesh"],
         q: {
           prompt: "Which screens make up the screen pack on the breaker plate?",
           correct: "Three screens: 40/80/40 mesh",
@@ -490,8 +527,9 @@ const TRAININGS: TrainingDef[] = [
         key: "s4",
         text: "Protect yourself from the hot breaker plate and die",
         sources: [
-          { doc: "EXT-MNT-SOP-0001", match: [["EN 407"], ["heat-resistant gloves"], ["150"]] },
+          { doc: "EXT-MNT-SOP-0001", match: [["wear heat-resistant gloves", "EN 407"], ["heat-resistant gloves"]] },
         ],
+        fact: ["heat-resistant gloves"],
         q: {
           prompt: "What do you wear when you handle the hot breaker plate?",
           correct: "Heat-resistant gloves",
@@ -516,19 +554,29 @@ const squash = (s: string) => normalise(s).replace(/\s+/g, " ").trim()
  * The live passage that holds every keyword of the first set that matches,
  * and its best sentence. The shortest such passage wins: a single step says
  * it more precisely than an overview, a contents page or a figure caption.
+ * A passage only counts when its quote states the objective's fact: the
+ * shortest hit can be a different step about the same thing ("Close the
+ * dump valve" instead of "open" it), and that must never become the source.
  */
-function findPassage(live: LiveDoc, match: string[][]) {
+function findPassage(live: LiveDoc, match: string[][], fact: string[]) {
+  const facts = fact.map(squash)
+  const states = (s: string) => facts.every((k) => squash(s).includes(k))
   for (const set of match) {
     const keys = set.map(squash)
+    const has = (s: string) => keys.every((k) => squash(s).includes(k))
     const hits = live.passages
       .filter((p) => p.text.trim() !== (p.section ?? "").trim())
-      .filter((p) => !/^(contents|figure:)/i.test(p.text.trim()))
-      .filter((p) => keys.every((k) => squash(p.text).includes(k)))
+      .filter((p) => !/^(contents|figure:|fig\.\s*\d)/i.test(p.text.trim()))
+      .filter((p) => has(p.text))
       .sort((a, b) => a.text.length - b.text.length)
-    for (const p of hits.slice(0, 1)) {
+    for (const p of hits) {
       const sentences = p.text.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean)
-      const sentence = sentences.find((s) => keys.every((k) => squash(s).includes(k)))
-      return { passage: p, quote: sentence && sentence.length >= 20 ? sentence : p.text }
+      const sentence =
+        sentences.find((s) => has(s) && states(s) && s.length >= 20) ??
+        sentences.find((s) => has(s) && s.length >= 20)
+      const quote = sentence ?? p.text
+      if (states(quote)) return { passage: p, quote }
+      if (states(p.text)) return { passage: p, quote: p.text }
     }
   }
   return null
@@ -541,6 +589,37 @@ async function findPerson(ctx: MutationCtx, people: Doc<"people">[], name: strin
   void ctx
   return null
 }
+
+/**
+ * Dry run of the objective matching against today's Published versions:
+ * which passage and quote each objective would cite, or why none. Read only.
+ * npx convex run seed/trainings:checkObjectives
+ */
+export const checkObjectives = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const out: { objective: string; doc: string | null; quote: string | null; ok: boolean }[] = []
+    for (const def of TRAININGS) {
+      for (const o of def.objectives) {
+        let hit: { doc: string; quote: string } | null = null
+        for (const src of o.sources) {
+          const doc = await ctx.db
+            .query("documents")
+            .withIndex("by_namingCode", (q) => q.eq("namingCode", src.doc))
+            .first()
+          const live = doc ? await loadLiveDoc(ctx, doc._id) : null
+          const found = live ? findPassage(live, src.match, o.fact) : null
+          if (found) {
+            hit = { doc: `${src.doc} v${live!.version}`, quote: found.quote }
+            break
+          }
+        }
+        out.push({ objective: `${def.code} ${o.key}`, doc: hit?.doc ?? null, quote: hit?.quote ?? null, ok: !!hit })
+      }
+    }
+    return out
+  },
+})
 
 // ---- Run ------------------------------------------------------------------------
 
@@ -602,7 +681,7 @@ export const run = internalMutation({
         for (const src of o.sources) {
           const live = await liveByCode(src.doc)
           if (!live) continue
-          const hit = findPassage(live, src.match)
+          const hit = findPassage(live, src.match, o.fact)
           if (!hit) continue
           resolved.set(o.key, {
             def: o,
@@ -619,7 +698,11 @@ export const run = internalMutation({
           })
           break
         }
-        if (!resolved.has(o.key)) counts.skipped.push(`${def.code} ${o.key}`)
+        if (!resolved.has(o.key)) {
+          const why = `${def.code} ${o.key}: no passage states "${o.fact.join(" + ")}"`
+          counts.skipped.push(why)
+          console.warn(`seed trainings: ${why}`)
+        }
       }
 
       // Rounds: stops whose Asset exists; objectives only where they have a stop.
@@ -654,6 +737,25 @@ export const run = internalMutation({
       const liveVersion = liveDef ? versionsDef.indexOf(liveDef) + 1 : null
       const currentVersion = versionsDef.length
       const status = last.publishedDaysAgo != null ? "published" : (last.status ?? "draft")
+      // A source Document published with a Significant change after this
+      // Training went live sends it back to review, as publishing would.
+      let needsReviewReason: string | null = null
+      if (liveDef) {
+        const liveAt = now - liveDef.publishedDaysAgo! * DAY
+        for (const k of liveDef.keys) {
+          const o = resolved.get(k)!.stored
+          const dv = await ctx.db
+            .query("documentVersions")
+            .withIndex("by_documentId_and_version", (q) =>
+              q.eq("documentId", o.documentId).eq("version", o.documentVersion),
+            )
+            .unique()
+          if (dv?.significantChange && dv.publishedAt > liveAt) {
+            needsReviewReason = `${o.namingCode} v${o.documentVersion} was published with a Significant change`
+            break
+          }
+        }
+      }
       const trainingId = await ctx.db.insert("trainings", {
         code: def.code,
         title: def.title,
@@ -661,8 +763,8 @@ export const run = internalMutation({
         status,
         currentVersion,
         liveVersion,
-        needsReview: false,
-        needsReviewReason: null,
+        needsReview: needsReviewReason != null,
+        needsReviewReason,
         area: def.area,
         createdBy: userId,
         updatedAt: now - (last.publishedDaysAgo ?? 3) * DAY,

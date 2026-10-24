@@ -19,6 +19,10 @@ async function validPerson(
   }
 }
 
+// Reopening the same Document (or Scanning the same Asset) within this window
+// counts once.
+const DEDUPE_MS = 30 * 60_000
+
 /** A Document was opened, or an Asset was Scanned. Called by the readers. */
 export const record = mutation({
   args: {
@@ -30,28 +34,43 @@ export const record = mutation({
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
-    // One view per person (or anonymous) per document per minute is enough.
     const now = Date.now()
-    if (args.documentId) {
-      const recent = await ctx.db
-        .query("usageEvents")
-        .withIndex("by_documentId", (q) => q.eq("documentId", args.documentId!))
-        .order("desc")
-        .first()
-      if (
-        recent &&
-        recent.kind === args.kind &&
-        recent.personId === (args.personId ?? null) &&
-        now - recent.at < 60_000
-      )
-        return
+    const personId = await validPerson(ctx, args.personId)
+    if (args.kind === "view" && args.documentId) {
+      // Only Published Knowledge is read on the floor: opening a draft (an
+      // Engineer working on it) is not a view.
+      const doc = await ctx.db.get(args.documentId)
+      if (!doc || doc.liveVersion == null) return
     }
+    // Reopening the same item within a short window is one view or Scan, per
+    // person (or per surface when Anonymous).
+    const recent = args.documentId
+      ? await ctx.db
+          .query("usageEvents")
+          .withIndex("by_documentId", (q) => q.eq("documentId", args.documentId!))
+          .order("desc")
+          .take(50)
+      : args.assetId
+        ? await ctx.db
+            .query("usageEvents")
+            .withIndex("by_assetId", (q) => q.eq("assetId", args.assetId!))
+            .order("desc")
+            .take(50)
+        : []
+    const duplicate = recent.some(
+      (r) =>
+        now - r.at < DEDUPE_MS &&
+        r.kind === args.kind &&
+        r.personId === personId &&
+        (personId != null || r.surface === args.surface),
+    )
+    if (duplicate) return
     await ctx.db.insert("usageEvents", {
       at: now,
       kind: args.kind,
       documentId: args.documentId ?? null,
       assetId: args.assetId ?? null,
-      personId: await validPerson(ctx, args.personId),
+      personId,
       surface: args.surface,
     })
   },

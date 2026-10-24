@@ -5,9 +5,9 @@
 //   • doc:{id}           -> scope to one document
 //   • asset:{id}         -> scope to one asset
 //
-// When no scope is set we render an opinionated picker that defaults to
-// Library (the most useful starting point on mobile when the operator
-// didn't come from a QR scan / asset card).
+// With no scope the page opens straight into the library, with the question
+// box focused; the scope chip changes it. ?pick=1 shows the full picker, and
+// ?q= asks a question right away (from a search with no title match).
 
 import { useMemo, useState } from "react"
 import { useLocation, useSearch } from "wouter"
@@ -43,7 +43,13 @@ function scopeToQuery(scope: AskPanelScope): string {
 export function MobileAskPage() {
   const search = useSearch()
   const [, navigate] = useLocation()
-  const scope = useMemo(() => parseScope(search), [search])
+  const params = useMemo(() => new URLSearchParams(search), [search])
+  const picking = params.get("pick") === "1"
+  const scope = useMemo<AskPanelScope | null>(
+    () => (picking ? null : (parseScope(search) ?? { kind: "library" })),
+    [search, picking],
+  )
+  const initialQuestion = params.get("q")
 
   const docForScope = useQuery(
     api.documents.get,
@@ -60,7 +66,7 @@ export function MobileAskPage() {
   const scopeLabel = useMemo(() => {
     if (!scope) return null
     if (scope.kind === "library") {
-      return { kind: "Library", text: "Across every document", id: "library" }
+      return { kind: "Library", text: "every Published document", id: "library" }
     }
     if (scope.kind === "doc") {
       return docForScope
@@ -93,7 +99,7 @@ export function MobileAskPage() {
             ? `${scopeLabel.kind}: ${scopeLabel.text}`
             : scope
               ? "Scope not found"
-              : "Pick a scope"
+              : "Pick what to ask about"
         }
         right={
           scope ? (
@@ -101,7 +107,7 @@ export function MobileAskPage() {
               variant="ghost"
               size="sm"
               className="text-xs"
-              onClick={() => navigate("/m/ask")}
+              onClick={() => navigate("/m/ask?pick=1")}
             >
               Change
             </Button>
@@ -116,6 +122,11 @@ export function MobileAskPage() {
             scope={scope}
             onScopeChange={(next) =>
               navigate(`/m/ask?scope=${scopeToQuery(next)}`, { replace: true })
+            }
+            autoFocus={!initialQuestion}
+            initialQuestion={initialQuestion}
+            onInitialQuestionSent={() =>
+              navigate(`/m/ask?scope=${scopeToQuery(scope)}`, { replace: true })
             }
             className="h-full"
           />
@@ -185,16 +196,15 @@ function ScopePicker({
           <Globe className="h-5 w-5" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">Ask across everything</div>
+          <div className="text-sm font-semibold">Ask about anything in the library</div>
           <div className="text-xs text-muted-foreground">
-            Best for catalog or "where do I find…" questions.
+            Every Published document, for any question.
           </div>
         </div>
       </button>
 
       <div className="rounded-2xl border bg-muted/30 p-3 text-xs text-muted-foreground">
-        Or scope to one specific source — pick the asset or document you want
-        to ask about.
+        Or ask about one Asset or document: pick it below.
       </div>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>

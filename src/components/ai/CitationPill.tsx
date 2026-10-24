@@ -38,15 +38,15 @@ export function CitationPill({
           type="button"
           onClick={() => onOpen(citation, page)}
           className={cn(
-            "group inline-flex max-w-full items-center gap-1.5 rounded-full border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-primary/5",
+            "group inline-flex max-w-full items-center gap-1.5 rounded-2xl border text-left bg-background px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-primary/5",
             className,
           )}
         >
           <span className="inline-flex h-[16px] min-w-[18px] items-center justify-center rounded-sm bg-primary/15 px-1 text-[10px] font-semibold text-primary">
             {index}
           </span>
-          <FileText className="h-3 w-3 text-muted-foreground" />
-          <span className="truncate">{citation.document_title}</span>
+          <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <span className="line-clamp-2 min-w-0 break-words">{citation.document_title}</span>
           {citation.page_or_section && (
             <span className="shrink-0 text-muted-foreground">
               · {citation.page_or_section}

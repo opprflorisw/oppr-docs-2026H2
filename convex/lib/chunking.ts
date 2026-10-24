@@ -66,18 +66,26 @@ export function pdfPageChunks(pages: string[], max = 800): ChunkInput[] {
       .map((t) => t.replace(/\s+/g, " ").trim())
       .filter(Boolean)
     let buf = ""
+    const flush = () => {
+      if (buf) out.push({ text: buf, section })
+      buf = ""
+    }
     for (const para of paras) {
-      // Short paragraphs (table rows, list items) are merged; a paragraph of
-      // some length stands alone, so a warning is never diluted by its neighbours.
-      if (buf && (buf.length >= 240 || buf.length + para.length + 1 > max)) {
-        out.push({ text: buf, section })
-        buf = ""
-      }
       if (para.length > max) {
+        flush()
         for (let k = 0; k < para.length; k += max) out.push({ text: para.slice(k, k + max), section })
-      } else {
-        buf = buf ? `${buf} ${para}` : para
+        continue
       }
+      // A real paragraph (a warning, an instruction) stands alone, so it is
+      // never diluted by its neighbours. Short ones (table rows, list items)
+      // are merged up to a modest size.
+      if (para.length >= 160) {
+        flush()
+        out.push({ text: para, section })
+        continue
+      }
+      if (buf && (buf.length >= 240 || buf.length + para.length + 1 > max)) flush()
+      buf = buf ? `${buf} ${para}` : para
     }
     if (buf) out.push({ text: buf, section })
   })

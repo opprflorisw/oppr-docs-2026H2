@@ -248,11 +248,23 @@ export function FloorSimulatorPage() {
             <div className="flex items-start gap-2.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm">
               <MousePointerClick className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
               <div className="min-w-0 flex-1">
-                <p className="font-medium">Click a machine to walk there and scan its QR code.</p>
-                <p className="text-xs text-muted-foreground">
-                  The phone shows what an Operator sees: Published documents only, and Ask. Anonymous unless you check
-                  in. Switch to Round to walk a Round like a treasure hunt.
-                </p>
+                {mode === "round" ? (
+                  <>
+                    <p className="font-medium">Walk the Round: click the machine of the next stop to scan its QR code.</p>
+                    <p className="text-xs text-muted-foreground">
+                      The phone shows the stop's questions after the right Scan. At the wrong machine it tells you where
+                      to go instead. A Round is proof, so it needs you checked in. Switch to Free walk to look around.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-medium">Click a machine to walk there and scan its QR code.</p>
+                    <p className="text-xs text-muted-foreground">
+                      The phone shows what an Operator sees: Published documents only, and Ask. Anonymous unless you
+                      check in. Switch to Round to walk a Round like a treasure hunt.
+                    </p>
+                  </>
+                )}
               </div>
               <button
                 type="button"
@@ -395,11 +407,11 @@ function AssetStrip({
 
 const FLOOR_KEYFRAMES = `
 @keyframes floor-shake {
-  0%, 100% { transform: translate(-50%, -100%); }
-  20% { transform: translate(calc(-50% - 4px), -100%); }
-  40% { transform: translate(calc(-50% + 4px), -100%); }
-  60% { transform: translate(calc(-50% - 3px), -100%); }
-  80% { transform: translate(calc(-50% + 3px), -100%); }
+  0%, 100% { margin-left: 0; }
+  20% { margin-left: -4px; }
+  40% { margin-left: 4px; }
+  60% { margin-left: -3px; }
+  80% { margin-left: 3px; }
 }
 @keyframes floor-scan {
   0% { top: 4%; }

@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useQuery } from "convex/react"
 import type { FunctionReturnType } from "convex/server"
 import { Link } from "wouter"
-import { AlertTriangle, CalendarClock, Grid3x3, Moon, RotateCcw, Settings2, Sun, Users } from "lucide-react"
+import { AlertTriangle, CalendarClock, Grid3x3, Moon, RotateCcw, Settings2, Sunrise, Sunset, Users } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { Card, CardContent } from "@/components/ui/card"
@@ -154,45 +154,45 @@ export function SkillMatrixTab() {
           </CardContent>
         </Card>
       ) : (
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full border-separate border-spacing-0 text-xs">
-              <thead>
-                <tr>
-                  <th className="sticky left-0 z-10 min-w-[230px] border-b bg-card px-4 py-2 text-left align-bottom text-[11px] font-medium text-muted-foreground">
-                    Person
+        <MatrixScroller>
+          <table className="w-full border-separate border-spacing-0 text-xs">
+            <thead>
+              <tr>
+                <th className="sticky left-0 z-20 w-[250px] min-w-[250px] border-b border-r bg-card px-4 py-2 text-left align-bottom text-[11px] font-medium text-muted-foreground">
+                  <div className="flex items-end justify-between gap-2">
+                    <span>Person</span>
+                    <span>At target</span>
+                  </div>
+                </th>
+                {data.skills.map((s) => (
+                  <th
+                    key={s._id}
+                    className="w-[84px] min-w-[84px] max-w-[84px] border-b border-l px-1 py-2 text-center align-bottom font-medium"
+                    title={s.name}
+                  >
+                    <div className="line-clamp-4 break-words text-[10.5px] leading-tight">{s.name}</div>
+                    <div className="mt-0.5 text-[10px] font-normal text-muted-foreground">
+                      {s.area ?? ""}
+                      {s.validityMonths ? ` · ${s.validityMonths} mo` : ""}
+                    </div>
                   </th>
-                  {data.skills.map((s) => (
-                    <th
-                      key={s._id}
-                      className="w-[92px] min-w-[92px] border-b border-l px-1.5 py-2 text-center align-bottom font-medium"
-                      title={s.name}
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.people.map((p) => {
+                const qualified = qualifiedIds.has(p._id)
+                const dim = tonight && coverage !== undefined && !qualified
+                return (
+                  <tr key={p._id} className={cn("group transition-opacity", dim && "opacity-40")}>
+                    <td
+                      className={cn(
+                        "sticky left-0 z-10 w-[250px] min-w-[250px] border-b border-r bg-card px-4 py-2",
+                        tonight && qualified && "bg-emerald-50 shadow-[inset_3px_0_0_#10b981] dark:bg-emerald-950",
+                      )}
                     >
-                      <div className="line-clamp-3 text-[11px] leading-tight">{s.name}</div>
-                      <div className="mt-0.5 text-[10px] font-normal text-muted-foreground">
-                        {s.area ?? ""}
-                        {s.validityMonths ? ` · ${s.validityMonths} mo` : ""}
-                      </div>
-                    </th>
-                  ))}
-                  <th className="min-w-[110px] border-b border-l px-3 py-2 text-left align-bottom text-[11px] font-medium text-muted-foreground">
-                    At target
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.people.map((p) => {
-                  const qualified = qualifiedIds.has(p._id)
-                  const dim = tonight && coverage !== undefined && !qualified
-                  return (
-                    <tr key={p._id} className={cn("group transition-opacity", dim && "opacity-40")}>
-                      <td
-                        className={cn(
-                          "sticky left-0 z-10 border-b bg-card px-4 py-2",
-                          tonight && qualified && "bg-emerald-50 shadow-[inset_3px_0_0_#10b981] dark:bg-emerald-950",
-                        )}
-                      >
-                        <Link href={`/learn/people/${p._id}`} className="group/name flex items-center gap-2.5">
+                      <div className="flex items-center gap-2">
+                        <Link href={`/learn/people/${p._id}`} className="group/name flex min-w-0 flex-1 items-center gap-2.5">
                           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold">
                             {initials(p.name)}
                           </span>
@@ -201,46 +201,45 @@ export function SkillMatrixTab() {
                               {p.name}
                             </span>
                             <span className="flex items-center gap-1 truncate text-[11px] text-muted-foreground">
-                              {p.shift === "Night shift" && <Moon className="h-3 w-3 shrink-0" />}
-                              {p.shift === "Day shift" && <Sun className="h-3 w-3 shrink-0" />}
-                              {p.role}
+                              <ShiftIcon shift={p.shift} className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{p.role}</span>
                             </span>
                           </span>
                         </Link>
-                        {p.profiles.length > 0 && (
-                          <div className="mt-1 flex flex-wrap gap-1 pl-[38px]">
-                            {p.profiles.map((pr) => (
-                              <span key={pr._id} className="rounded bg-primary/10 px-1.5 py-px text-[10px] text-primary">
-                                {pr.name}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </td>
-                      {data.skills.map((s) => {
-                        const c = p.cells[s._id]
-                        return (
-                          <td key={s._id} className="border-b border-l p-1 text-center">
-                            {c && (
-                              <MatrixCell
-                                cell={c}
-                                label={`${p.name}, ${s.name}`}
-                                onOpen={() => setOpen({ personId: p._id, skillId: s._id })}
-                              />
-                            )}
-                          </td>
-                        )
-                      })}
-                      <td className="border-b border-l px-3 py-2">
-                        <Progress done={p.summary.atTarget} total={p.summary.targets} />
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+                        <div className="w-14 shrink-0">
+                          <Progress done={p.summary.atTarget} total={p.summary.targets} />
+                        </div>
+                      </div>
+                      {p.profiles.length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1 pl-[38px]">
+                          {p.profiles.map((pr) => (
+                            <span key={pr._id} className="rounded bg-primary/10 px-1.5 py-px text-[10px] text-primary">
+                              {pr.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                    {data.skills.map((s) => {
+                      const c = p.cells[s._id]
+                      return (
+                        <td key={s._id} className="border-b border-l p-1 text-center">
+                          {c && (
+                            <MatrixCell
+                              cell={c}
+                              label={`${p.name}, ${s.name}`}
+                              onOpen={() => setOpen({ personId: p._id, skillId: s._id })}
+                            />
+                          )}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </MatrixScroller>
       )}
 
       <SkillLegend />
@@ -252,6 +251,73 @@ export function SkillMatrixTab() {
       />
     </div>
   )
+}
+
+/**
+ * The matrix scrolls sideways when there are many Skills. The person column
+ * stays put, and a fade on either edge shows there is more to see.
+ */
+function MatrixScroller({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [edges, setEdges] = useState({ left: false, right: false })
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const update = () =>
+      setEdges({
+        left: el.scrollLeft > 2,
+        right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2,
+      })
+    update()
+    el.addEventListener("scroll", update, { passive: true })
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    if (el.firstElementChild) ro.observe(el.firstElementChild)
+    return () => {
+      el.removeEventListener("scroll", update)
+      ro.disconnect()
+    }
+  }, [])
+  return (
+    <Card className="relative overflow-hidden">
+      <div ref={ref} className="overflow-x-auto">
+        {children}
+      </div>
+      {edges.left && (
+        <div className="pointer-events-none absolute inset-y-0 left-[250px] z-20 w-6 bg-gradient-to-r from-black/10 to-transparent dark:from-black/40" />
+      )}
+      {edges.right && (
+        <div className="pointer-events-none absolute inset-y-0 right-0 z-20 w-10 bg-gradient-to-l from-card to-transparent" />
+      )}
+    </Card>
+  )
+}
+
+type ShiftKey = "early" | "late" | "night"
+
+/** The shift as early, late or night, whatever form the backend sends it in. */
+function shiftKey(shift: string | null | undefined): ShiftKey | null {
+  if (!shift) return null
+  const s = shift.toLowerCase()
+  if (s.includes("night")) return "night"
+  if (s.includes("late")) return "late"
+  if (s.includes("early") || s.includes("day")) return "early"
+  return null
+}
+
+const SHIFT_LABEL: Record<ShiftKey, string> = {
+  early: "Early shift",
+  late: "Late shift",
+  night: "Night shift",
+}
+const SHIFT_ORDER: ShiftKey[] = ["early", "late", "night"]
+
+function ShiftIcon({ shift, className }: { shift: string | null | undefined; className?: string }) {
+  const k = shiftKey(shift)
+  if (k === "night") return <Moon className={className} aria-label="Night shift" />
+  if (k === "late") return <Sunset className={className} aria-label="Late shift" />
+  if (k === "early") return <Sunrise className={className} aria-label="Early shift" />
+  return null
 }
 
 type MatrixCellData = {
@@ -352,10 +418,20 @@ function TonightPanel({ coverage }: { coverage: Coverage }) {
       </Card>
     )
   }
-  const night = coverage.byShift.find((g) => g.shift === "Night shift")
+  const night = coverage.byShift.find((g) => shiftKey(g.shift) === "night")
   const headline = night
-    ? `${night.people.length} ${night.people.length === 1 ? "person" : "people"} on the night shift can run line 2`
+    ? `${night.people.length} ${night.people.length === 1 ? "person" : "people"} on the night shift can run line 2 tonight`
     : `${coverage.qualified.length} ${coverage.qualified.length === 1 ? "person" : "people"} can run line 2`
+  // Always show early, late and night, even when no one qualified works one.
+  const groups: { key: string; shift: string | null; label: string; people: (typeof coverage.byShift)[number]["people"] }[] =
+    SHIFT_ORDER.map((k) => ({
+      key: k,
+      shift: k,
+      label: SHIFT_LABEL[k],
+      people: coverage.byShift.filter((g) => shiftKey(g.shift) === k).flatMap((g) => g.people),
+    }))
+  const unset = coverage.byShift.filter((g) => shiftKey(g.shift) === null).flatMap((g) => g.people)
+  if (unset.length > 0) groups.push({ key: "none", shift: null, label: "No shift set", people: unset })
   return (
     <Card className="border-primary/30">
       <CardContent className="space-y-3 p-4">
@@ -376,24 +452,19 @@ function TonightPanel({ coverage }: { coverage: Coverage }) {
                 key={r.skillId}
                 className="rounded border bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground"
               >
-                {r.skillName} · {r.level}
+                {r.skillName} · level {r.level}
               </span>
             ))}
           </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {coverage.byShift.map((g) => (
-            <div key={g.shift ?? "none"} className="rounded-lg border p-3">
+          {groups.map((g) => (
+            <div key={g.key} className={cn("rounded-lg border p-3", shiftKey(g.shift) === "night" && "border-primary/40")}>
               <div className="mb-2 flex items-center justify-between text-xs font-medium">
                 <span className="flex items-center gap-1.5">
-                  {g.shift === "Night shift" ? (
-                    <Moon className="h-3.5 w-3.5" />
-                  ) : g.shift === "Day shift" ? (
-                    <Sun className="h-3.5 w-3.5" />
-                  ) : (
-                    <Users className="h-3.5 w-3.5" />
-                  )}
-                  {g.shift ?? "No shift set"}
+                  {g.shift ? <ShiftIcon shift={g.shift} className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
+                  {g.label}
+                  {shiftKey(g.shift) === "night" && <span className="font-normal text-muted-foreground">· tonight</span>}
                 </span>
                 <span
                   className={cn(
@@ -438,7 +509,9 @@ function TonightPanel({ coverage }: { coverage: Coverage }) {
                   <Link href={`/learn/people/${p._id}`} className="font-medium hover:underline">
                     {p.name}
                   </Link>
-                  {p.shift && <span className="text-muted-foreground"> ({p.shift.toLowerCase()})</span>}
+                  {shiftKey(p.shift) && (
+                    <span className="text-muted-foreground"> ({SHIFT_LABEL[shiftKey(p.shift)!].toLowerCase()})</span>
+                  )}
                   <span className="text-muted-foreground">
                     : {p.missing.map((m) => `${m.skillName} ${m.reason}`).join(", ")}
                   </span>

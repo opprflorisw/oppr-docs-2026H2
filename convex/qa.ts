@@ -9,6 +9,18 @@ const scopeKindArg = v.union(
   v.literal("library"),
 )
 
+// Ask history belongs to the person, not the login account (CONTEXT.md:
+// Checked in makes Ask personal). A shared floor login holds one thread per
+// checked-in person and one Anonymous thread, which the client replaces with
+// a fresh one after a check-out. `who` is "person:<peopleId>" or
+// "anon:<thread key>"; it is folded into the stored scopeId so the existing
+// index keeps working.
+const whoArg = v.optional(v.string())
+function sessionScopeId(scopeId: string, who: string | undefined): string {
+  const w = who && /^(person|anon):[A-Za-z0-9_-]{1,64}$/.test(who) ? who : "anon:default"
+  return `${scopeId}#${w}`
+}
+
 const citationValidator = v.object({
   documentId: v.id("documents"),
   documentTitle: v.string(),
@@ -26,6 +38,7 @@ export const listSessions = query({
   args: {
     scopeKind: scopeKindArg,
     scopeId: v.string(),
+    who: whoArg,
   },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
@@ -35,7 +48,7 @@ export const listSessions = query({
         q
           .eq("userId", userId)
           .eq("scopeKind", args.scopeKind)
-          .eq("scopeId", args.scopeId),
+          .eq("scopeId", sessionScopeId(args.scopeId, args.who)),
       )
       .take(50)
     sessions.sort((a, b) => b._creationTime - a._creationTime)
@@ -72,13 +85,14 @@ export const createSession = mutation({
   args: {
     scopeKind: scopeKindArg,
     scopeId: v.string(),
+    who: whoArg,
   },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
     return await ctx.db.insert("qaSessions", {
       userId,
       scopeKind: args.scopeKind,
-      scopeId: args.scopeId,
+      scopeId: sessionScopeId(args.scopeId, args.who),
     })
   },
 })
@@ -154,6 +168,7 @@ export const ensureSession = mutation({
   args: {
     scopeKind: scopeKindArg,
     scopeId: v.string(),
+    who: whoArg,
   },
   handler: async (ctx, args): Promise<Id<"qaSessions">> => {
     const userId = await requireUserId(ctx)
@@ -163,14 +178,14 @@ export const ensureSession = mutation({
         q
           .eq("userId", userId)
           .eq("scopeKind", args.scopeKind)
-          .eq("scopeId", args.scopeId),
+          .eq("scopeId", sessionScopeId(args.scopeId, args.who)),
       )
       .first()
     if (existing) return existing._id
     return await ctx.db.insert("qaSessions", {
       userId,
       scopeKind: args.scopeKind,
-      scopeId: args.scopeId,
+      scopeId: sessionScopeId(args.scopeId, args.who),
     })
   },
 })

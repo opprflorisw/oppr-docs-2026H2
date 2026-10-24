@@ -1,11 +1,66 @@
 // The plant Pijpwerk Noord as seed data (docs/build/full-showcase-plan.md,
 // content catalogue; docs/build/plant-facts.md). Pure data, no Convex
 // imports: seedKnowledge.ts writes it, media.ts generates its images.
-import type { ImageSpec, SupplierManual } from "./builders"
-import { SEED_DOCS } from "./docs/index"
+import { p, type ImageSpec, type Node, type SeedDoc, type SupplierManual } from "./builders"
+import { SEED_DOCS as NATIVE_DOCS } from "./docs/index"
 import { SEED_MANUALS } from "./manuals/index"
 
-export { SEED_DOCS, SEED_MANUALS }
+export { SEED_MANUALS }
+
+// One Significant change that is already Published, so "re-train needed"
+// shows from the start (the in-review v2 of EXT-MNT-SOP-0001 stays for the
+// live demo). MIX-OPS-SOP-0002 v2 adds the sample cup check to the
+// procedure before release. Its Skill (Granulate drying) has no Training,
+// so an Engineer confirms the re-training of its holders (Pieter, Emma).
+const SAMPLE_STEP_BEFORE = "Sign the hopper card of DRY-102 as released"
+const SAMPLE_STEP =
+  "Fill the sample cup at the slide gate of DRY-102 and check that the granulate is free flowing, with no lumps, no dust and no yellowing. Do not release granulate that fails this check."
+
+function textOf(n: Node): string {
+  return (n.text ?? "") + (n.content ?? []).map(textOf).join("")
+}
+
+function withSampleCheck(body: Node): Node | null {
+  const copy: Node = JSON.parse(JSON.stringify(body))
+  let added = false
+  const visit = (n: Node) => {
+    if (added) return
+    if (n.type === "stepList" && n.content) {
+      const at = n.content.findIndex((item) => textOf(item).startsWith(SAMPLE_STEP_BEFORE))
+      if (at >= 0) {
+        n.content.splice(at, 0, { type: "stepItem", content: [p(SAMPLE_STEP)] })
+        added = true
+        return
+      }
+    }
+    for (const c of n.content ?? []) visit(c)
+  }
+  visit(copy)
+  return added ? copy : null
+}
+
+function withPublishedRevision(d: SeedDoc): SeedDoc {
+  // Only while the document has a single Published edition of its own.
+  if (d.code !== "MIX-OPS-SOP-0002" || d.editions.length !== 1) return d
+  const first = d.editions[0]
+  const v2 = first.publishedDaysAgo != null && first.publishedDaysAgo > 12 ? withSampleCheck(first.body) : null
+  if (!v2) return d
+  return {
+    ...d,
+    editions: [
+      first,
+      {
+        body: v2,
+        publishedDaysAgo: 12,
+        significantChange: true,
+        changeNote:
+          "Added a step before release: check the dried granulate in the sample cup, and do not release granulate that fails the check.",
+      },
+    ],
+  }
+}
+
+export const SEED_DOCS: SeedDoc[] = NATIVE_DOCS.map(withPublishedRevision)
 
 export const SITE = "PWN"
 
@@ -37,14 +92,16 @@ export interface PersonSeed {
 }
 
 // Check-in identities. Names are what other seed modules look people up by.
+// Shifts (plant facts): early 06:00-14:00, late 14:00-22:00, night
+// 22:00-06:00. convex/skills.ts shiftOf reads the shift from the role text.
 export const PEOPLE: PersonSeed[] = [
   { name: "Jan de Vries", kind: "operator", role: "Line operator, night shift", area: "EXT" },
-  { name: "Fatima El Amrani", kind: "operator", role: "Line operator, day shift", area: "EXT" },
-  { name: "Lotte Smit", kind: "operator", role: "Line operator, day shift (new starter)", area: "EXT" },
-  { name: "Ahmed Yilmaz", kind: "operator", role: "Line operator, night shift", area: "EXT" },
-  { name: "Pieter Bakker", kind: "operator", role: "Mixing operator", area: "MIX" },
-  { name: "Emma de Boer", kind: "operator", role: "Mixing operator", area: "MIX" },
-  { name: "Kevin Mulder", kind: "operator", role: "Quality lab technician", area: "QCL" },
+  { name: "Fatima El Amrani", kind: "operator", role: "Line operator, early shift", area: "EXT" },
+  { name: "Lotte Smit", kind: "operator", role: "Line operator, early shift (new starter)", area: "EXT" },
+  { name: "Ahmed Yilmaz", kind: "operator", role: "Line operator, late shift", area: "EXT" },
+  { name: "Pieter Bakker", kind: "operator", role: "Mixing operator, early shift", area: "MIX" },
+  { name: "Emma de Boer", kind: "operator", role: "Mixing operator, late shift", area: "MIX" },
+  { name: "Kevin Mulder", kind: "operator", role: "Quality lab technician, early shift", area: "QCL" },
   { name: "Sanne Visser", kind: "engineer", role: "Process engineer", area: null },
   { name: "Mark Jansen", kind: "engineer", role: "Maintenance and safety engineer", area: null },
   { name: "Ingrid Hoekstra", kind: "engineer", role: "Quality manager", area: null },

@@ -64,7 +64,7 @@ const SOP_BEST_PRACTICE: JSONNode = {
 
     h(2, "1. Purpose"),
     p(
-      "Describe what this procedure achieves and why it exists — the outcome it guarantees and the risk it controls. One short paragraph.",
+      "Describe what this procedure achieves and why it exists: the outcome it guarantees and the risk it controls. One short paragraph.",
     ),
 
     h(2, "2. Scope"),
@@ -98,12 +98,12 @@ const SOP_BEST_PRACTICE: JSONNode = {
 
     h(2, "6. Procedure"),
     p(
-      "Carry out the following actions in order. These are operating actions — not controlled work instructions. Detailed, controlled work instructions live in Oppr LOGS and will be linked from an action (planned).",
+      "Carry out the following actions in order. These are operating actions, not controlled work instructions. Detailed, controlled work instructions live in Oppr LOGS and will be linked from an action (planned).",
     ),
     steps(6),
 
     p(
-      "Cite any related documents inline using the Reference document chip (toolbar). The References & related documents table and the Revision history are generated automatically when the document is published or exported to PDF — you don't maintain them here.",
+      "Cite any related documents inline using the Reference document chip (toolbar). The References & related documents table and the Revision history are generated automatically when the document is published or exported to PDF. You don't maintain them here.",
     ),
   ],
 }
@@ -111,13 +111,16 @@ const SOP_BEST_PRACTICE: JSONNode = {
 export const seedBestPracticeSop = mutation({
   args: {},
   handler: async (ctx) => {
-    const name = "SOP — Best practice (chapters)"
+    const name = "SOP: Best practice (chapters)"
+    // Older runs named it with a dash; find either and rename.
+    const legacyName = "SOP \u2014 Best practice (chapters)"
     const existing = await ctx.db
       .query("templates")
-      .filter((q) => q.eq(q.field("name"), name))
+      .filter((q) => q.or(q.eq(q.field("name"), name), q.eq(q.field("name"), legacyName)))
       .first()
     if (existing) {
       await ctx.db.patch(existing._id, {
+        name,
         bodyJson: SOP_BEST_PRACTICE,
         updatedAt: Date.now(),
       })

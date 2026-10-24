@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useLocation } from "wouter"
-import { ChevronRight, Factory, Files, Search, X } from "lucide-react"
+import { ChevronRight, Factory, Files, MessageCircleQuestion, Search, X } from "lucide-react"
 import { useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import { toLegacyAsset, toLegacyDoc } from "@/lib/convex-adapters"
@@ -88,7 +88,7 @@ export function MobileGlobalSearch({ open, onClose }: MobileGlobalSearchProps) {
             onChange={setQuery}
             placeholder="Search assets and documents…"
             autoFocus
-            className="flex-1"
+            className="flex-1 [&_input::-webkit-search-cancel-button]:appearance-none"
           />
           <Button
             variant="ghost"
@@ -108,8 +108,17 @@ export function MobileGlobalSearch({ open, onClose }: MobileGlobalSearchProps) {
               Type to search across assets and documents.
             </div>
           ) : matchedAssets.length === 0 && matchedDocs.length === 0 ? (
-            <div className="rounded-2xl border bg-card p-6 text-center text-sm text-muted-foreground">
-              No matches.
+            <div className="flex flex-col items-center gap-3 rounded-2xl border bg-card p-5 text-center text-sm text-muted-foreground">
+              <span>No document titles or Assets match.</span>
+              <Button
+                className="h-auto max-w-full gap-2 whitespace-normal py-2"
+                onClick={() =>
+                  go(`/m/ask?scope=library&q=${encodeURIComponent(query.trim())}`)
+                }
+              >
+                <MessageCircleQuestion className="h-4 w-4 shrink-0" />
+                <span className="min-w-0 break-words">Ask: "{query.trim()}"</span>
+              </Button>
             </div>
           ) : (
             <div className="flex flex-col gap-4">

@@ -56,7 +56,7 @@ export function useCodeIndex(): CodeIndex {
 }
 
 /**
- * Pattern for entity codes used by the Oppr DOCS naming convention.
+ * Pattern for entity codes used by the Oppr Knowledge naming convention.
  */
 export const CODE_PATTERN =
   /\b[A-Z]{2,4}-[A-Z0-9]{2,5}(?:-[A-Z]{2,5}-\d{3,5})?\b/g

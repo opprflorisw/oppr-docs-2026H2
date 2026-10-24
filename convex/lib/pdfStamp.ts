@@ -19,12 +19,16 @@ export interface StampInfo {
   // Shown in the footer, e.g. the Published date: "2026-10-24".
   date: string
   supplier?: string | null
+  // For "superseded": the version that replaced this one.
+  supersededBy?: number | null
 }
 
 const BAND = 18
 
-export function stampLabel(info: Pick<StampInfo, "status" | "version">): string {
+export function stampLabel(info: Pick<StampInfo, "status" | "version" | "supersededBy">): string {
   switch (info.status) {
+    case "superseded":
+      return `Superseded by v${info.supersededBy ?? info.version + 1} · not for use`
     case "published":
       return `Controlled copy · Published v${info.version}`
     case "archived":

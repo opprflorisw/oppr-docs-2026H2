@@ -9,8 +9,11 @@ import { api } from "../../../convex/_generated/api"
 // both sources). Reactive, so it disappears once the Finding is closed.
 export function AskConflictWarning({
   citations,
+  text,
 }: {
   citations: { documentId: string; chunkId: string }[]
+  /** The question and the answer, to judge whether a Finding is on topic. */
+  text: string
 }) {
   const documentIds = Array.from(new Set(citations.map((c) => c.documentId)))
   const found = useQuery(
@@ -19,15 +22,20 @@ export function AskConflictWarning({
   )
   const [location] = useLocation()
   // Only conflicts this answer is about: it cites one of the two disagreeing
-  // passages, or it draws on both documents.
+  // passages. When a Finding has no passage id, both documents must be cited
+  // and the Finding's subject must come up in the question or the answer.
   const cited = new Set(citations.map((c) => c.chunkId))
   const docs = new Set(documentIds)
-  const conflicts = (found ?? []).filter(
-    (c) =>
-      (c.a.chunkId != null && cited.has(c.a.chunkId)) ||
-      (c.b.chunkId != null && cited.has(c.b.chunkId)) ||
-      (docs.has(c.a.documentId) && docs.has(c.b.documentId)),
-  )
+  const askTerms = subjectTerms(text)
+  const conflicts = (found ?? []).filter((c) => {
+    if ((c.a.chunkId != null && cited.has(c.a.chunkId)) || (c.b.chunkId != null && cited.has(c.b.chunkId))) {
+      return true
+    }
+    if (c.a.chunkId != null && c.b.chunkId != null) return false
+    if (!docs.has(c.a.documentId) || !docs.has(c.b.documentId)) return false
+    const shared = Array.from(subjectTerms(c.summary)).filter((t) => askTerms.has(t))
+    return shared.length >= 2
+  })
   if (conflicts.length === 0) return null
   // On the floor (mobile) the Operator gets the documents; Engineers on the
   // desktop also get the Finding.
@@ -64,4 +72,21 @@ export function AskConflictWarning({
       ))}
     </div>
   )
+}
+
+// Content words of a sentence, for a rough "same subject" test.
+const STOP = new Set(
+  "about above after again against also before being below between both could does doing during each from further have having here into itself more most must never other over same says should some state states such than that their them then there these they this those through under until very were what when where which while with would your value values differs differ different document documents gives give says while whereas versus".split(
+    " ",
+  ),
+)
+function subjectTerms(text: string): Set<string> {
+  const out = new Set<string>()
+  for (const raw of text.toLowerCase().split(/[^a-z0-9°]+/)) {
+    const w = raw.replace(/s$/, "")
+    // Numbers (230, 85) count from two digits, words from four letters.
+    if (w.length < (/^\d+$/.test(w) ? 2 : 4) || STOP.has(raw) || STOP.has(w)) continue
+    out.add(w)
+  }
+  return out
 }

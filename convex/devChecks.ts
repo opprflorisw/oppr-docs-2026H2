@@ -256,6 +256,17 @@ async function waitForWiki(
   return { wiki: await ctx.runQuery(internal.devChecks.getWiki, { id }), ms: Date.now() - start }
 }
 
+/** Open Findings with their two quotes, for check F. */
+export const openFindings = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("findings").take(500)
+    return rows
+      .filter((f) => f.status === "open")
+      .map((f) => ({ kind: f.kind, a: f.a.namingCode, b: f.b.namingCode, text: `${f.a.quote} ${f.b.quote} ${f.summary}` }))
+  },
+})
+
 export const run = internalAction({
   args: {},
   handler: async (ctx): Promise<{ passed: number; failed: number; checks: Check[] }> => {
@@ -547,6 +558,31 @@ export const run = internalAction({
     )
 
     // ---- 6. Regeneration on publish ----
+    // ---- F. The Consistency check found every planted contradiction ----
+    // Runs before check 6, which publishes a new version and re-checks.
+    {
+      const open: { kind: string; a: string; b: string; text: string }[] = await ctx.runQuery(
+        internal.devChecks.openFindings,
+        {},
+      )
+      const has = (kind: string, codes: [string, string], words: RegExp) =>
+        open.some((f) => f.kind === kind && codes.includes(f.a) && codes.includes(f.b) && f.a !== f.b && words.test(f.text))
+      const planted: [string, boolean][] = [
+        ["40 vs 45 Nm die bolts", has("contradiction", ["EXT-OPS-SOP-0001", "EXT-MNT-MAN-0001"], /45\s*Nm/i)],
+        ["230 vs 220 °C barrel", has("contradiction", ["EXT-OPS-SOP-0002", "EXT-MNT-MAN-0001"], /230/)],
+        ["UT-200 calibration once a day vs every shift", has("contradiction", ["QCL-QA-SOP-0001", "QCL-QA-MAN-0001"], /shift/i)],
+        ["vacuum tank section duplicated", has("duplicate", ["EXT-OPS-SOP-0002", "EXT-OPS-WI-0002"], /./)],
+      ]
+      const missing = planted.filter(([, ok]) => !ok).map(([n]) => n)
+      add(
+        "F",
+        "The Consistency check finds the 3 planted contradictions and the planted duplicate",
+        missing.length === 0,
+        `${open.length} open Findings (${open.filter((f) => f.kind === "contradiction").length} contradictions); ` +
+          (missing.length ? `missing: ${missing.join("; ")}` : "all 4 planted Findings present"),
+      )
+    }
+
     const seeded = snap.wikis.find((w) => w.title === "Line 2 changeover essentials")
     if (!seeded) {
       add("6", "Wiki rebuilds after a source is published", false, "seeded Wiki not found; run seedKnowledge:run first")

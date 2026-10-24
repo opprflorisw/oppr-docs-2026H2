@@ -229,7 +229,10 @@ export function TrainingPage() {
           </Button>
         </>
       )}
-      {t.status === "published" && (
+      {t.status === "published" && !engineer && (
+        <span className="text-[11px] text-muted-foreground">Check in as an Engineer to change or archive this Training.</span>
+      )}
+      {t.status === "published" && engineer && (
         <>
           <Button size="sm" variant="ghost" className="gap-1.5" disabled={busy !== null} onClick={() => askSignOff("archive")}>
             <Archive className="h-3.5 w-3.5" /> Archive
@@ -240,7 +243,7 @@ export function TrainingPage() {
             className="gap-1.5"
             disabled={busy !== null}
             onClick={() =>
-              run("new", () => newVersion({ id: t._id, personId: person?._id }), `v${t.currentVersion + 1} started as a draft. v${t.liveVersion} stays in use.`)
+              run("new", () => newVersion({ id: t._id, personId: engineer._id }), `v${t.currentVersion + 1} started as a draft. v${t.liveVersion} stays in use.`)
             }
           >
             <GitBranch className="h-3.5 w-3.5" /> New version
@@ -293,15 +296,17 @@ export function TrainingPage() {
                   <CheckCircle2 className="h-3.5 w-3.5" /> Still valid, confirm
                 </Button>
                 {t.status === "published" ? (
+                  engineer && (
                   <Button
                     size="sm"
                     variant="outline"
                     className="h-7 gap-1.5 bg-background text-xs"
                     disabled={busy !== null}
-                    onClick={() => run("new", () => newVersion({ id: t._id, personId: person?._id }), `v${t.currentVersion + 1} started as a draft`)}
+                    onClick={() => run("new", () => newVersion({ id: t._id, personId: engineer._id }), `v${t.currentVersion + 1} started as a draft`)}
                   >
                     <GitBranch className="h-3.5 w-3.5" /> Start a new version
                   </Button>
+                  )
                 ) : (
                   <span className="self-center text-[11px]">
                     v{t.currentVersion} is in progress: publishing it completes this review.
@@ -379,7 +384,7 @@ export function TrainingPage() {
                       </span>
                       <div className="min-w-0 flex-1 space-y-1">
                         <p className="text-sm">{o.text}</p>
-                        <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                        <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
                           <SourceChip
                             documentId={o.documentId}
                             namingCode={o.namingCode}
@@ -389,7 +394,7 @@ export function TrainingPage() {
                             className="mt-px shrink-0"
                           />
                           <span className="line-clamp-2 italic">"{o.quote}"</span>
-                        </p>
+                        </div>
                         <ObjectiveCheck check={o.check} code={o.namingCode} liveVersion={o.liveVersion} />
                       </div>
                     </div>
@@ -448,11 +453,16 @@ export function TrainingPage() {
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <FileCheck2 className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold">Training records</h2>
+              <h2 className="text-sm font-semibold">Attempts and records</h2>
               {records && (
                 <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                  {records.filter((r) => r.passed).length}
+                  {records.length}
                 </Badge>
+              )}
+              {records && records.length > 0 && (
+                <span className="text-[11px] text-muted-foreground">
+                  {records.filter((r) => r.passed).length} passed, each one a Training record
+                </span>
               )}
               {records && records.length > 0 && (
                 <Link href="/learn?tab=records" className="ml-auto text-[11px] text-primary hover:underline">
@@ -658,10 +668,10 @@ function Signoffs({
     s.role === "author"
       ? "Written by"
       : s.role === "approver"
-        ? "Published by"
+        ? "Approved and published by"
         : publishedAt != null && s.at > publishedAt
           ? "Confirmed after change by"
-          : "Approved by"
+          : "Reviewed by"
   return (
     <ul className="space-y-1.5">
       {signoffs.map((s, i) => (

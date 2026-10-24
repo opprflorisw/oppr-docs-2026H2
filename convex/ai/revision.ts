@@ -10,8 +10,9 @@ import { internal } from "../_generated/api"
 import { Id } from "../_generated/dataModel"
 import { requireUserId } from "../lib/auth"
 import { claudeConfigured, claudeJson, describeClaudeError } from "./llm"
-import { checkPoint, ProvidedExcerpt } from "./grounding"
+import { checkPoint, factTokens, ProvidedExcerpt } from "./grounding"
 import type { BodyBlock, PlannedChange } from "../revisions"
+import { stripBlockKeys } from "../revisions"
 
 /**
  * Starts a Proposed revision for a Published Document from a signal (an open
@@ -60,14 +61,15 @@ const SYSTEM = [
   "- block: the key of the block you edit.",
   "- before: text copied character for character from that block. Either the whole block or one contiguous part of it (a sentence). Never paraphrase it.",
   "- after: the replacement text for exactly that part. Keep the document's voice, terms, units and formatting conventions. Keep warnings at least as strong.",
-  "- reason: one short sentence that ties the change to the signal, for example quoting the question operators ask or naming the other document of the Finding.",
+  "- reason: one short sentence that ties the change to the signal, for example quoting the question operators ask or naming the other document of the Finding. Refer to places by section name or step (\"step 4 of Start-up\"), never by block key: B1, B2 and so on are internal and mean nothing to the Engineer.",
   "- To remove a block completely, set before to the whole block and after to an empty string. Use this only to remove duplicated text.",
   "",
   "Hard rules (code checks them; a change that breaks one is thrown away):",
   "- Never introduce a number, value, unit or code that is not already in the document or in the OTHER DOCUMENT passage of the signal.",
   "- Do not add new rules, instructions or safety measures of your own. Add only what the document or the OTHER DOCUMENT already says; anything else the signal asks for becomes a bracketed placeholder.",
   "- When the right value or fact is not known from these texts, do not guess. Write a placeholder in square brackets for the Engineer, for example \"[Engineer to confirm: maximum time in the hopper]\".",
-  "- Change as little as possible: 1 to 6 changes, each focused. Do not rewrite blocks that the signal does not concern. Do not reorder or renumber steps.",
+  "- Change as little as possible: 1 to 6 changes, each focused. Every change must be needed to answer the SIGNAL; leave out anything that only rewords. Do not rewrite blocks that the signal does not concern. Do not reorder or renumber steps.",
+  "- CONFLICTS lists passages of this document that other Published documents contradict. Never add, repeat or spread a value that one of those passages contradicts (for example copying a disputed temperature into more steps). Where the signal needs such a value, write a bracketed placeholder for the Engineer instead.",
   "- Plain language, no em dashes.",
   "",
   "By kind of signal:",
@@ -75,7 +77,7 @@ const SYSTEM = [
   "- Duplicate Finding: make the library smaller. Replace the duplicated passage in this document with one short sentence that refers to the other document by its naming code, or remove repeated blocks, keeping anything that only this document says.",
   "- Insights (questions people Ask, unanswered questions, unclear marks): clarify the passage people ask about so the answer is easy to find. Use facts already elsewhere in the document; for a fact the document does not give, add a bracketed placeholder so the Engineer fills it in.",
   "",
-  "summary: one sentence (at most 30 words) for the Engineer saying what the revision changes and why.",
+  "summary: one sentence (at most 30 words) for the Engineer saying what the revision changes and why. Name sections, never block keys.",
 ].join("\n")
 
 // grounding reports values in canonical form ("3 H", "45 NM"); show them as people write them.
@@ -160,11 +162,18 @@ export const generate = internalAction({
         .join("\n\n")
     }
     const note = input.proposal.source.note.trim()
+    const conflicts = input.conflicts
+      .map(
+        (c) =>
+          `- THIS DOCUMENT: "${c.mine}"\n  CONTRADICTED BY ${c.other.namingCode} · ${c.other.title}${c.other.section ? `, ${c.other.section}` : ""}: "${c.other.quote}"`,
+      )
+      .join("\n")
     const prompt = [
       `DOCUMENT: ${docLine}`,
       "",
       `SIGNAL:\n${signal}`,
       note ? `\nENGINEER'S NOTE: ${note}` : "",
+      conflicts ? `\nCONFLICTS (open Findings with other Published documents):\n${conflicts}` : "",
       "",
       `BLOCKS:\n${blockText}`,
     ].join("\n")
@@ -193,6 +202,17 @@ export const generate = internalAction({
       provided.set("F2", { key: "F2", text: input.finding.mine.quote, label: docLine })
     }
     const allKeys = Array.from(provided.keys())
+    // Values of this document that another Published document contradicts:
+    // a change may leave them where they are, but never add them anywhere.
+    const disputed = new Set<string>()
+    for (const c of input.conflicts) {
+      const theirs = new Set(factTokens(c.other.quote))
+      for (const t of factTokens(c.mine)) if (!theirs.has(t)) disputed.add(t)
+    }
+    if (input.finding?.kind === "contradiction") {
+      const theirs = new Set(factTokens(input.finding.other.quote))
+      for (const t of factTokens(input.finding.mine.quote)) if (!theirs.has(t)) disputed.add(t)
+    }
     const byKey = new Map(blocks.map((b) => [b.key, b]))
 
     const kept: PlannedChange[] = []
@@ -227,15 +247,22 @@ export const generate = internalAction({
           continue
         }
       }
+      const had = new Set(factTokens(before))
+      const spread = factTokens(after).find((t) => disputed.has(t) && !had.has(t))
+      if (spread) {
+        dropped.push(`it adds ${readable(spread)}, which another Published document contradicts`)
+        console.warn(`[revision] dropped, disputed ${spread}: ${after.slice(0, 120)}`)
+        continue
+      }
       const blockKey = block.key
       if (kept.some((k) => k.blockKey === blockKey && (k.before.includes(before) || before.includes(k.before)))) {
         dropped.push("it overlapped another change")
         continue
       }
-      kept.push({ blockKey, before, after, reason: clean(c.reason) })
+      kept.push({ blockKey, before, after, reason: stripBlockKeys(clean(c.reason)) })
     }
 
-    const summary = clean(out.summary) || "Proposed edits from the signal."
+    const summary = stripBlockKeys(clean(out.summary)) || "Proposed edits from the signal."
     const reasons = Array.from(new Set(dropped)).join("; ")
     if (kept.length === 0) {
       return fail(

@@ -27,7 +27,7 @@ export const FACTORY_PPE = [
   { slug: "life-jacket", label: "Life jacket", labelNl: "Reddingsvest verplicht", pictogramId: "life_jacket", mCode: "M053", description: "Required near open water.", descriptionNl: "Verplicht nabij open water." },
   { slug: "lab-coat", label: "Lab coat", labelNl: "Laboratoriumjas verplicht", pictogramId: "lab_coat", mCode: "M010", description: "Wear a lab coat in the laboratory.", descriptionNl: "Draag een laboratoriumjas in het laboratorium." },
   { slug: "eye-ear", label: "Eye + ear protection", labelNl: "Oog- en gehoorbescherming", pictogramId: "eye_ear", mCode: null, description: "Both eye and hearing protection required.", descriptionNl: "Zowel oog- als gehoorbescherming verplicht." },
-  { slug: "general", label: "General mandatory action", labelNl: "Algemeen gebod", pictogramId: "general_mandatory", mCode: "M001", description: "A mandatory action applies — see local signage.", descriptionNl: "Er geldt een verplichte handeling — zie lokale signalering." },
+  { slug: "general", label: "General mandatory action", labelNl: "Algemeen gebod", pictogramId: "general_mandatory", mCode: "M001", description: "A mandatory action applies: see local signage.", descriptionNl: "Er geldt een verplichte handeling: zie lokale signalering." },
 ] as const
 
 // slug → ISO 7010 mandatory code, consumed by ppeImages.ts to fetch artwork.
@@ -203,7 +203,7 @@ export const remove = mutation({
     const row = await ctx.db.get(args.id)
     if (!row) throw new Error("PPE item not found")
     if (row.builtIn)
-      throw new Error("Built-in PPE can't be deleted — deactivate it instead")
+      throw new Error("Built-in PPE can't be deleted. Deactivate it instead.")
     await ctx.db.delete(args.id)
   },
 })

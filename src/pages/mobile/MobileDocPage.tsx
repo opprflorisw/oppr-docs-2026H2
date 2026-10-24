@@ -4,6 +4,7 @@ import {
   Suspense,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react"
@@ -11,7 +12,6 @@ import { useLocation, useRoute, useSearch } from "wouter"
 import {
   AlertTriangle,
   Copy,
-  FileDown,
   Home,
   Maximize2,
   Share2,
@@ -36,6 +36,7 @@ import {
   useRecentlyViewed,
 } from "@/components/mobile/use-mobile-prefs"
 import { cn } from "@/lib/utils"
+import { formatDate } from "@/lib/time"
 import { toast } from "sonner"
 
 const PdfViewer = lazy(() =>
@@ -113,6 +114,11 @@ export function MobileDocPage() {
     return Number.isFinite(n) && n > 0 ? n : 1
   }, [search])
 
+  // ?hl=<passage start> (from an Ask citation) scrolls to and highlights the
+  // cited passage once the body has rendered.
+  const highlight = useMemo(() => new URLSearchParams(search).get("hl"), [search])
+  const bodyRef = useRef<HTMLDivElement>(null)
+
   useRecordUsage({
     kind: "view",
     documentId: id && idIsConvexShaped ? (id as Id<"documents">) : undefined,
@@ -153,6 +159,39 @@ export function MobileDocPage() {
       published_at: new Date(currentVersion.publishedAt).toISOString(),
     }
   }, [currentVersion])
+
+  const bodyReady = version?.body_kind === "tiptap" && version.body_json != null
+  useEffect(() => {
+    if (!highlight || !bodyReady) return
+    const needle = normaliseText(highlight).slice(0, 60)
+    if (!needle) return
+    // The body is lazy and its images load late, so look again for a while
+    // and re-centre once the layout has settled.
+    let tries = 0
+    let found: HTMLElement | null = null
+    let removeTimer: number | undefined
+    const timer = window.setInterval(() => {
+      tries += 1
+      const root = bodyRef.current
+      if (!found && root) {
+        const blocks = root.querySelectorAll<HTMLElement>("p, li, td, th, h1, h2, h3, h4")
+        const hit = Array.from(blocks).find((el) => normaliseText(el.textContent ?? "").includes(needle))
+        if (hit) {
+          found = hit.closest<HTMLElement>("li, tr") ?? hit
+          found.classList.add("wiki-cited-passage")
+          removeTimer = window.setTimeout(() => found?.classList.remove("wiki-cited-passage"), 8000)
+        }
+      }
+      if (found && (tries <= 3 || tries % 4 === 0)) {
+        found.scrollIntoView({ behavior: tries <= 1 ? "auto" : "smooth", block: "center" })
+      }
+      if (tries >= 12) window.clearInterval(timer)
+    }, 250)
+    return () => {
+      window.clearInterval(timer)
+      if (removeTimer) window.clearTimeout(removeTimer)
+    }
+  }, [highlight, bodyReady])
 
   // Source of back navigation: previous asset page if present, else /m/docs.
   const backTo = doc?.assets?.[0]
@@ -253,7 +292,7 @@ export function MobileDocPage() {
     if (!doc) return
     const shareData = {
       title: doc.title,
-      text: `${doc.naming_code} — ${doc.title}`,
+      text: `${doc.naming_code} · ${doc.title}`,
     }
     if (typeof navigator.share === "function") {
       try {
@@ -330,24 +369,26 @@ export function MobileDocPage() {
           Share
         </Button>
         {version && docResult?.doc.origin !== "wrapped" && (
-        <PublishToPdfDialog
-          documentId={doc.id}
-          version={version.version}
-          trigger={
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1 px-1.5 text-[10px] text-orange-600 hover:bg-orange-50 hover:text-orange-700"
-            >
-              <FileDown className="h-3 w-3" />
-              PDF
-            </Button>
-          }
-        />
+          <PublishToPdfDialog
+            documentId={doc.id}
+            version={version.version}
+            oneTap={{
+              className:
+                "h-7 gap-1 px-1.5 text-[10px] text-orange-600 hover:bg-orange-50 hover:text-orange-700",
+            }}
+          />
         )}
       </div>
 
       <div className="flex flex-col p-3 pb-20">
+        {version && docResult?.doc.origin !== "wrapped" && (
+          <p className="mb-2 text-[11px] text-muted-foreground">
+            <span className="font-medium text-emerald-700 dark:text-emerald-400">
+              Published v{version.version}
+            </span>
+            {" · "}effective {formatDate(currentVersion!.publishedAt)}
+          </p>
+        )}
         <MobileDocSummary
           assets={doc.assets}
           ppeItems={
@@ -384,7 +425,9 @@ export function MobileDocPage() {
           ) : (
             <ViewerErrorBoundary fallback={VIEWER_UNAVAILABLE}>
               <Suspense fallback={VIEWER_FALLBACK}>
-                <TiptapReadOnly content={version.body_json} />
+                <div ref={bodyRef}>
+                  <TiptapReadOnly content={version.body_json} />
+                </div>
               </Suspense>
             </ViewerErrorBoundary>
           )
@@ -470,4 +513,8 @@ function FullscreenViewer({
       <div className="flex-1 overflow-y-auto p-3">{children}</div>
     </div>
   )
+}
+
+function normaliseText(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLowerCase()
 }

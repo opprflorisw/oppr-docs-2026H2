@@ -30,6 +30,8 @@ import { cn } from "@/lib/utils"
 export function HomePage() {
   const data = useQuery(api.home.overview)
   const { person } = useCheckIn()
+  // "Your" only when we know who is reading: a checked-in Engineer.
+  const engineer = person?.kind === "engineer"
   const [, navigate] = useLocation()
   const [newOpen, setNewOpen] = useState(false)
   const inboxCount = data ? data.approvals.length + data.reviews.length : 0
@@ -69,7 +71,9 @@ export function HomePage() {
             <Card>
               <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
                 <CheckCircle2 className="h-8 w-8 text-emerald-500" />
-                <p className="text-sm font-medium">No documents need you today</p>
+                <p className="text-sm font-medium">
+                  {engineer ? "No documents need you today" : "No documents need a decision today"}
+                </p>
                 <p className="max-w-sm text-xs text-muted-foreground">
                   Reviews waiting for approval and documents due for their
                   periodic review show up here.
@@ -89,7 +93,11 @@ export function HomePage() {
                     tone="primary"
                     title={d.title}
                     code={`${d.namingCode} · v${d.version}${d.isRevision ? " revision" : ""}`}
-                    note={d.status === "in_review" ? "Waiting for your review. Open it to approve." : "Approved. Open it to publish."}
+                    note={
+                      d.status === "in_review"
+                        ? `Waiting for ${engineer ? "your" : "an Engineer's"} review. Open it to approve.`
+                        : "Approved. Open it to publish."
+                    }
                     action={d.status === "in_review" ? "Review" : "Publish"}
                     href={`/docs/${d._id}/edit`}
                   />

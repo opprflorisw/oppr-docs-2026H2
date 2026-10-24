@@ -99,28 +99,28 @@ export const documentInsights = query({
         .query("askEvents")
         .withIndex("by_primaryDocumentId", (q) => q.eq("primaryDocumentId", doc._id))
         .order("desc")
-        .take(2000)
+        .take(1000)
     ).filter((a) => a.at >= since)
     const usage = (
       await ctx.db
         .query("usageEvents")
         .withIndex("by_documentId", (q) => q.eq("documentId", doc._id))
         .order("desc")
-        .take(5000)
+        .take(2000)
     ).filter((u) => u.at >= since)
     const views = usage.filter((u) => u.kind === "view")
     // A Scan of a linked Asset lists this Document on the phone.
     const links = await ctx.db
       .query("documentAssets")
       .withIndex("by_documentId", (q) => q.eq("documentId", doc._id))
-      .take(50)
+      .take(20)
     let scans = 0
     for (const l of links) {
       const rows = await ctx.db
         .query("usageEvents")
         .withIndex("by_assetId", (q) => q.eq("assetId", l.assetId))
         .order("desc")
-        .take(2000)
+        .take(500)
       scans += rows.filter((u) => u.kind === "scan" && u.at >= since).length
     }
     const flags = (
@@ -222,7 +222,9 @@ interface DocSignals {
 async function computeHealth(ctx: QueryCtx) {
   const now = Date.now()
   const since = now - WINDOW_DAYS * DAY
-  const docs = await ctx.db.query("documents").take(2000)
+  // Reads are capped to stay within Convex limits; the newest events come
+  // first, so a cap drops the oldest days of the window, never the newest.
+  const docs = await ctx.db.query("documents").take(1000)
   const published = docs.filter(isPublished)
   const byId = new Map(docs.map((d) => [d._id, d]))
 
@@ -242,7 +244,8 @@ async function computeHealth(ctx: QueryCtx) {
   const asks = await ctx.db
     .query("askEvents")
     .withIndex("by_at", (q) => q.gte("at", since))
-    .take(8000)
+    .order("desc")
+    .take(3000)
   // Questions no Published document answered and none was cited for.
   const orphanAsks: Doc<"askEvents">[] = []
   for (const a of asks) {
@@ -258,8 +261,9 @@ async function computeHealth(ctx: QueryCtx) {
   const usage = await ctx.db
     .query("usageEvents")
     .withIndex("by_at", (q) => q.gte("at", since))
-    .take(16000)
-  const links = await ctx.db.query("documentAssets").take(5000)
+    .order("desc")
+    .take(5000)
+  const links = await ctx.db.query("documentAssets").take(2000)
   const docsOfAsset = new Map<string, Id<"documents">[]>()
   for (const l of links) {
     const list = docsOfAsset.get(l.assetId) ?? []
@@ -275,7 +279,7 @@ async function computeHealth(ctx: QueryCtx) {
       for (const d of docsOfAsset.get(u.assetId) ?? []) sig(d).scans++
     }
   }
-  const flags = (await ctx.db.query("contentFlags").order("desc").take(3000)).filter((f) => f.at >= since)
+  const flags = (await ctx.db.query("contentFlags").order("desc").take(1000)).filter((f) => f.at >= since)
   for (const f of flags) sig(f.documentId).flags++
 
   const openFindings = await ctx.db
@@ -470,12 +474,23 @@ async function computeHealth(ctx: QueryCtx) {
     notInLibrary.push({ ...g, where, pending })
   }
 
+  // The headline counts documents, not items: one document can be unused,
+  // unclear and in a Finding at once.
+  const needsDecision = new Set<string>()
+  for (const i of [...neverUsed, ...unclear, ...overlaps, ...contradictions]) {
+    needsDecision.add(i.documentId)
+    if (i.related) needsDecision.add(i.related.documentId)
+  }
+  const publishedIds = new Set<string>(published.map((d) => d._id))
+
   const totalQuestions = asks.length
   const answered = asks.filter((a) => a.answerFound).length
   return {
     windowDays: WINDOW_DAYS,
     stats: {
       published: published.length,
+      // Distinct Published documents with at least one decision to make.
+      needsDecision: Array.from(needsDecision).filter((id) => publishedIds.has(id)).length,
       neverUsed: neverUsed.length,
       unclear: unclear.length,
       overlaps: overlaps.length,

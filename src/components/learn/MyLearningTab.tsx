@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useQuery } from "convex/react"
 import type { FunctionReturnType } from "convex/server"
 import { Link } from "wouter"
@@ -64,6 +64,20 @@ type Todo = Data["todo"][number]
 function MyLearning({ personId }: { personId: Id<"people"> }) {
   const data = useQuery(api.skills.myLearning, { personId })
   const [openSkill, setOpenSkill] = useState<Id<"skills"> | null>(null)
+  // Who can sign off practice: the Engineers at level 3 ("can train others").
+  const matrix = useQuery(api.skills.matrix, {})
+  const trainers = useMemo(() => {
+    const out = new Map<string, string[]>()
+    for (const p of matrix?.people ?? []) {
+      if (p._id === personId || p.kind !== "engineer") continue
+      for (const { _id: skillId } of matrix?.skills ?? []) {
+        const c = p.cells[skillId]
+        if (!c || c.level < 3 || c.status === "expired") continue
+        out.set(skillId, [...(out.get(skillId) ?? []), p.name])
+      }
+    }
+    return out
+  }, [matrix, personId])
 
   if (data === undefined) {
     return (
@@ -162,7 +176,12 @@ function MyLearning({ personId }: { personId: Id<"people"> }) {
             <Card>
               <CardContent className="divide-y p-0">
                 {data.todo.map((t) => (
-                  <TodoRow key={`${t.kind}-${t.row.skill._id}`} todo={t} onOpen={() => setOpenSkill(t.row.skill._id)} />
+                  <TodoRow
+                    key={`${t.kind}-${t.row.skill._id}`}
+                    todo={t}
+                    trainers={trainers.get(t.row.skill._id) ?? []}
+                    onOpen={() => setOpenSkill(t.row.skill._id)}
+                  />
                 ))}
               </CardContent>
             </Card>
@@ -253,7 +272,7 @@ function MyLearning({ personId }: { personId: Id<"people"> }) {
   )
 }
 
-function TodoRow({ todo, onOpen }: { todo: Todo; onOpen: () => void }) {
+function TodoRow({ todo, trainers, onOpen }: { todo: Todo; trainers: string[]; onOpen: () => void }) {
   const { row } = todo
   const training = row.offered.find((t) => !t.passed) ?? row.offered[0] ?? null
   const meta = {
@@ -290,17 +309,29 @@ function TodoRow({ todo, onOpen }: { todo: Todo; onOpen: () => void }) {
         <span className="block truncate text-xs text-muted-foreground">{meta.note}</span>
       </button>
       {wantsTraining ? (
-        <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 text-xs" asChild>
-          <Link href={`/learn/trainings/${training._id}`}>
-            <span className="font-mono">{training.code}</span>
-            <ArrowRight className="h-3 w-3" />
-          </Link>
-        </Button>
+        <div className="flex max-w-[45%] shrink-0 flex-col items-end gap-0.5">
+          <Button size="sm" variant="outline" className="h-7 max-w-full gap-1 text-xs" asChild>
+            <Link href={`/learn/trainings/${training._id}`} title={training.title}>
+              <span className="truncate">
+                {training.kind === "round" ? "Walk the Round" : "Start Training"}: {training.title}
+              </span>
+              <ArrowRight className="h-3 w-3 shrink-0" />
+            </Link>
+          </Button>
+          <span className="font-mono text-[10px] text-muted-foreground">{training.code}</span>
+        </div>
       ) : (
-        <span className="shrink-0 text-[11px] text-muted-foreground">
-          {todo.kind === "signoff" || todo.kind === "expiring" || todo.kind === "retrain" || todo.kind === "expired"
-            ? "Ask an Engineer"
-            : ""}
+        <span className="max-w-[40%] shrink-0 text-right text-[11px] text-muted-foreground">
+          {trainers.length > 0 ? (
+            <>
+              Ask <span className="font-medium text-foreground">{trainers.slice(0, 2).join(" or ")}</span>
+              <span className="block text-[10px]">
+                {trainers.length > 1 ? "Engineers" : "Engineer"} at level 3 on this Skill
+              </span>
+            </>
+          ) : (
+            "Ask an Engineer"
+          )}
         </span>
       )}
     </div>

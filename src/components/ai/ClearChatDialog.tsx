@@ -59,8 +59,8 @@ export function ClearChatDialog({
             ) : (
               <>All messages in this chat will be removed.</>
             )}{" "}
-            The current scope —{" "}
-            <span className="font-medium text-foreground">{scopeLine}</span> — stays
+            The current scope,{" "}
+            <span className="font-medium text-foreground">{scopeLine}</span>, stays
             selected, so your next question runs in the same context.
           </AlertDialogDescription>
         </AlertDialogHeader>

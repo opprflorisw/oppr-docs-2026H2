@@ -123,7 +123,7 @@ function VocabCard({
             <div className="px-3 py-4 text-xs text-muted-foreground">Loading…</div>
           ) : rows.length === 0 ? (
             <div className="px-3 py-4 text-xs text-muted-foreground">
-              None yet — add one below.
+              None yet. Add one below.
             </div>
           ) : (
             rows.map((r) => (
@@ -155,7 +155,7 @@ function VocabCard({
             <Input
               value={code}
               onChange={(e) => setCode(e.target.value.toUpperCase())}
-              placeholder="HOL"
+              placeholder={kind === "location" ? "EXT" : "OPS"}
               className="font-mono"
               onKeyDown={(e) => {
                 if (e.key === "Enter") void onAdd()
@@ -167,7 +167,7 @@ function VocabCard({
             <Input
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder="Holliday"
+              placeholder={kind === "location" ? "Extrusion" : "Operations"}
               onKeyDown={(e) => {
                 if (e.key === "Enter") void onAdd()
               }}

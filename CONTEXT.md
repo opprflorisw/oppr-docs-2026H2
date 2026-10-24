@@ -58,6 +58,14 @@ _Avoid_: import (on its own)
 A Document whose body is a supplier PDF that is embedded unchanged, such as a machine manufacturer's manual. Oppr adds the outline around it: naming code, Assets, review and status. It is never edited, only replaced by a newer PDF.
 _Avoid_: attachment, upload
 
+**Controlled copy**:
+The stamped PDF of a Wrapped manual. Oppr adds a band above and below every page, outside the supplier's content, with the naming code, title, version and status. Only the Published version's band says "Controlled copy"; every other copy says "not for use". The supplier original is kept next to it, unchanged.
+_Avoid_: watermarked PDF
+
+**Imported draft**:
+A Draft that an outside model created through the MCP server, from a customer's legacy document. It has a source note, and it goes through the same review as any other Draft. Nothing imported is Published until an Engineer publishes it.
+_Avoid_: import (on its own), migrated document
+
 ### Assets
 
 **Asset**:
@@ -170,10 +178,20 @@ _Avoid_: issue, alert, conflict
 **Usage**:
 How people actually use Knowledge: Scans, views, questions asked and Trainings done.
 
+### Connecting outside models
+
+**MCP server**:
+The door through which an assistant or system the customer already runs talks to Oppr. That can be their own cloud assistant or a model on their own site. It can read Published Knowledge, import Drafts and report signals. It can never publish, approve, sign off or delete (docs/adr/0004).
+
+**MCP key**:
+What connects one outside assistant or system. A checked-in Engineer creates it, with access levels (read Published, read people data, write drafts, write signals) and optionally a limit to some areas. Every call made with it is logged.
+_Avoid_: API token, password
+
 ## Relationships
 
 - A **Document** is linked to zero or more **Assets**. A **Scan** of an Asset shows its Published Documents.
-- A **Document** comes from the editor, from a **Convert**, or as a **Wrapped manual**.
+- A **Document** comes from the editor, from a **Convert**, as a **Wrapped manual**, or as an **Imported draft** through the **MCP server**.
+- An outside model does the messy pre-work (classifying, cleaning up, splitting and translating legacy files) before anything reaches Oppr. Oppr checks the result against its structure and Published Knowledge, and a person decides.
 - A **Training** is generated from one or more Published **Documents**. A **Round** also visits **Assets**.
 - A **Training** has one or more **Learning objectives**. Each objective is traceable to a Published **Document**.
 - A **Training** follows the same lifecycle as a **Document** (draft → in review → approved → published, versioned) and needs an Engineer's sign-off. Only a published Training counts towards Skills.
@@ -191,7 +209,7 @@ How people actually use Knowledge: Scans, views, questions asked and Trainings d
 
 ## Flagged ambiguities
 
-- In the code, Ask falls back to the working version of a Document that has never been Published (`convex/ai/ask.ts:150`). That conflicts with "only Published counts". Treat it as a bug.
+- Fixed in slice 0: Ask no longer falls back to the working version of a never-Published Document.
 - Showcase order: Guided creation for Wikis first, then Trainings and Rounds. Skill profiles and Documents come later.
-- Floor simulator: a placeholder page only in slice 0. Its design is decided later.
+- Floor simulator: built as a plant plan with a phone frame that runs the real mobile app (free walk and Rounds).
 - Live dashboards inside a Wiki are an idea parked for later, not part of the showcase.

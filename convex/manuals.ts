@@ -32,16 +32,45 @@ import { allocateNamingCode } from "./naming"
 // What a version's stamp should say
 
 /**
- * The status a version's stamp must show, or null for a superseded version
- * (it keeps the stamp it had when it was replaced).
+ * The status a version's stamp must show. An older version that a newer
+ * Published version replaced is "superseded" (not for use). Null only for a
+ * version that is neither, which keeps the stamp it has.
  */
 export function stampStatusFor(doc: Doc<"documents">, version: number): string | null {
   const isLive = doc.liveVersion != null && version === doc.liveVersion
   const isCurrent = version === doc.currentVersion
-  if (doc.status === "archived") return isLive || isCurrent ? "archived" : null
+  if (doc.status === "archived") {
+    if (isLive || isCurrent) return "archived"
+    return supersededBy(doc, version) != null ? "superseded" : null
+  }
   if (isLive && (!isCurrent || doc.status === "published")) return "published"
   if (isCurrent) return doc.status === "pre_draft" ? "draft" : doc.status
-  return null
+  return supersededBy(doc, version) != null ? "superseded" : null
+}
+
+/** The Published version that replaced this one, or null. */
+export function supersededBy(doc: Doc<"documents">, version: number): number | null {
+  const published =
+    doc.liveVersion ?? (doc.status === "published" || doc.status === "archived" ? doc.currentVersion : null)
+  return published != null && version < published ? published : null
+}
+
+/**
+ * What the stamp on a version says. "superseded" is worded here: the stamp
+ * library only knows the review statuses.
+ */
+export function labelFor(doc: Doc<"documents">, status: string, version: number): string {
+  if (status === "superseded")
+    return `Superseded by v${supersededBy(doc, version) ?? version + 1} · not for use`
+  return stampLabel({ status, version })
+}
+
+// A failed stamp is recorded in stampLabel with this prefix, so the reader
+// shows the error instead of "Stamping..." forever.
+const STAMP_ERROR = "Stamp failed: "
+
+function stampErrorOf(row: Doc<"documentVersions">): string | null {
+  return row.stampLabel?.startsWith(STAMP_ERROR) ? row.stampLabel.slice(STAMP_ERROR.length) : null
 }
 
 function isoDate(at: number): string {
@@ -50,7 +79,14 @@ function isoDate(at: number): string {
 
 /** Everything printed on the stamp, as one comparable key. */
 function stampKey(doc: Doc<"documents">, status: string, version: number): string {
-  return JSON.stringify([doc.namingCode, doc.title, doc.supplier ?? null, status, version])
+  return JSON.stringify([
+    doc.namingCode,
+    doc.title,
+    doc.supplier ?? null,
+    status,
+    version,
+    status === "superseded" ? supersededBy(doc, version) : null,
+  ])
 }
 
 async function versionRow(
@@ -119,11 +155,28 @@ async function replaceChunks(
   return chunks.length
 }
 
+const MAX_PDF_BYTES = 20 * 1024 * 1024
+
+/**
+ * The upload must be a fresh PDF of at most 20 MB that no Document or seed
+ * file uses yet. Otherwise a client could adopt another Document's PDF, and
+ * later delete it by replacing it.
+ */
 async function requirePdfFile(ctx: MutationCtx, storageId: Id<"_storage">) {
   const file = await ctx.db.system.get(storageId)
   if (!file) throw new Error("The uploaded PDF was not found. Try the upload again.")
-  if (file.contentType && !file.contentType.includes("pdf"))
-    throw new Error("That file is not a PDF.")
+  if (file.contentType !== "application/pdf") throw new Error("That file is not a PDF.")
+  if (file.size > MAX_PDF_BYTES)
+    throw new Error(`That PDF is larger than ${MAX_PDF_BYTES / 1024 / 1024} MB.`)
+  const taken = "That file already belongs to a Document. Upload the PDF again."
+  // No index on storage ids: the version table stays small in this showcase.
+  for await (const row of ctx.db.query("documentVersions")) {
+    if (row.sourcePdfStorageId === storageId || row.pdfStorageId === storageId)
+      throw new Error(taken)
+  }
+  for await (const m of ctx.db.query("seedMedia")) {
+    if (m.storageId === storageId) throw new Error(taken)
+  }
 }
 
 const MAX_PAGES = 2000
@@ -385,6 +438,9 @@ export const restamp = mutation({
     const doc = await ctx.db.get(args.documentId)
     if (!doc || doc.origin !== "wrapped") throw new Error("This is not a Wrapped manual.")
     await ctx.db.patch(doc._id, { updatedAt: Date.now() })
+    // Clear a recorded failure, so the reader shows the new attempt.
+    const row = await versionRow(ctx, doc._id, args.version)
+    if (row && stampErrorOf(row) != null) await ctx.db.patch(row._id, { stampLabel: null })
     await scheduleStamp(ctx, doc._id, [args.version])
   },
 })
@@ -404,11 +460,15 @@ export const stampContext = internalQuery({
     return {
       sourcePdfStorageId: row.sourcePdfStorageId,
       key: stampKey(doc, status, args.version),
+      label: labelFor(doc, status, args.version),
+      // The page count read from the PDF at upload, checked against the file.
+      pageCount: row.pdfPageCount ?? null,
       info: {
         namingCode: doc.namingCode,
         title: doc.title,
         version: args.version,
         status,
+        supersededBy: status === "superseded" ? supersededBy(doc, args.version) : null,
         date: isoDate(status === "published" ? row.publishedAt : Date.now()),
         supplier: doc.supplier ?? null,
       },
@@ -433,12 +493,35 @@ export const stampVersion = internalAction({
   handler: async (ctx, args): Promise<string | null> => {
     const plan = await ctx.runQuery(internal.manuals.stampContext, args)
     if (!plan) return null
-    const blob = await ctx.storage.get(plan.sourcePdfStorageId)
-    if (!blob) {
-      console.error(`stampVersion: supplier PDF missing for ${plan.info.namingCode} v${args.version}`)
+    const fail = async (error: string) => {
+      console.error(`stampVersion ${plan.info.namingCode} v${args.version}: ${error}`)
+      await ctx.runMutation(internal.manuals.saveStampError, {
+        documentId: args.documentId,
+        version: args.version,
+        sourcePdfStorageId: plan.sourcePdfStorageId,
+        error,
+      })
       return null
     }
-    const stamped = await stampPdf(await blob.arrayBuffer(), plan.info)
+    const blob = await ctx.storage.get(plan.sourcePdfStorageId)
+    if (!blob) return await fail("the supplier PDF is missing. Upload it again.")
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    const magic = new TextDecoder().decode(bytes.subarray(0, 1024))
+    if (!magic.includes("%PDF-")) return await fail("the file is not a PDF. Upload it again.")
+    let stamped: Awaited<ReturnType<typeof stampPdf>>
+    try {
+      stamped = await stampPdf(bytes, plan.info)
+    } catch (err) {
+      return await fail(
+        `the PDF could not be read (${err instanceof Error ? err.message.slice(0, 120) : "unknown error"}).`,
+      )
+    }
+    // The page text (Ask, Findings, Trainings) was read in the browser: it
+    // must belong to this file.
+    if (plan.pageCount != null && plan.pageCount !== stamped.pageCount)
+      return await fail(
+        `the PDF has ${stamped.pageCount} pages, but ${plan.pageCount} pages of text were sent. Upload it again.`,
+      )
     const storageId = await ctx.storage.store(
       new Blob([stamped.bytes as BlobPart], { type: "application/pdf" }),
     )
@@ -448,10 +531,25 @@ export const stampVersion = internalAction({
       storageId,
       sourcePdfStorageId: plan.sourcePdfStorageId,
       key: plan.key,
-      label: stamped.label,
+      label: plan.label,
       pageCount: stamped.pageCount,
     })
-    return saved ? stamped.label : null
+    return saved ? plan.label : null
+  },
+})
+
+/** Record why a stamp failed, so readers show it instead of waiting. */
+export const saveStampError = internalMutation({
+  args: {
+    documentId: v.id("documents"),
+    version: v.number(),
+    sourcePdfStorageId: v.id("_storage"),
+    error: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const row = await versionRow(ctx, args.documentId, args.version)
+    if (!row || row.sourcePdfStorageId !== args.sourcePdfStorageId) return
+    await ctx.db.patch(row._id, { stampLabel: `${STAMP_ERROR}${args.error}` })
   },
 })
 
@@ -488,6 +586,23 @@ export const saveStamp = internalMutation({
     })
     if (previous && previous !== args.storageId && previous !== row.sourcePdfStorageId)
       await deleteFileIfUnused(ctx, doc._id, previous, row._id)
+
+    // A newly Published version: the versions it replaced must stop saying
+    // "Controlled copy" and say "Superseded by vN · not for use" instead.
+    if (status === "published") {
+      const older = await ctx.db
+        .query("documentVersions")
+        .withIndex("by_documentId_and_version", (q) =>
+          q.eq("documentId", doc._id).lt("version", args.version),
+        )
+        .take(200)
+      const stale = older.filter((r) => {
+        if (!r.sourcePdfStorageId) return false
+        const s = stampStatusFor(doc, r.version)
+        return s === "superseded" && r.stampLabel !== labelFor(doc, s, r.version)
+      })
+      await scheduleStamp(ctx, doc._id, stale.map((r) => r.version))
+    }
     return true
   },
 })
@@ -542,29 +657,42 @@ export const getWrapped = query({
     if (!doc || doc.origin !== "wrapped") return null
     const row = await versionRow(ctx, doc._id, args.version)
     if (!row) return null
-    const status = stampStatusFor(doc, args.version)
-    const expectedLabel = status ? stampLabel({ status, version: args.version }) : null
+    const status = stampStatusFor(doc, args.version) ?? "superseded"
+    const expectedLabel = labelFor(doc, status, args.version)
+    const stampError = stampErrorOf(row)
     const hasStamp = row.pdfStorageId != null
     // The stamp shows an older status or title than the Document has now.
-    const outdated = hasStamp && expectedLabel != null && row.stampLabel !== expectedLabel
+    const outdated = hasStamp && row.stampLabel !== expectedLabel
     const base = `${doc.namingCode} v${args.version}`
+    // Only the Published version is the controlled copy (CONTEXT.md).
+    const copyKind =
+      status === "published"
+        ? "controlled copy"
+        : status === "superseded"
+          ? "superseded copy"
+          : status === "archived"
+            ? "archived copy"
+            : "draft, not for use"
     return {
       namingCode: doc.namingCode,
       title: doc.title,
       supplier: doc.supplier ?? null,
       version: args.version,
-      // What the stamp shows once stamping is done; "superseded" keeps its old stamp.
-      stampStatus: status ?? "superseded",
-      stampLabel: row.stampLabel ?? null,
+      stampStatus: status,
+      stampLabel: stampError == null ? (row.stampLabel ?? null) : null,
       expectedLabel,
+      // Why the last stamp failed, or null.
+      stampError,
       pageCount: row.pdfPageCount ?? null,
       changeNote: row.changeNote ?? null,
       stampedUrl: row.pdfStorageId ? await ctx.storage.getUrl(row.pdfStorageId) : null,
       sourceUrl: row.sourcePdfStorageId ? await ctx.storage.getUrl(row.sourcePdfStorageId) : null,
-      stampedFilename: `${base} controlled copy.pdf`,
+      // The download button says what the file is.
+      copyKind,
+      stampedFilename: `${base} ${copyKind.replace(",", "")}.pdf`,
       sourceFilename: `${base} supplier original.pdf`,
       // While true, readers show the original (or the older stamp) and say so.
-      stamping: !hasStamp || outdated,
+      stamping: stampError == null && (!hasStamp || outdated),
       // Since when the stamp has been pending; the client decides when it is late.
       waitingSince: Math.max(row._creationTime, doc.updatedAt),
     }

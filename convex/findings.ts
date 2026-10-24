@@ -97,7 +97,7 @@ export function pairKeyFor(
 
 // ---- Publish hook --------------------------------------------------------------
 
-async function openFindingsTouching(ctx: QueryCtx, documentId: Id<"documents">) {
+export async function openFindingsTouching(ctx: QueryCtx, documentId: Id<"documents">) {
   const [asA, asB] = await Promise.all([
     ctx.db
       .query("findings")
@@ -478,7 +478,7 @@ export const dismiss = mutation({
 // ---- Reading -----------------------------------------------------------------------
 
 /** An open Finding still stands only while both sides are the Published versions. */
-async function stillStands(ctx: QueryCtx, f: Doc<"findings">): Promise<boolean> {
+export async function stillStands(ctx: QueryCtx, f: Doc<"findings">): Promise<boolean> {
   for (const s of [f.a, f.b]) {
     const d = await ctx.db.get(s.documentId)
     if (!d || publishedVersion(d) !== s.version) return false

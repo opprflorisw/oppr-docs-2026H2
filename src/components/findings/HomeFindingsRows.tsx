@@ -57,7 +57,7 @@ export function HomeFindingsRows() {
                     <span className="font-mono">
                       {f.a.namingCode} / {f.b.namingCode}
                     </span>{" "}
-                    · {contradiction ? "Contradiction" : "Duplicate"} found {whenText(f.detectedAt)}
+                    · {contradiction ? "Contradiction" : "Overlap"} found {whenText(f.detectedAt)}
                   </span>
                 </span>
                 <Button

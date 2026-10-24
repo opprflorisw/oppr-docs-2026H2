@@ -37,6 +37,21 @@ const TRIGGER_TEXT = {
   seed: "after setup",
 } as const
 
+// Contradictions come first everywhere: Ask could give conflicting answers.
+// Overlaps (repeated sections) only make the library bigger than it needs to be.
+const GROUPS = [
+  {
+    kind: "contradiction",
+    title: "Contradictions",
+    text: "Two Published documents say different things. Settle these first.",
+  },
+  {
+    kind: "duplicate",
+    title: "Overlaps",
+    text: "Two Published documents repeat the same section. Lower priority: consider merging them.",
+  },
+] as const
+
 // /library/findings (CONTEXT.md: Consistency check, Finding). Every Finding
 // the check produced: open ones to act on, and the closed ones as a record of
 // how each was settled.
@@ -152,10 +167,27 @@ export function FindingsPage() {
           ) : list.length === 0 ? (
             <EmptyState tab={tab} running={running != null} onRun={() => void startRun()} />
           ) : (
-            <div className="space-y-3">
-              {list.map((f) => (
-                <FindingCard key={f._id} finding={f} highlighted={f._id === focusId} />
-              ))}
+            <div className="space-y-6">
+              {GROUPS.map((g) => {
+                const items = list.filter((f) => f.kind === g.kind)
+                if (items.length === 0) return null
+                return (
+                  <div key={g.kind} className="space-y-3">
+                    <div>
+                      <h2 className="flex items-center gap-2 text-sm font-semibold">
+                        {g.title}
+                        <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">
+                          {items.length}
+                        </Badge>
+                      </h2>
+                      <p className="text-xs text-muted-foreground">{g.text}</p>
+                    </div>
+                    {items.map((f) => (
+                      <FindingCard key={f._id} finding={f} highlighted={f._id === focusId} />
+                    ))}
+                  </div>
+                )
+              })}
             </div>
           )}
         </section>

@@ -110,8 +110,46 @@ export function FloorPlan({
 
   const walkingCode = walkingTo ? assets.find((a) => a._id === walkingTo)?.code : null
 
+  // The plan's width on screen, so pins that would collide can make room.
+  const boxRef = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(1000)
+  useEffect(() => {
+    const el = boxRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth))
+    ro.observe(el)
+    setWidth(el.clientWidth)
+    return () => ro.disconnect()
+  }, [])
+  const compact = width < 640
+  // A pin is about 85 px wide (70 px compact). When the next machine in a row
+  // sits closer than that, its pin goes below the machine instead of above.
+  const below = useMemo(() => {
+    const pinPx = compact ? 74 : 90
+    const out = new Set<string>()
+    const rows = new Map<number, typeof placed>()
+    for (const p of placed) {
+      const key = Math.round(p.spot.at.y / 40)
+      rows.set(key, [...(rows.get(key) ?? []), p])
+    }
+    for (const row of rows.values()) {
+      const sorted = [...row].sort((a, b) => a.spot.at.x - b.spot.at.x)
+      for (let i = 1; i < sorted.length; i++) {
+        const prev = sorted[i - 1]
+        const gap = ((sorted[i].spot.at.x - prev.spot.at.x) / VIEW_W) * width
+        if (gap < pinPx && !out.has(prev.id)) out.add(sorted[i].id)
+      }
+    }
+    return out
+  }, [placed, width, compact])
+
+  // The hover card closes on click, so it does not cover the plan or the
+  // phone while the walk and the Scan play. It opens again on the next hover.
+  const [cardOpen, setCardOpen] = useState<string | null>(null)
+  const [cardSuppressed, setCardSuppressed] = useState<string | null>(null)
+
   return (
-    <div className="relative w-full select-none" style={{ aspectRatio: `${VIEW_W} / ${VIEW_H}` }}>
+    <div ref={boxRef} className="relative w-full select-none" style={{ aspectRatio: `${VIEW_W} / ${VIEW_H}` }}>
       <svg
         viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
         className="absolute inset-0 h-full w-full"
@@ -149,18 +187,31 @@ export function FloorPlan({
       {placed.map((p) => {
         const a = assets.find((x) => x._id === p.id)!
         const tone = toneOf(p.id)
-        const anchor = { x: p.spot.at.x, y: p.spot.at.y - PIN_LIFT[p.spot.shape] }
+        const under = below.has(p.id)
+        const anchor = { x: p.spot.at.x, y: p.spot.at.y + (under ? PIN_LIFT[p.spot.shape] : -PIN_LIFT[p.spot.shape]) }
         return (
-          <HoverCard key={p.id} openDelay={120} closeDelay={60}>
+          <HoverCard
+            key={p.id}
+            openDelay={120}
+            closeDelay={60}
+            open={cardOpen === p.id}
+            onOpenChange={(o) => setCardOpen(o && cardSuppressed !== p.id ? p.id : null)}
+          >
             <HoverCardTrigger asChild>
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => onPick(p.id)}
+                onPointerLeave={() => setCardSuppressed((s) => (s === p.id ? null : s))}
+                onClick={() => {
+                  setCardOpen(null)
+                  setCardSuppressed(p.id)
+                  onPick(p.id)
+                }}
                 aria-label={`${a.code} ${a.name}. Walk there and scan its QR code`}
                 style={pct(anchor)}
                 className={cn(
-                  "absolute z-10 flex -translate-x-1/2 -translate-y-full items-center gap-1 rounded-md border bg-background py-0.5 pl-0.5 pr-1.5 shadow-sm transition",
+                  "absolute z-10 flex -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-md border bg-background py-0.5 pl-0.5 pr-1.5 shadow-sm transition",
+                  under ? "translate-y-0" : "-translate-y-full",
                   "hover:z-20 hover:border-primary hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default",
                   tone === "here" && "border-primary ring-2 ring-primary/25",
                   tone === "done" && "border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10",
@@ -168,9 +219,11 @@ export function FloorPlan({
                 )}
               >
                 <span className="rounded-[3px] bg-white p-px ring-1 ring-black/10">
-                  <AssetQrSvg value={a.qrToken} size={18} />
+                  <AssetQrSvg value={a.qrToken} size={compact ? 13 : 18} />
                 </span>
-                <span className="font-mono text-[10px] font-semibold leading-none">{a.code}</span>
+                <span className={cn("font-mono font-semibold leading-none", compact ? "text-[9px]" : "text-[10px]")}>
+                  {a.code}
+                </span>
                 {tone === "done" && <CheckCircle2 className="h-3 w-3 text-emerald-600" />}
               </button>
             </HoverCardTrigger>

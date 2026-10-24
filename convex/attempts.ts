@@ -69,6 +69,12 @@ function advance(a: Attempt, stops: Doc<"trainingVersions">["stops"]): Attempt["
   return { ...a.round, currentStop: current }
 }
 
+/** Why a Training sent back to review by a Significant change cannot be done now. */
+function underReview(t: Doc<"trainings">): string {
+  const code = t.needsReviewReason?.match(/^(\S+)\s+v\d+/)?.[1]
+  return `This Training is being reviewed after a change to ${code ?? "one of its documents"}. It can be done again once an Engineer has confirmed it.`
+}
+
 function isCorrect(q: Question) {
   return q.answerIndex !== null && q.answerIndex === q.correctIndex
 }
@@ -89,6 +95,7 @@ export const start = mutation({
     if (!t) throw new ConvexError("This Training no longer exists.")
     if (!isTrainingLive(t))
       throw new ConvexError("This Training is not published yet. Attempts start once an Engineer publishes it.")
+    if (t.needsReview) throw new ConvexError(underReview(t))
 
     const mine = await ctx.db
       .query("trainingAttempts")
@@ -154,7 +161,9 @@ export const get = query({
     const t = await ctx.db.get(a.trainingId)
     const person = await ctx.db.get(a.personId)
     const row = await getVersion(ctx, a.trainingId, a.trainingVersion)
-    const finished = a.status === "passed" || a.status === "failed" || a.status === "abandoned"
+    // Only a scored Attempt shows every answer. An abandoned one keeps the
+    // answers of its unanswered questions hidden: it can be started again.
+    const finished = a.status === "passed" || a.status === "failed"
     const objectiveText = new Map((row?.objectives ?? []).map((o) => [o.id, o.text]))
 
     const stops = []
@@ -227,12 +236,16 @@ export const get = query({
         if (e.at < a.finishedAt - 1000 || e.at > a.finishedAt + 5 * 60 * 1000) continue
         if (e.toLevel < e.fromLevel || skillsRaised.some((x) => x.skillId === e.skillId)) continue
         const skill = await ctx.db.get(e.skillId)
+        // Same level again: only a renewal when the Skill has a validity
+        // period (or the pass cleared "re-train needed"); otherwise nothing changed.
+        const renewed = e.toLevel === e.fromLevel
+        if (renewed && skill?.validityMonths == null && !e.reason.startsWith("Re-trained")) continue
         skillsRaised.push({
           skillId: e.skillId,
           name: skill?.name ?? "Skill",
           fromLevel: e.fromLevel,
           toLevel: e.toLevel,
-          renewed: e.toLevel === e.fromLevel,
+          renewed,
         })
       }
     }
@@ -434,6 +447,15 @@ export const finish = mutation({
     const a = await loadOwnAttempt(ctx, args.id, args.personId)
     requireInProgress(a)
     const row = await loadAttemptVersion(ctx, a)
+    // Only the live version, while it is not under review, can be passed:
+    // a record must prove what the Knowledge says today.
+    const t = await ctx.db.get(a.trainingId)
+    if (!t || !isTrainingLive(t)) throw new ConvexError("This Training is no longer published, so it cannot be passed.")
+    if (t.needsReview) throw new ConvexError(underReview(t))
+    if (a.trainingVersion !== t.liveVersion)
+      throw new ConvexError(
+        `This Attempt is of v${a.trainingVersion}, and v${t.liveVersion} is now in use. Start the Training again to do the current version.`,
+      )
     const open = a.questions.filter((q) => q.answerIndex === null).length
     if (open > 0) throw new ConvexError(`Answer every question first: ${open} still open.`)
     if (a.round) {
@@ -451,14 +473,13 @@ export const finish = mutation({
     await ctx.db.patch(a._id, { status: passed ? "passed" : "failed", score, finishedAt: now })
     let recordId: Id<"trainingRecords"> | null = null
     if (passed) {
-      const t = await ctx.db.get(a.trainingId)
       recordId = await ctx.db.insert("trainingRecords", {
         personId: a.personId,
         trainingId: a.trainingId,
         trainingVersion: a.trainingVersion,
         attemptId: a._id,
-        trainingCode: t?.code ?? "?",
-        trainingTitle: t?.title ?? "Training",
+        trainingCode: t.code,
+        trainingTitle: t.title,
         score,
         passedAt: now,
       })
@@ -670,7 +691,8 @@ export const loadForGeneration = internalQuery({
         stopIndex: t.kind === "round" ? stopOf.get(o.id) ?? null : null,
       })
     }
-    // Other passages of the same Documents, as distractors for the fallback.
+    // Other passages of the same Documents: true statements that a fallback
+    // question's wrong options must never repeat.
     const pool: { text: string; section: string | null; namingCode: string }[] = []
     const seenDocs = new Set<string>()
     for (const o of row.objectives) {

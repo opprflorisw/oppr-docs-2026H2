@@ -17,6 +17,7 @@ import {
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react"
+import { Link, useLocation } from "wouter"
 import { Factory, MapPin } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery } from "convex/react"
@@ -34,17 +35,36 @@ import { Button } from "@/components/ui/button"
 import type { Asset } from "@/types"
 import { useRecentlyLinkedAssets } from "./useRecentlyLinkedAssets"
 
-function LinkedAssetNodeView({ node, selected }: NodeViewProps) {
+function LinkedAssetNodeView({ node, selected, editor }: NodeViewProps) {
   const label = (node.attrs.label as string) || "(unknown)"
+  const assetId = node.attrs.assetId as string | null
+  // On the floor app (/m) the chip opens the mobile page.
+  const [location] = useLocation()
+  const base = location.startsWith("/m/") || location === "/m" ? "/m" : ""
+  const chip = cn(
+    "mx-0.5 inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 align-baseline text-xs font-medium text-emerald-800",
+    selected && "ring-2 ring-emerald-400 ring-offset-1",
+  )
+  // Reading: the chip opens the Asset. Editing: a plain chip.
+  if (!editor.isEditable && assetId) {
+    return (
+      <NodeViewWrapper as="span" data-linked-asset contentEditable={false}>
+        <Link
+          href={`${base}/assets/${assetId}`}
+          className={cn(chip, "no-underline transition-colors hover:border-emerald-500 hover:bg-emerald-100")}
+        >
+          <Factory className="h-3 w-3" />
+          <span className="font-mono">{label}</span>
+        </Link>
+      </NodeViewWrapper>
+    )
+  }
   return (
     <NodeViewWrapper
       as="span"
       data-linked-asset
       contentEditable={false}
-      className={cn(
-        "mx-0.5 inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 align-baseline text-xs font-medium text-emerald-800",
-        selected && "ring-2 ring-emerald-400 ring-offset-1",
-      )}
+      className={chip}
     >
       <Factory className="h-3 w-3" />
       <span className="font-mono">{label}</span>
@@ -193,7 +213,7 @@ export function LinkedAssetPicker({
   function pick(asset: Asset) {
     push(asset.id)
     const label =
-      labelMode === "codeName" ? `${asset.code} — ${asset.name}` : asset.code
+      labelMode === "codeName" ? `${asset.code} · ${asset.name}` : asset.code
     onSelect({ assetId: asset.id, label })
     onOpenChange(false)
     setQuery("")
@@ -275,7 +295,7 @@ export function LinkedAssetPicker({
                         )}
                         <span className="font-mono text-sm">{asset.code}</span>
                         <span className="flex-1 truncate text-muted-foreground">
-                          — {asset.name}
+                          · {asset.name}
                         </span>
                         {asset.location && (
                           <span className="hidden items-center gap-0.5 text-[10px] text-muted-foreground sm:inline-flex">

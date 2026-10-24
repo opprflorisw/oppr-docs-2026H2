@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { initials } from "@/lib/checkIn"
+import { initials, useCheckIn } from "@/lib/checkIn"
 import { cn } from "@/lib/utils"
 import {
   ProfileDialog,
@@ -23,6 +23,9 @@ import { errorText } from "./skills/skillUi"
 // levels, and who is measured against which profile.
 export function SkillsSettings() {
   const catalogue = useQuery(api.skills.catalogue)
+  // Changing the catalogue, profiles or who is measured needs a checked-in Engineer.
+  const { person } = useCheckIn()
+  const engineer = person?.kind === "engineer" ? person : null
   const assignProfiles = useMutation(api.people.assignProfiles)
   const [skillDialog, setSkillDialog] = useState<{ skill: CatalogueSkill | null } | null>(null)
   const [profileDialog, setProfileDialog] = useState<{ profile: CatalogueProfile | null } | null>(null)
@@ -40,10 +43,11 @@ export function SkillsSettings() {
   const skillName = new Map(catalogue.skills.map((s) => [s._id, s.name]))
 
   async function toggleProfile(personId: Id<"people">, current: Id<"skillProfiles">[], profileId: Id<"skillProfiles">) {
+    if (!engineer) return
     const next = current.includes(profileId) ? current.filter((x) => x !== profileId) : [...current, profileId]
     setSaving(`${personId}-${profileId}`)
     try {
-      await assignProfiles({ personId, profileIds: next })
+      await assignProfiles({ personId, profileIds: next, engineerPersonId: engineer._id })
     } catch (err) {
       toast.error(errorText(err))
     } finally {
@@ -61,6 +65,11 @@ export function SkillsSettings() {
         </Link>{" "}
         compares the two.
       </p>
+      {!engineer && (
+        <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+          Check in as an Engineer (top right) to add or change Skills and Skill profiles, or to assign them.
+        </p>
+      )}
 
       {/* ---- Skills ---- */}
       <section className="space-y-2">
@@ -70,7 +79,13 @@ export function SkillsSettings() {
           <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
             {catalogue.skills.length}
           </Badge>
-          <Button size="sm" variant="outline" className="ml-auto h-7 gap-1 text-xs" onClick={() => setSkillDialog({ skill: null })}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto h-7 gap-1 text-xs"
+            disabled={!engineer}
+            onClick={() => setSkillDialog({ skill: null })}
+          >
             <Plus className="h-3.5 w-3.5" />
             Add Skill
           </Button>
@@ -84,7 +99,7 @@ export function SkillsSettings() {
                 Add the abilities your plant runs on, such as operating a line or lockout/tagout, and link
                 the documents and Trainings behind them.
               </p>
-              <Button size="sm" variant="outline" className="mt-1" onClick={() => setSkillDialog({ skill: null })}>
+              <Button size="sm" variant="outline" className="mt-1" disabled={!engineer} onClick={() => setSkillDialog({ skill: null })}>
                 Add the first Skill
               </Button>
             </CardContent>
@@ -146,6 +161,7 @@ export function SkillsSettings() {
                           variant="ghost"
                           className="h-7 w-7"
                           aria-label={`Edit ${s.name}`}
+                          disabled={!engineer}
                           onClick={() => setSkillDialog({ skill: s })}
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -172,7 +188,7 @@ export function SkillsSettings() {
             size="sm"
             variant="outline"
             className="ml-auto h-7 gap-1 text-xs"
-            disabled={catalogue.skills.length === 0}
+            disabled={!engineer || catalogue.skills.length === 0}
             onClick={() => setProfileDialog({ profile: null })}
           >
             <Plus className="h-3.5 w-3.5" />
@@ -199,6 +215,7 @@ export function SkillsSettings() {
                       variant="ghost"
                       className="h-7 w-7"
                       aria-label={`Edit ${p.name}`}
+                      disabled={!engineer}
                       onClick={() => setProfileDialog({ profile: p })}
                     >
                       <Pencil className="h-3.5 w-3.5" />
@@ -210,7 +227,8 @@ export function SkillsSettings() {
                     <div className="flex flex-wrap gap-1">
                       {p.targets.map((t) => (
                         <span key={t.skillId} className="rounded border bg-muted/40 px-1.5 py-0.5 text-[11px]">
-                          {skillName.get(t.skillId)} <span className="font-semibold">{t.level}</span>
+                          {skillName.get(t.skillId)} <span className="text-muted-foreground">· level</span>{" "}
+                          <span className="font-semibold">{t.level}</span>
                         </span>
                       ))}
                     </div>
@@ -255,7 +273,7 @@ export function SkillsSettings() {
                           <button
                             key={p._id}
                             type="button"
-                            disabled={busy}
+                            disabled={busy || !engineer}
                             aria-pressed={on}
                             onClick={() => void toggleProfile(person._id, person.profileIds, p._id)}
                             className={cn(
@@ -264,6 +282,7 @@ export function SkillsSettings() {
                                 ? "border-primary/40 bg-primary/10 text-primary"
                                 : "border-dashed text-muted-foreground hover:border-primary/40 hover:text-foreground",
                               busy && "opacity-50",
+                              !engineer && "cursor-default",
                             )}
                           >
                             {on ? "✓ " : "+ "}
@@ -280,20 +299,22 @@ export function SkillsSettings() {
         </section>
       )}
 
-      {skillDialog && (
+      {skillDialog && engineer && (
         <SkillDialog
           open
           onOpenChange={(o) => !o && setSkillDialog(null)}
           skill={skillDialog.skill}
           catalogue={catalogue}
+          engineerPersonId={engineer._id}
         />
       )}
-      {profileDialog && (
+      {profileDialog && engineer && (
         <ProfileDialog
           open
           onOpenChange={(o) => !o && setProfileDialog(null)}
           profile={profileDialog.profile}
           catalogue={catalogue}
+          engineerPersonId={engineer._id}
         />
       )}
     </div>

@@ -531,34 +531,170 @@ function verify(
   }
 }
 
+// Word pairs a fallback distractor may swap: each turns a true statement
+// into a false one of the same form.
+const SWAPS: [string, string][] = [
+  ["open", "close"],
+  ["opened", "closed"],
+  ["before", "after"],
+  ["above", "below"],
+  ["higher", "lower"],
+  ["more than", "less than"],
+  ["at least", "at most"],
+  ["minimum", "maximum"],
+  ["first", "last"],
+  ["never", "always"],
+  ["increase", "decrease"],
+  ["rises", "drops"],
+  ["clockwise", "anticlockwise"],
+  ["crosswise", "one by one"],
+  ["empty", "full"],
+  ["when", "unless"],
+  ["may", "may not"],
+  ["your own", "every"],
+]
+// Interchangeable things of the plant: swapping one for another makes a
+// statement false (a role, a piece of protective equipment).
+const KINDS: string[][] = [
+  [
+    "quality manager",
+    "shift leader",
+    "line operator",
+    "mixing operator",
+    "process engineer",
+    "quality lab technician",
+    "maintenance and safety engineer",
+  ],
+  ["heat-resistant gloves", "nitrile gloves", "cut-resistant gloves"],
+  ["FFP2", "FFP1"],
+  ["face shield", "bump cap"],
+  ["personal lock", "shared lock"],
+]
+// First words of an instruction that "Do not" can turn around.
+const IMPERATIVES = new Set(
+  "attach call check clean close cool fill find fit follow go inform inspect isolate keep lay load lock measure mix open press pull purge put read release remove replace report scrap set sign start stop switch take tell tighten use wait wear weigh write".split(
+    " ",
+  ),
+)
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+const wordRe = (s: string) => new RegExp(`\\b${escapeRe(s)}\\b`, "i")
+const keepCase = (from: string, to: string) => (/^[A-Z]/.test(from) ? to[0].toUpperCase() + to.slice(1) : to)
+
+/** A number changed to another plausible value (same decimals, same sign). */
+function otherNumbers(raw: string): string[] {
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n === 0) return []
+  const decimals = raw.includes(".") ? raw.split(".")[1].length : 0
+  const fmt = (x: number) => x.toFixed(decimals)
+  const step = decimals > 0 ? Math.pow(10, -decimals) : Math.abs(n) >= 20 ? 10 : 1
+  return [n * 2, n / 2, n + Math.sign(n) * step * (Math.abs(n) >= 20 ? 3 : 2)]
+    .map(fmt)
+    .filter((x) => x !== raw && Number(x) !== 0 && Number(x) !== n)
+}
+
+/** One change each: a number, a word turned around ("open" -> "close") or a role or item swapped. */
+function changedFacts(sentence: string): string[] {
+  const out: string[] = []
+  // Numbers that are values, not part of a code such as EXL-201 or FFP2.
+  const numRe = /(?<![A-Za-z0-9.-])-?\d+(?:\.\d+)?(?![A-Za-z0-9.])/g
+  for (const m of sentence.matchAll(numRe)) {
+    for (const alt of otherNumbers(m[0]).slice(0, 2))
+      out.push(sentence.slice(0, m.index) + alt + sentence.slice(m.index! + m[0].length))
+  }
+  for (const [a, b] of SWAPS) {
+    for (const [from, to] of [
+      [a, b],
+      [b, a],
+    ]) {
+      // "may" -> "may not" only where the sentence does not say "may not" already.
+      if (to.startsWith(`${from} `) && wordRe(to).test(sentence)) continue
+      const re = wordRe(from)
+      const m = sentence.match(re)
+      if (m) out.push(sentence.replace(re, keepCase(m[0], to)))
+    }
+  }
+  for (const kind of KINDS) {
+    for (const item of kind) {
+      const re = wordRe(item)
+      if (!re.test(sentence)) continue
+      for (const other of kind.filter((r) => r !== item && !sentence.toLowerCase().includes(r.toLowerCase())).slice(0, 3))
+        out.push(sentence.replace(re, other))
+    }
+  }
+  return out
+}
+
+/**
+ * False variants of a true sentence: one fact changed, then (when that
+ * gives too few) the instruction negated or two facts changed at once.
+ */
+function falseVariants(sentence: string): string[] {
+  const single = changedFacts(sentence)
+  const out = [...single]
+  const first = sentence.match(/^(\w+)\s/)?.[1] ?? ""
+  if (/^(never|do not)\s/i.test(sentence))
+    out.push(sentence.replace(/^(never|do not)\s+(\w)/i, (_, __, c: string) => c.toUpperCase()))
+  else if (IMPERATIVES.has(first.toLowerCase())) out.push(`Do not ${sentence[0].toLowerCase()}${sentence.slice(1)}`)
+  if (out.length < 3) {
+    const same = squash(sentence)
+    for (const v of single) for (const w of changedFacts(v)) if (squash(w) !== same) out.push(w)
+  }
+  return out
+}
+
 /**
  * Written by code when the model's questions for an objective all fail the
- * check: "which statement is in the document" with the quoted passage as the
- * answer and other passages as the wrong options. Grounded by construction.
+ * check: "which of these does the document say", with a sentence of the
+ * cited passage as the answer and two or three false versions of that sentence
+ * (a number changed, a word turned around, a role swapped) as the wrong
+ * options. Never other true passages: those would be right answers too.
+ * The sentence asked about varies between Attempts.
  */
 function fallbackQuestion(o: GenObjective, pool: GenInput["pool"]): Built | null {
-  const others = shuffle(
-    pool.filter((p) => !quoteIn(o.quote, p.text) && squash(p.text) !== squash(o.quote) && p.section !== o.section),
-  )
-  const sameDoc = others.filter((p) => p.namingCode === o.namingCode)
-  const picks = [...sameDoc, ...others.filter((p) => p.namingCode !== o.namingCode)].slice(0, 3)
-  if (picks.length < 3) return null
-  const cut = (s: string) => (s.length > 220 ? `${s.slice(0, 217)}...` : s)
-  return {
-    objectiveId: o.id,
-    stopIndex: o.stopIndex,
-    prompt: `${o.text.replace(/[.\s]+$/, "")}. Which of these does ${o.namingCode} say${o.section ? ` under "${o.section}"` : ""}?`,
-    correct: cut(o.quote),
-    distractors: picks.map((p) => cut(p.text)),
-    explanation: `${o.namingCode} v${o.version} states: "${o.quote}"`,
-    citation: {
-      documentId: o.documentId,
-      namingCode: o.namingCode,
-      version: o.version!,
-      chunkId: o.chunkId,
-      quote: o.quote,
-    },
+  const passage = o.passage ?? o.quote
+  const sentences = passage
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 20 && s.length <= 240 && !s.includes(" | "))
+  // The objective's own quote first, then the passage's other sentences, in random order.
+  const quoteSentences = sentences.filter((s) => quoteIn(s, o.quote) || quoteIn(o.quote, s))
+  const candidates = [
+    ...shuffle(quoteSentences.length > 0 ? quoteSentences : o.quote.length <= 240 ? [o.quote] : []),
+    ...shuffle(sentences.filter((s) => !quoteSentences.includes(s))),
+  ]
+  // Prefer the quote, but sometimes ask about another sentence of the passage.
+  if (candidates.length > 1 && Math.random() < 0.35) candidates.push(candidates.shift()!)
+  const trueTexts = [passage, ...pool.map((p) => p.text)].map(squash)
+  for (const sentence of candidates) {
+    const seen = new Set([squash(sentence)])
+    const wrong: string[] = []
+    for (const v of shuffle(falseVariants(sentence))) {
+      const k = squash(v)
+      if (seen.has(k) || trueTexts.some((t) => t.includes(k))) continue
+      seen.add(k)
+      wrong.push(v)
+      if (wrong.length === 3) break
+    }
+    // Three wrong options when the sentence allows it; two still make a fair question.
+    if (wrong.length < 2) continue
+    return {
+      objectiveId: o.id,
+      stopIndex: o.stopIndex,
+      prompt: `${o.text.replace(/[.\s]+$/, "")}. Which of these does ${o.namingCode} say${o.section ? ` under "${o.section}"` : ""}?`,
+      correct: sentence,
+      distractors: wrong,
+      explanation: `${o.namingCode} v${o.version} states: "${sentence}"`,
+      citation: {
+        documentId: o.documentId,
+        namingCode: o.namingCode,
+        version: o.version!,
+        chunkId: o.chunkId,
+        quote: quoteIn(sentence, passage) ? sentence : o.quote,
+      },
+    }
   }
+  return null
 }
 
 async function askModel(input: GenInput, objectives: GenObjective[], perObjective: number, avoid: string[]) {

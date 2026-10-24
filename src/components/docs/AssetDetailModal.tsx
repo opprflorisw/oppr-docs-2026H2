@@ -41,7 +41,7 @@ export function AssetDetailModal({
 }: AssetDetailModalProps) {
   return (
     <Dialog open={assetId !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
         <DialogHeader className="sr-only">
           <DialogTitle>Asset detail</DialogTitle>
         </DialogHeader>

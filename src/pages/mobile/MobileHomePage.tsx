@@ -32,6 +32,7 @@ import {
 import { MobileGlobalSearch } from "@/components/mobile/MobileGlobalSearch"
 import { MobileCheckInButton } from "@/components/mobile/MobileCheckIn"
 import { MobileRoundsCard } from "@/components/mobile/MobileRoundsCard"
+import { MobileLearningCard } from "@/components/mobile/MobileLearningCard"
 import { cn } from "@/lib/utils"
 
 export function MobileHomePage() {
@@ -166,6 +167,8 @@ export function MobileHomePage() {
           sub={docCount != null ? `${docCount}` : "Browse"}
         />
       </div>
+
+      <MobileLearningCard />
 
       <MobileRoundsCard />
 

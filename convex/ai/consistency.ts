@@ -378,7 +378,7 @@ const JUDGE_SYSTEM = [
   "",
   "DUPLICATE: both passages state the same substantial instruction or setting (the same steps or the same values for the same equipment), so that if one is changed the other must be changed too. Short generic reminders (wear gloves, lock out first, inform the shift leader), titles, headings and cross-references are not duplicates. If the passages share a subject but give different values, it is a contradiction, not a duplicate.",
   "",
-  "Only report pairs that are a contradiction or a duplicate. Leave every other pair out of `results`. If the same disagreement appears in several pairs, report it once, on the pair that states it most directly.",
+  "Only report pairs that are a contradiction or a duplicate. Leave every other pair out of `results`. If the same disagreement appears in several pairs, report it once, on the pair that states it most directly. Duplicates are different: report EVERY pair that repeats the other side, even when several pairs come from the same two documents.",
   "",
   "For each reported pair:",
   "- `pair`: the pair key, exactly as given (for example \"P3\").",
@@ -541,14 +541,28 @@ async function judgeAll(pairs: Candidate[]): Promise<{
   return { verified, dropped, failedBatches, lastError }
 }
 
+/**
+ * Documents restate key facts on purpose (the burn first aid, a drying
+ * setting), so one shared fact is not worth an Engineer's time. A duplicate
+ * counts only when at least this many passages of the same two documents
+ * repeat each other: a copied section that will drift apart.
+ */
+const MIN_DUPLICATE_PASSAGES = 3
+
 /** One duplicate per pair of documents; contradictions stay one per disagreement. */
 function collapse(verified: Verified[]): Verified[] {
+  const dupCount = new Map<string, number>()
+  for (const f of verified) {
+    if (f.kind !== "duplicate") continue
+    const k = pairId(f.a.documentId, f.b.documentId)
+    dupCount.set(k, (dupCount.get(k) ?? 0) + 1)
+  }
   const out: Verified[] = []
   const dupSeen = new Set<string>()
   for (const f of verified) {
     if (f.kind === "duplicate") {
       const k = pairId(f.a.documentId, f.b.documentId)
-      if (dupSeen.has(k)) continue
+      if ((dupCount.get(k) ?? 0) < MIN_DUPLICATE_PASSAGES || dupSeen.has(k)) continue
       dupSeen.add(k)
     }
     out.push(f)
@@ -740,4 +754,5 @@ export const runAll = internalAction({
     return { ...r, skipped: false }
   },
 })
+
 

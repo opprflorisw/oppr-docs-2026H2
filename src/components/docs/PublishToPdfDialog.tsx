@@ -55,6 +55,11 @@ interface PublishToPdfDialogProps {
   /** Controlled open state (e.g. so the edit page can save first). */
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  /**
+   * The Operator's phone: no options dialog. One tap prints (or saves as PDF)
+   * a controlled copy with fixed defaults. Renders its own button.
+   */
+  oneTap?: { className?: string }
 }
 
 export function PublishToPdfDialog({
@@ -63,9 +68,12 @@ export function PublishToPdfDialog({
   trigger,
   open: controlledOpen,
   onOpenChange,
+  oneTap,
 }: PublishToPdfDialogProps) {
   const [internalOpen, setInternalOpen] = useState(false)
-  const open = controlledOpen ?? internalOpen
+  const dialogOpen = controlledOpen ?? internalOpen
+  // One tap needs the data before the tap, so it loads up front.
+  const open = dialogOpen || oneTap != null
   const setOpen = onOpenChange ?? setInternalOpen
   const [options, setOptions] = useState<PdfExportOptions>(DEFAULT_PDF_OPTIONS)
   const [preparing, setPreparing] = useState(false)
@@ -128,12 +136,13 @@ export function PublishToPdfDialog({
     }
     if (watermarkSeeded.current || !docResult || coverSettings === undefined)
       return
+    if (oneTap) return
     const def: PdfExportOptions["watermark"] = isLiveExport
       ? (coverSettings?.defaultWatermark ?? "controlled")
       : "draft"
     setOptions((o) => ({ ...o, watermark: def }))
     watermarkSeeded.current = true
-  }, [open, docResult, coverSettings, isLiveExport])
+  }, [open, docResult, coverSettings, isLiveExport, oneTap])
 
   const imageIds = useMemo<Id<"images">[]>(() => {
     if (!resolved || resolved.version.body_kind !== "tiptap") return []
@@ -355,6 +364,7 @@ export function PublishToPdfDialog({
     diagramBgDataUrls: Record<string, string>,
     logoDataUrl: string | null,
     ppeImageBySlug: Record<string, string>,
+    opts: PdfExportOptions,
   ): string | null {
     if (!resolved) return null
     if (resolved.version.body_kind === "pdf") {
@@ -389,7 +399,7 @@ export function PublishToPdfDialog({
       version: resolved.version,
       assets: resolved.doc.assets,
       ownerName: docResult?.roles?.owner ?? null,
-      options,
+      options: opts,
       ppeOnDoc: resolved.ppeOnDoc,
       typeLabel,
       ppeCatalog: ppeEntries,
@@ -405,7 +415,7 @@ export function PublishToPdfDialog({
     })
   }
 
-  async function openExport(autoPrint: boolean) {
+  async function openExport(autoPrint: boolean, opts: PdfExportOptions = options) {
     // The window must open synchronously inside the click handler — the async
     // prep below outlives the user activation, and a window.open after it
     // would be popup-blocked for real. Navigate the shell once prep is done.
@@ -422,7 +432,7 @@ export function PublishToPdfDialog({
         inlineLogo(),
         inlinePpeImages(),
       ])
-      const html = buildHtml(pages, bgMap, logoDataUrl, ppeImageBySlug)
+      const html = buildHtml(pages, bgMap, logoDataUrl, ppeImageBySlug, opts)
       if (!html) {
         win.close()
         return
@@ -454,10 +464,32 @@ export function PublishToPdfDialog({
     (pdfStorageIds.length > 0 && pdfUrlMap === undefined) ||
     (launchLogCount > 0 && logsList === undefined)
 
+  if (oneTap) {
+    // Fixed defaults: the Published edition is a controlled copy, anything
+    // else says it is not for use.
+    const fixed: PdfExportOptions = {
+      ...DEFAULT_PDF_OPTIONS,
+      watermark: isLiveExport ? "controlled" : "draft",
+    }
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        className={oneTap.className}
+        onClick={() => void openExport(true, fixed)}
+        disabled={busy}
+        title={isLiveExport ? "A controlled copy of the Published version" : undefined}
+      >
+        {preparing ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileDown className="h-3 w-3" />}
+        Print or save as PDF
+      </Button>
+    )
+  }
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={dialogOpen} onOpenChange={setOpen}>
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileDown className="h-4 w-4 text-orange-600" />
@@ -533,13 +565,15 @@ export function PublishToPdfDialog({
               value={options.referencesBlock}
               onChange={(v) => setOptions((o) => ({ ...o, referencesBlock: v }))}
             />
-            <ToggleRow
-              id="logs-block"
-              label="Linked logs"
-              sublabel="Launch logs referenced in the body."
-              value={options.logsBlock}
-              onChange={(v) => setOptions((o) => ({ ...o, logsBlock: v }))}
-            />
+            {launchLogCount > 0 && (
+              <ToggleRow
+                id="logs-block"
+                label="Linked logs"
+                sublabel="Launch logs referenced in the body."
+                value={options.logsBlock}
+                onChange={(v) => setOptions((o) => ({ ...o, logsBlock: v }))}
+              />
+            )}
             {pdfStorageIds.length > 0 && (
               <div className="flex items-start gap-2 rounded-md bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground">
                 <FileDown className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -602,7 +636,7 @@ export function PublishToPdfDialog({
             disabled={busy}
           >
             {preparing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            Download PDF
+            Print or save as PDF
           </Button>
         </DialogFooter>
       </DialogContent>
