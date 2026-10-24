@@ -62,6 +62,12 @@ const COMPANY = "Pijpwerk Noord"
 // Every app table, in delete order. Kept: users and auth tables, templates,
 // coverSettings, seedMedia.
 const WIPE_TABLES: TableNames[] = [
+  "captureMoments",
+  "captureEntries",
+  "captureSets",
+  "captures",
+  "coverageQuestions",
+  "trainingSignals",
   "mcpCalls",
   "mcpKeys",
   "skillEvents",
@@ -111,6 +117,7 @@ function blobsOf(table: TableNames, row: Record<string, unknown>): string[] {
   if (table === "images") out.push(row.storageId)
   if (table === "importJobs") out.push(row.sourceStorageId)
   if (table === "assets") out.push(row.imageStorageId)
+  if (table === "captureEntries") out.push(row.storageId)
   if (table === "trainingAttempts") {
     const round = row.round as { evidence?: { storageId?: unknown }[] } | null
     for (const e of round?.evidence ?? []) out.push(e.storageId)
@@ -710,6 +717,8 @@ export const run = internalAction({
       ["trainings", internal.seed.trainings.run],
       ["skills", internal.seed.skills.run],
       ["insights", internal.seed.insights.run],
+      ["coverageQuestions", internal.seed.coverageQuestions.run],
+      ["captures", internal.seed.captures.run],
     ] as const
     for (const [name, fn] of steps) {
       try {

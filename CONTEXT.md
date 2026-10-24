@@ -187,8 +187,28 @@ The door through which an assistant or system the customer already runs talks to
 What connects one outside assistant or system. A checked-in Engineer creates it, with access levels (read Published, read people data, write drafts, write signals) and optionally a limit to some areas. Every call made with it is logged.
 _Avoid_: API token, password
 
+### Capturing work on the floor
+
+**Capture**:
+One person recording how they do their work, on the phone, while walking the floor. It is a continuous stream of Entries in one stretch. A Capture belongs to its author until they hand it in; after that, Engineers can see it and use it. A Capture is raw input, never Knowledge: nothing in it is Published.
+_Avoid_: Log (that is a LOGS checklist), session, recording
+
+**Entry**:
+One thing added to a Capture: a typed note, a voice note, a photo, a video, or a Scan of an Asset. Each Entry has a time and, after a Scan, the Asset it was made at.
+
+**Moment**:
+A step, safety point, quality check, tip, problem or open question that the AI found in a Capture after it was handed in. Every Moment points back to the Entries it came from (the evidence).
+
+**Capture set**:
+Several Captures of the same job, often by different Operators or on different shifts. Combining them gives one step list, shows which Captures support each step, and marks Variations.
+
+**Variation**:
+A place where Captures in a Capture set do the same step differently, skip it, or contradict Published Knowledge. An Engineer decides which way becomes the standard.
+
 ## Relationships
 
+- A **Capture** is made by one person and holds **Entries**. After hand-in the AI turns it into **Moments**. Several Captures make a **Capture set**, which shows **Variations**.
+- A Capture or a Capture set becomes a **Draft** (SOP, work instruction, LMRA or a proposal for a new LOGS checklist). It is never Published directly. A **Training** is made once that Draft is Published (docs/adr/0005).
 - A **Document** is linked to zero or more **Assets**. A **Scan** of an Asset shows its Published Documents.
 - A **Document** comes from the editor, from a **Convert**, as a **Wrapped manual**, or as an **Imported draft** through the **MCP server**.
 - An outside model does the messy pre-work (classifying, cleaning up, splitting and translating legacy files) before anything reaches Oppr. Oppr checks the result against its structure and Published Knowledge, and a person decides.

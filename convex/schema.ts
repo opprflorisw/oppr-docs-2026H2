@@ -1,9 +1,19 @@
 import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
 import { authTables } from "@convex-dev/auth/server"
+import { captureTables } from "./captures/schema"
+
+const CITATION = v.object({
+  documentId: v.id("documents"),
+  namingCode: v.string(),
+  version: v.number(),
+  chunkId: v.union(v.id("chunks"), v.null()),
+  quote: v.string(),
+})
 
 export default defineSchema({
   ...authTables,
+  ...captureTables,
 
   meta: defineTable({
     key: v.string(),
@@ -94,7 +104,7 @@ export default defineSchema({
     // from a PDF, a supplier PDF wrapped unchanged (Wrapped manual), or
     // imported as a draft through the MCP server (prepared outside Oppr).
     origin: v.optional(
-      v.union(v.literal("editor"), v.literal("convert"), v.literal("wrapped"), v.literal("mcp")),
+      v.union(v.literal("editor"), v.literal("convert"), v.literal("wrapped"), v.literal("mcp"), v.literal("capture")),
     ),
     // Wrapped manuals: the manufacturer that supplied the PDF.
     supplier: v.optional(v.union(v.string(), v.null())),
@@ -755,6 +765,54 @@ export default defineSchema({
     ),
     passMark: v.number(),
     questionsPerObjective: v.number(),
+    // The Engineer-controlled question bank (Training builder). When present,
+    // Attempts draw from it instead of generating fresh questions. "choice"
+    // is multiple choice; "open" is answered in the person's own words
+    // (typed or spoken) and graded against keyPoints.
+    questionBank: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          objectiveId: v.string(),
+          kind: v.union(v.literal("choice"), v.literal("open")),
+          prompt: v.string(),
+          options: v.array(v.string()),
+          correctIndex: v.number(),
+          keyPoints: v.optional(v.array(v.string())),
+          modelAnswer: v.optional(v.string()),
+          explanation: v.string(),
+          citation: CITATION,
+          source: v.union(v.literal("ai"), v.literal("engineer")),
+          stopIndex: v.optional(v.union(v.number(), v.null())),
+          // Image questions: a picture from the source document or Asset.
+          imageId: v.optional(v.id("images")),
+          // Answer by taking a photo at the stop (graded against keyPoints).
+          answerByPhoto: v.optional(v.boolean()),
+        }),
+      ),
+    ),
+    // TWI Job Instruction breakdown: important steps, key points, reasons.
+    breakdown: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          step: v.string(),
+          keyPoints: v.array(v.string()),
+          reasons: v.array(v.string()),
+          objectiveIds: v.array(v.string()),
+          citation: v.optional(CITATION),
+        }),
+      ),
+    ),
+    // Refresher after this many months (spaced refresh); none = no refresher.
+    refreshMonths: v.optional(v.number()),
+    // A try-out on the floor, signed off by a trainer, before the record counts.
+    tryOut: v.optional(
+      v.object({
+        required: v.boolean(),
+        checklist: v.array(v.string()),
+      }),
+    ),
     signoffs: v.array(
       v.object({
         role: v.union(v.literal("author"), v.literal("reviewer"), v.literal("approver")),
@@ -787,16 +845,41 @@ export default defineSchema({
         options: v.array(v.string()),
         correctIndex: v.number(),
         explanation: v.string(),
-        citation: v.object({
-          documentId: v.id("documents"),
-          namingCode: v.string(),
-          version: v.number(),
-          chunkId: v.union(v.id("chunks"), v.null()),
-          quote: v.string(),
-        }),
+        citation: CITATION,
         answerIndex: v.union(v.number(), v.null()),
         answeredAt: v.union(v.number(), v.null()),
         flag: v.union(v.string(), v.null()),
+        // Open questions (kind "open"): the answer in the person's own words.
+        kind: v.optional(v.union(v.literal("choice"), v.literal("open"))),
+        keyPoints: v.optional(v.array(v.string())),
+        answerText: v.optional(v.string()),
+        answerMode: v.optional(v.union(v.literal("typed"), v.literal("voice"), v.literal("photo"))),
+        imageId: v.optional(v.id("images")),
+        answerByPhoto: v.optional(v.boolean()),
+        answerStorageId: v.optional(v.id("_storage")),
+        grade: v.optional(
+          v.object({
+            verdict: v.union(v.literal("good"), v.literal("partly"), v.literal("not_yet")),
+            score: v.number(),
+            matched: v.array(v.string()),
+            missing: v.array(v.string()),
+            misconception: v.optional(v.string()),
+            feedback: v.string(),
+            gradedBy: v.union(v.literal("ai"), v.literal("engineer")),
+            gradedAt: v.number(),
+            overriddenBy: v.optional(v.id("people")),
+          }),
+        ),
+      }),
+    ),
+    // The floor try-out, signed by a trainer (TWI step 3).
+    tryOut: v.optional(
+      v.object({
+        result: v.union(v.literal("passed"), v.literal("again")),
+        signedBy: v.id("people"),
+        at: v.number(),
+        checked: v.array(v.string()),
+        note: v.optional(v.string()),
       }),
     ),
     // Rounds: walking progress through the stops.
@@ -950,4 +1033,48 @@ export default defineSchema({
   })
     .index("by_keyId", ["keyId"])
     .index("by_at", ["at"]),
+
+  // Questions a shift lead asks every day, like "Who can run line 2 tonight?".
+  // An Engineer defines them in Settings: a Skill profile plus an optional
+  // shift. They show as buttons on the Skill matrix and Home.
+  coverageQuestions: defineTable({
+    label: v.string(),
+    profileId: v.id("skillProfiles"),
+    /** "early" | "late" | "night", or none for every shift. */
+    shift: v.optional(v.string()),
+    order: v.number(),
+    showOnHome: v.optional(v.boolean()),
+    createdBy: v.optional(v.id("people")),
+  }).index("by_order", ["order"]),
+
+  // "Is this Training still on point?": what people answer, analysed per
+  // Training version. Built from Attempts (wrong choices, open answers and
+  // their grades). Points at questions to fix, objectives people keep
+  // missing, and passages in the source document that seem unclear.
+  trainingSignals: defineTable({
+    trainingId: v.id("trainings"),
+    version: v.number(),
+    status: v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    at: v.number(),
+    attemptsAnalysed: v.number(),
+    summary: v.optional(v.string()),
+    items: v.array(
+      v.object({
+        kind: v.union(
+          v.literal("misconception"),
+          v.literal("unclear_question"),
+          v.literal("document_gap"),
+          v.literal("too_easy"),
+          v.literal("practice_differs"),
+        ),
+        objectiveId: v.optional(v.string()),
+        questionId: v.optional(v.string()),
+        text: v.string(),
+        count: v.number(),
+        examples: v.array(v.string()),
+        suggestion: v.string(),
+      }),
+    ),
+    error: v.optional(v.string()),
+  }).index("by_trainingId_and_version", ["trainingId", "version"]),
 })

@@ -29,6 +29,7 @@ import { TrainingPage } from "@/pages/desktop/TrainingPage"
 import { AttemptPage } from "@/pages/desktop/AttemptPage"
 import { PersonSkillsPage } from "@/pages/desktop/PersonSkillsPage"
 import { McpPage } from "@/pages/desktop/McpPage"
+import { PhonePreviewHost } from "@/components/phone/PhonePreview"
 
 function AnalysisRoute() {
   const [, params] = useRoute<{ slug: string }>("/analysis/:slug")
@@ -58,6 +59,7 @@ function App() {
           </MobileShell>
         ) : (
           <DesktopShell>
+            <PhonePreviewHost />
             <Switch>
               <Route path="/" component={HomePage} />
               <Route path="/library" component={LibraryPage} />
