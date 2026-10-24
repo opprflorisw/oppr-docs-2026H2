@@ -1,4 +1,8 @@
 import { useState } from "react"
+import { HomeFindingsRows } from "@/components/findings/HomeFindingsRows"
+import { HomeTrainingRows } from "@/components/learn/HomeTrainingRows"
+import { HomeSkillRows } from "@/components/learn/HomeSkillRows"
+import { HomeInsightsPanel } from "@/components/insights/HomeInsightsPanel"
 import { useQuery } from "convex/react"
 import { Link, useLocation } from "wouter"
 import {
@@ -64,7 +68,7 @@ export function HomePage() {
             <Card>
               <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
                 <CheckCircle2 className="h-8 w-8 text-emerald-500" />
-                <p className="text-sm font-medium">Nothing needs you today</p>
+                <p className="text-sm font-medium">No documents need you today</p>
                 <p className="max-w-sm text-xs text-muted-foreground">
                   Reviews waiting for approval and documents due for their
                   periodic review show up here.
@@ -112,6 +116,12 @@ export function HomePage() {
               </CardContent>
             </Card>
           )}
+
+          {/* Other work for Engineers, one section per pillar. Each renders
+              nothing when it has nothing to show. */}
+          <HomeFindingsRows />
+          <HomeTrainingRows />
+          <HomeSkillRows />
         </section>
 
         <aside className="space-y-3">
@@ -132,6 +142,7 @@ export function HomePage() {
               <Stat label="Wikis" value={data?.health.wikis} href="/wiki" />
             </CardContent>
           </Card>
+          <HomeInsightsPanel />
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             Only published documents count as knowledge. Ask and every Wiki
             use the published version, never a draft.

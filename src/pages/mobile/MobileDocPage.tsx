@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react"
 import { useQuery } from "convex/react"
+import { useRecordUsage } from "@/lib/usage"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { toLegacyAsset, toLegacyDoc } from "@/lib/convex-adapters"
@@ -110,6 +111,10 @@ export function MobileDocPage() {
     return Number.isFinite(n) && n > 0 ? n : 1
   }, [search])
 
+  useRecordUsage({
+    kind: "view",
+    documentId: id && idIsConvexShaped ? (id as Id<"documents">) : undefined,
+  })
   const docResult = useQuery(
     api.documents.getWithAssets,
     id && idIsConvexShaped ? { id: id as Id<"documents"> } : "skip",

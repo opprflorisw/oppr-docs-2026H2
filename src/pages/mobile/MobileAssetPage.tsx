@@ -8,6 +8,7 @@ import {
   Star,
 } from "lucide-react"
 import { useQuery } from "convex/react"
+import { useRecordUsage } from "@/lib/usage"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import {
@@ -45,6 +46,11 @@ export function MobileAssetPage() {
     }
   }, [idIsConvexShaped, id, removePin, removeRecent])
 
+  // Opening an Asset on the floor is a Scan (CONTEXT.md: Scan).
+  useRecordUsage({
+    kind: "scan",
+    assetId: id && idIsConvexShaped ? (id as Id<"assets">) : undefined,
+  })
   const result = useQuery(
     api.assets.getWithDocs,
     id && idIsConvexShaped

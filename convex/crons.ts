@@ -12,4 +12,13 @@ crons.daily(
   {},
 )
 
+// CONTEXT.md: the Consistency check runs on every publish and once a week
+// across everything.
+crons.weekly(
+  "consistency check",
+  { dayOfWeek: "sunday", hourUTC: 2, minuteUTC: 0 },
+  internal.ai.consistency.runAll,
+  { trigger: "weekly" },
+)
+
 export default crons

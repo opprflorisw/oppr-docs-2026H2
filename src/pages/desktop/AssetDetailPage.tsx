@@ -14,6 +14,7 @@ import {
 import { type AssetPreview, type DocumentRowAction } from "@/components/docs/DocumentLibraryTable"
 import { DeleteDocumentDialog } from "@/components/docs/DeleteDocumentDialog"
 import { AssetDetailBody } from "@/components/docs/AssetDetailBody"
+import { AssetTrainingsCard } from "@/components/learn/AssetTrainingsCard"
 import type { AssetLog, Doc } from "@/types"
 import { AssetPreviewModal } from "@/components/docs/AssetPreviewModal"
 import { LogReferenceModal } from "@/components/docs/LogReferenceModal"
@@ -169,6 +170,9 @@ export function AssetDetailPage() {
           onOpenLog={(log) => setActiveLog(log)}
           onDocAction={handleAction}
         />
+        <div className="mt-6">
+          <AssetTrainingsCard assetId={asset.id as Id<"assets">} />
+        </div>
       </div>
 
       <AssetPreviewModal

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { useLocation, useSearch } from "wouter"
-import { LayoutList, Layers, Library as LibraryIcon, PlusCircle } from "lucide-react"
+import { HeartPulse, LayoutList, Layers, Library as LibraryIcon, PlusCircle, SearchCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -160,10 +160,20 @@ export function LibraryPage() {
         title="Documents"
         subtitle="Every controlled document. Only the published version of each counts as knowledge."
         actions={
-          <Button size="sm" onClick={() => setNewOpen(true)}>
-            <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
-            New document
-          </Button>
+          <>
+            <Button size="sm" variant="outline" onClick={() => navigate("/library/findings")}>
+              <SearchCheck className="mr-1.5 h-3.5 w-3.5" />
+              Findings
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => navigate("/library/health")}>
+              <HeartPulse className="mr-1.5 h-3.5 w-3.5" />
+              Knowledge health
+            </Button>
+            <Button size="sm" onClick={() => setNewOpen(true)}>
+              <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
+              New document
+            </Button>
+          </>
         }
       />
       <div className="space-y-4 p-6">

@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server"
 import { v } from "convex/values"
 import { internal } from "./_generated/api"
 import { Doc, Id } from "./_generated/dataModel"
+import { afterPublish } from "./lib/onPublish"
 import { requireUser, requireUserId } from "./lib/auth"
 import { allocateNamingCode, parseNamingCode } from "./naming"
 import { walkBodyAssetIds } from "./lib/assetWalker"
@@ -638,7 +639,7 @@ export const submitForReview = mutation({
 })
 
 /** Approving and publishing are sign-offs: they need a checked-in Engineer. */
-async function requireEngineer(
+export async function requireEngineer(
   ctx: import("./_generated/server").MutationCtx,
   personId: Id<"people">,
 ) {
@@ -668,7 +669,14 @@ export const approve = mutation({
 // approved → published. This edition becomes the live one served to operators,
 // QR, and RAG (liveVersion). If a previous edition was live, it is replaced here.
 export const publish = mutation({
-  args: { id: v.id("documents"), personId: v.id("people") },
+  args: {
+    id: v.id("documents"),
+    personId: v.id("people"),
+    // CONTEXT.md: Significant change. Only meaningful for a new version of a
+    // document that was Published before; ignored for a first publish.
+    significantChange: v.optional(v.boolean()),
+    changeNote: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
     await requireEngineer(ctx, args.personId)
@@ -676,7 +684,10 @@ export const publish = mutation({
     if (!doc) throw new Error("Document not found")
     if (doc.status !== "approved")
       throw new Error("A document must be approved before publishing.")
-    await publishApproved(ctx, doc, userId, args.personId)
+    await publishApproved(ctx, doc, userId, args.personId, {
+      significantChange: args.significantChange ?? false,
+      changeNote: args.changeNote?.trim() || null,
+    })
   },
 })
 
@@ -690,8 +701,12 @@ export async function publishApproved(
   doc: Doc<"documents">,
   userId: Id<"users">,
   personId?: Id<"people">,
+  change?: { significantChange: boolean; changeNote: string | null },
 ) {
   const now = Date.now()
+  const previousLive = doc.liveVersion ?? null
+  // A first publish is never a "change"; only a new version can be significant.
+  const significantChange = previousLive != null && (change?.significantChange ?? false)
   await ctx.db.patch(doc._id, {
     status: "published",
     liveVersion: doc.currentVersion,
@@ -709,7 +724,12 @@ export async function publishApproved(
       q.eq("documentId", doc._id).eq("version", doc.currentVersion),
     )
     .unique()
-  if (versionRow) await ctx.db.patch(versionRow._id, { publishedAt: now })
+  if (versionRow)
+    await ctx.db.patch(versionRow._id, {
+      publishedAt: now,
+      significantChange,
+      changeNote: change?.changeNote ?? null,
+    })
   // Asset links now follow the newly Published body.
   if (versionRow) await syncDocumentAssetsFromBody(ctx, doc._id, versionRow.bodyJson)
 
@@ -725,6 +745,15 @@ export async function publishApproved(
 
   // Wikis built on this Document must follow the new Published version.
   await regenerateWikisForDocument(ctx, doc._id, `published ${doc.namingCode} v${doc.currentVersion}`)
+
+  // Everything else that follows a publish: stamping a Wrapped manual,
+  // Findings, the Consistency check, Trainings and Skills.
+  await afterPublish(ctx, {
+    documentId: doc._id,
+    version: doc.currentVersion,
+    previousVersion: previousLive,
+    significantChange,
+  })
 }
 
 // Periodic review outcome "still valid": the Published version is confirmed

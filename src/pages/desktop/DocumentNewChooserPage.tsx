@@ -3,9 +3,11 @@
 // item in the editor. Start blank, from a template, or by importing a PDF.
 // The old /docs/new address redirects to /library?new=1, which opens it.
 
+import { useState } from "react"
 import { Redirect, useLocation } from "wouter"
+import { WrapManualDialog } from "@/components/manuals/WrapManualDialog"
 import { useQuery } from "convex/react"
-import { FileText, LayoutTemplate, PlusCircle, Sparkles, Upload } from "lucide-react"
+import { BookLock, FileText, LayoutTemplate, PlusCircle, Sparkles, Upload } from "lucide-react"
 import {
   Card,
   CardContent,
@@ -35,12 +37,15 @@ export function NewDocumentChooserDialog({
 }) {
   const [, setLocation] = useLocation()
   const templates = useQuery(api.templates.list, open ? {} : "skip")
+  const [wrapOpen, setWrapOpen] = useState(false)
   const navigate = (to: string) => {
     onOpenChange(false)
     setLocation(to)
   }
 
   return (
+    <>
+    <WrapManualDialog open={wrapOpen} onOpenChange={setWrapOpen} />
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <div>
@@ -54,7 +59,7 @@ export function NewDocumentChooserDialog({
           </DialogDescription>
         </div>
       <div className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2">
           <ChooserCard
             icon={FileText}
             title="Blank document"
@@ -72,6 +77,15 @@ export function NewDocumentChooserDialog({
             title="Import & convert"
             description="Extract a PDF's text and images into an editable pre-draft. Shape it, then fit it to a template."
             onClick={() => navigate("/import")}
+          />
+          <ChooserCard
+            icon={BookLock}
+            title="Wrap a supplier manual"
+            description="Keep a manufacturer's PDF unchanged. Oppr stamps its naming code, version and status on every page and controls it like any document."
+            onClick={() => {
+              onOpenChange(false)
+              setWrapOpen(true)
+            }}
           />
         </div>
 
@@ -130,6 +144,7 @@ export function NewDocumentChooserDialog({
       </div>
       </DialogContent>
     </Dialog>
+    </>
   )
 }
 

@@ -496,7 +496,14 @@ interface StreamRequestBody {
   scope: AskScope
   question: string
   history: { role: "user" | "assistant"; text: string }[]
+  // Checked-in person (CONTEXT.md: Checked in), or absent when Anonymous.
+  personId?: string | null
+  surface?: "desktop" | "floor"
 }
+
+// The model is told to say plainly when the library has no answer.
+const NOT_FOUND_RE =
+  /\b(not (?:in|covered|mentioned|described|found)|no information|cannot find|can't find|couldn't find|could not find|does not (?:say|mention|cover|describe)|doesn't (?:say|mention|cover)|is not available|there is nothing)\b/i
 
 export const askStream = httpAction(async (ctx, req) => {
   const cors = corsHeaders(req.headers.get("Origin"))
@@ -554,6 +561,7 @@ export const askStream = httpAction(async (ctx, req) => {
       }
 
       let anyText = false
+      let fullText = ""
 
       try {
         const client = new GoogleGenerativeAI(apiKey)
@@ -568,6 +576,7 @@ export const askStream = httpAction(async (ctx, req) => {
           const delta = chunk.text()
           if (delta) {
             anyText = true
+            fullText += delta
             writeEvent({ type: "delta", text: delta })
           }
         }
@@ -575,6 +584,22 @@ export const askStream = httpAction(async (ctx, req) => {
           writeEvent({ type: "delta", text: "(no response)" })
         }
         writeEvent({ type: "done", citations: prepared.citations })
+        // Append-only signal for Document insights and Knowledge health.
+        // Logged server-side so it is anonymous unless checked in, and so
+        // people cannot delete it with their chat history.
+        try {
+          await ctx.runMutation(internal.usage.logAsk, {
+            scope: payload.scope,
+            question: payload.question.slice(0, 1000),
+            answerFound:
+              prepared.citations.length > 0 && !NOT_FOUND_RE.test(fullText.slice(0, 600)),
+            citedDocumentIds: prepared.citations.map((c) => c.documentId as Id<"documents">),
+            personId: payload.personId ?? null,
+            surface: payload.surface === "floor" ? "floor" : "desktop",
+          })
+        } catch (logErr) {
+          console.warn("askEvents log failed", logErr)
+        }
       } catch (err) {
         writeEvent({
           type: "error",

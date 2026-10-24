@@ -31,6 +31,7 @@ import { toast } from "sonner"
 import { Link, useLocation, useSearch } from "wouter"
 import {
   FileDown,
+  GraduationCap,
   Hash,
   Image as ImageIcon,
   LayoutTemplate,
@@ -54,6 +55,7 @@ import { PeopleSettings } from "@/components/people/PeopleSettings"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { cn } from "@/lib/utils"
+import { SkillsSettings } from "@/components/learn/SkillsSettings"
 
 const ROLE = "Login account (who acts is the check-in)"
 
@@ -62,6 +64,7 @@ const ROLE = "Login account (who acts is the check-in)"
 const TABS = [
   { value: "account", label: "Account", icon: UserIcon },
   { value: "people", label: "People", icon: Users },
+  { value: "skills", label: "Skills", icon: GraduationCap },
   { value: "templates", label: "Templates", icon: LayoutTemplate },
   { value: "title-page", label: "Title page", icon: FileDown },
   { value: "safety", label: "Safety icons", icon: ShieldCheck },
@@ -219,6 +222,10 @@ export function SettingsPage() {
           </TabsContent>
 
           {/* ---- AI ---- */}
+          <TabsContent value="skills" className="space-y-4">
+            <SkillsSettings />
+          </TabsContent>
+
           <TabsContent value="ai" className="space-y-4">
             <Card>
               <CardHeader className="pb-3">

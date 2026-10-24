@@ -28,7 +28,7 @@ const NAV: NavItem[] = [
     to: "/library",
     icon: Library,
     match: (p) =>
-      p === "/library" || p.startsWith("/docs") || p.startsWith("/import"),
+      p.startsWith("/library") || p.startsWith("/docs") || p.startsWith("/import"),
   },
   {
     label: "Learn",

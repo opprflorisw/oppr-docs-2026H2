@@ -38,6 +38,12 @@ import { PublishToPdfDialog } from "@/components/docs/PublishToPdfDialog"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { PeriodicReviewCard } from "@/components/docs/PeriodicReviewCard"
+import { DocumentFindingsBanner } from "@/components/findings/DocumentFindingsBanner"
+import { ProposedRevisionBanner } from "@/components/insights/ProposedRevisionBanner"
+import { DocumentInsightsCard } from "@/components/insights/DocumentInsightsCard"
+import { DocumentTrainingsCard } from "@/components/learn/DocumentTrainingsCard"
+import { WrappedManualView } from "@/components/manuals/WrappedManualView"
+import { useRecordUsage } from "@/lib/usage"
 
 export function DocumentReadPage() {
   const [, params] = useRoute<{ id: string }>("/docs/:id")
@@ -89,6 +95,7 @@ export function DocumentReadPage() {
       : "skip",
   )
   const ready = docResult !== undefined
+  useRecordUsage({ kind: "view", documentId: id as Id<"documents"> | undefined })
 
   const docWithAssets = useMemo(() => {
     if (!docResult) return null
@@ -361,6 +368,9 @@ export function DocumentReadPage() {
             </Alert>
           )}
 
+          {rawDoc && <DocumentFindingsBanner documentId={rawDoc._id} />}
+          {rawDoc && <ProposedRevisionBanner documentId={rawDoc._id} />}
+
           <DocumentHero
             doc={docWithAssets}
             assets={docWithAssets.assets}
@@ -377,6 +387,12 @@ export function DocumentReadPage() {
             <div className="rounded-md border border-dashed p-12 text-center text-sm text-muted-foreground">
               No published version yet.
             </div>
+          ) : version.body_kind === "pdf" && rawDoc?.origin === "wrapped" ? (
+            <WrappedManualView
+              documentId={rawDoc._id}
+              version={version.version}
+              initialPage={initialPage}
+            />
           ) : version.body_kind === "pdf" ? (
             <PdfViewer url={pdfUrl ?? null} pageNumber={initialPage} />
           ) : (
@@ -394,6 +410,8 @@ export function DocumentReadPage() {
               onStartRevision={handleEdit}
             />
           )}
+          {rawDoc && <DocumentTrainingsCard documentId={rawDoc._id} />}
+          {rawDoc && <DocumentInsightsCard documentId={rawDoc._id} />}
           {version?.body_kind === "tiptap" && (
             <div className="sticky top-28">
               <DocumentToc body={version.body_json} contentRef={contentRef} />

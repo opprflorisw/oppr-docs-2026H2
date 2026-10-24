@@ -90,6 +90,13 @@ export default defineSchema({
     nextReviewAt: v.optional(v.union(v.number(), v.null())),
     reviewIntervalMonths: v.optional(v.number()),
     lastReviewedAt: v.optional(v.union(v.number(), v.null())),
+    // Where the body comes from (CONTEXT.md): written in the editor, converted
+    // from a PDF, or a supplier PDF wrapped unchanged (Wrapped manual).
+    origin: v.optional(
+      v.union(v.literal("editor"), v.literal("convert"), v.literal("wrapped")),
+    ),
+    // Wrapped manuals: the manufacturer that supplied the PDF.
+    supplier: v.optional(v.union(v.string(), v.null())),
   })
     .index("by_namingCode", ["namingCode"])
     .index("by_ownerId", ["ownerId"]),
@@ -100,6 +107,17 @@ export default defineSchema({
     bodyKind: v.union(v.literal("tiptap"), v.literal("pdf")),
     bodyJson: v.union(v.any(), v.null()),
     pdfStorageId: v.union(v.id("_storage"), v.null()),
+    // Wrapped manuals (bodyKind "pdf"): pdfStorageId is the copy stamped with
+    // our naming code, version and status; sourcePdfStorageId is the supplier's
+    // original file, kept unchanged. stampLabel says what the stamp shows.
+    sourcePdfStorageId: v.optional(v.union(v.id("_storage"), v.null())),
+    pdfPageCount: v.optional(v.number()),
+    stampLabel: v.optional(v.union(v.string(), v.null())),
+    // Set by the author on a new version (CONTEXT.md: Significant change).
+    // Only a significant change sends linked Trainings back to review and
+    // flags Skill holders as "re-train needed".
+    significantChange: v.optional(v.boolean()),
+    changeNote: v.optional(v.union(v.string(), v.null())),
     publishedAt: v.number(),
     // Per-version approval trail. Recorded as the document advances through
     // review → approved → published.
@@ -423,6 +441,8 @@ export default defineSchema({
     role: v.string(),
     area: v.union(v.string(), v.null()),
     sortOrder: v.number(),
+    // Skill profiles this person is measured against (Skill matrix).
+    profileIds: v.optional(v.array(v.id("skillProfiles"))),
   }),
 
   // ---- Wikis -----------------------------------------------------------------
@@ -492,6 +512,379 @@ export default defineSchema({
     createdBy: v.union(v.id("users"), v.null()),
     updatedAt: v.number(),
   }),
+
+  // ---- Seed media cache --------------------------------------------------------
+  // AI-generated seed images and supplier PDFs, keyed by a stable key. Never
+  // wiped by the seed, so a reseed does not pay to regenerate them.
+  seedMedia: defineTable({
+    key: v.string(),
+    promptHash: v.string(),
+    storageId: v.id("_storage"),
+    contentType: v.string(),
+    byteSize: v.number(),
+    createdAt: v.number(),
+  }).index("by_key", ["key"]),
+
+  // ---- Consistency check (CONTEXT.md: Consistency check, Finding) -------------
+  findings: defineTable({
+    kind: v.union(v.literal("contradiction"), v.literal("duplicate")),
+    status: v.union(
+      v.literal("open"),
+      v.literal("resolved"),
+      v.literal("dismissed"),
+    ),
+    // One sentence, written for an Engineer: what disagrees or repeats.
+    summary: v.string(),
+    // The two sides, each quoting a passage of a Published version.
+    a: v.object({
+      documentId: v.id("documents"),
+      namingCode: v.string(),
+      title: v.string(),
+      version: v.number(),
+      chunkId: v.union(v.id("chunks"), v.null()),
+      section: v.union(v.string(), v.null()),
+      quote: v.string(),
+    }),
+    b: v.object({
+      documentId: v.id("documents"),
+      namingCode: v.string(),
+      title: v.string(),
+      version: v.number(),
+      chunkId: v.union(v.id("chunks"), v.null()),
+      section: v.union(v.string(), v.null()),
+      quote: v.string(),
+    }),
+    // Copies of a.documentId / b.documentId for indexing.
+    documentA: v.id("documents"),
+    documentB: v.id("documents"),
+    // Stable identity of the pair at these versions. A dismissed pair is not
+    // reported again until one side gets a new Published version.
+    pairKey: v.string(),
+    detectedBy: v.union(
+      v.literal("publish"),
+      v.literal("weekly"),
+      v.literal("manual"),
+      v.literal("seed"),
+    ),
+    detectedAt: v.number(),
+    resolvedAt: v.union(v.number(), v.null()),
+    resolution: v.union(v.string(), v.null()),
+    dismissedReason: v.union(v.string(), v.null()),
+    dismissedBy: v.union(v.id("people"), v.null()),
+    proposedRevisionId: v.optional(v.union(v.id("proposedRevisions"), v.null())),
+  })
+    .index("by_status", ["status"])
+    .index("by_pairKey", ["pairKey"])
+    .index("by_documentA_and_status", ["documentA", "status"])
+    .index("by_documentB_and_status", ["documentB", "status"]),
+
+  consistencyRuns: defineTable({
+    trigger: v.union(
+      v.literal("publish"),
+      v.literal("weekly"),
+      v.literal("manual"),
+      v.literal("seed"),
+    ),
+    documentId: v.union(v.id("documents"), v.null()),
+    status: v.union(v.literal("running"), v.literal("done"), v.literal("failed")),
+    pairsChecked: v.number(),
+    findingsNew: v.number(),
+    startedAt: v.number(),
+    finishedAt: v.union(v.number(), v.null()),
+    error: v.union(v.string(), v.null()),
+  }).index("by_startedAt", ["startedAt"]),
+
+  // ---- Proposed revisions (CONTEXT.md; ADR 0003: AI prepares, humans publish)
+  proposedRevisions: defineTable({
+    documentId: v.id("documents"),
+    // The Published version the proposal starts from.
+    baseVersion: v.number(),
+    // The draft version created for it (null until ready).
+    draftVersion: v.union(v.number(), v.null()),
+    state: v.union(
+      v.literal("generating"),
+      v.literal("ready"),
+      v.literal("failed"),
+      v.literal("discarded"),
+    ),
+    // The signal that triggered it.
+    source: v.object({
+      kind: v.union(
+        v.literal("finding"),
+        v.literal("insight"),
+        v.literal("health"),
+      ),
+      findingId: v.optional(v.id("findings")),
+      note: v.string(),
+    }),
+    summary: v.string(),
+    changes: v.array(
+      v.object({
+        before: v.string(),
+        after: v.string(),
+        reason: v.string(),
+        chunkId: v.union(v.id("chunks"), v.null()),
+      }),
+    ),
+    error: v.union(v.string(), v.null()),
+    createdBy: v.union(v.id("users"), v.null()),
+    createdAt: v.number(),
+  })
+    .index("by_documentId", ["documentId"])
+    .index("by_state", ["state"]),
+
+  // ---- Usage and Ask signals (Document insights, Knowledge health) -----------
+  // Append-only. Written server-side; people cannot delete them.
+  askEvents: defineTable({
+    at: v.number(),
+    scopeKind: v.union(v.literal("doc"), v.literal("asset"), v.literal("library")),
+    scopeId: v.string(),
+    question: v.string(),
+    // False when the answer said the information is not in the library.
+    answerFound: v.boolean(),
+    citedDocumentIds: v.array(v.id("documents")),
+    // The Document the question is "about": the scope document, else the
+    // first cited one. Null when nothing was cited.
+    primaryDocumentId: v.union(v.id("documents"), v.null()),
+    // Checked-in person, or null when Anonymous.
+    personId: v.union(v.id("people"), v.null()),
+    surface: v.union(v.literal("desktop"), v.literal("floor")),
+  })
+    .index("by_at", ["at"])
+    .index("by_primaryDocumentId", ["primaryDocumentId"]),
+
+  usageEvents: defineTable({
+    at: v.number(),
+    kind: v.union(v.literal("view"), v.literal("scan")),
+    documentId: v.union(v.id("documents"), v.null()),
+    assetId: v.union(v.id("assets"), v.null()),
+    personId: v.union(v.id("people"), v.null()),
+    surface: v.union(v.literal("desktop"), v.literal("floor")),
+  })
+    .index("by_at", ["at"])
+    .index("by_documentId", ["documentId"])
+    .index("by_assetId", ["assetId"]),
+
+  // "Unclear or wrong" marks on content, e.g. from a Training question.
+  contentFlags: defineTable({
+    documentId: v.id("documents"),
+    version: v.number(),
+    chunkId: v.union(v.id("chunks"), v.null()),
+    source: v.union(v.literal("attempt"), v.literal("ask"), v.literal("reader")),
+    attemptId: v.optional(v.union(v.id("trainingAttempts"), v.null())),
+    note: v.string(),
+    personId: v.union(v.id("people"), v.null()),
+    at: v.number(),
+  }).index("by_documentId", ["documentId"]),
+
+  // AI summary of a Document's insights: themes in what people ask and where
+  // it seems unclear. Informs the next revision, not the current one.
+  insightReports: defineTable({
+    documentId: v.id("documents"),
+    version: v.number(),
+    state: v.union(v.literal("generating"), v.literal("ready"), v.literal("failed")),
+    questionCount: v.number(),
+    unansweredCount: v.number(),
+    flagCount: v.number(),
+    themes: v.array(
+      v.object({
+        title: v.string(),
+        detail: v.string(),
+        severity: v.union(v.literal("info"), v.literal("unclear"), v.literal("gap")),
+        examples: v.array(v.string()),
+      }),
+    ),
+    generatedAt: v.union(v.number(), v.null()),
+    error: v.union(v.string(), v.null()),
+  }).index("by_documentId", ["documentId"]),
+
+  // ---- Learn: Trainings (ADR 0002: Trainings controlled, Attempts generated) -
+  trainings: defineTable({
+    // Immutable code, e.g. EXT-TRN-0001.
+    code: v.string(),
+    title: v.string(),
+    // "course" is done at a desk or on the phone; "round" is walked in the
+    // plant, Asset by Asset (CONTEXT.md: Round).
+    kind: v.union(v.literal("course"), v.literal("round")),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("in_review"),
+      v.literal("approved"),
+      v.literal("published"),
+      v.literal("archived"),
+    ),
+    currentVersion: v.number(),
+    liveVersion: v.union(v.number(), v.null()),
+    // Set when a source Document got a Significant change: the Training must
+    // be reviewed again. Its live version keeps counting until then.
+    needsReview: v.boolean(),
+    needsReviewReason: v.union(v.string(), v.null()),
+    area: v.union(v.string(), v.null()),
+    createdBy: v.union(v.id("users"), v.null()),
+    updatedAt: v.number(),
+  })
+    .index("by_code", ["code"])
+    .index("by_status", ["status"]),
+
+  trainingVersions: defineTable({
+    trainingId: v.id("trainings"),
+    version: v.number(),
+    purpose: v.string(),
+    objectives: v.array(
+      v.object({
+        id: v.string(),
+        text: v.string(),
+        // Every objective is traceable to a Published Document passage.
+        documentId: v.id("documents"),
+        namingCode: v.string(),
+        documentVersion: v.number(),
+        chunkId: v.union(v.id("chunks"), v.null()),
+        quote: v.string(),
+      }),
+    ),
+    // Rounds only: the Assets to visit, in order, and what is tested there.
+    stops: v.array(
+      v.object({
+        assetId: v.id("assets"),
+        objectiveIds: v.array(v.string()),
+        hint: v.string(),
+        // Ask for a photo or a voice note at this stop.
+        evidence: v.union(v.literal("none"), v.literal("photo"), v.literal("note")),
+      }),
+    ),
+    passMark: v.number(),
+    questionsPerObjective: v.number(),
+    signoffs: v.array(
+      v.object({
+        role: v.union(v.literal("author"), v.literal("reviewer"), v.literal("approver")),
+        personId: v.union(v.id("people"), v.null()),
+        userId: v.union(v.id("users"), v.null()),
+        at: v.number(),
+      }),
+    ),
+    publishedAt: v.union(v.number(), v.null()),
+  }).index("by_trainingId_and_version", ["trainingId", "version"]),
+
+  trainingAttempts: defineTable({
+    trainingId: v.id("trainings"),
+    trainingVersion: v.number(),
+    personId: v.id("people"),
+    status: v.union(
+      v.literal("generating"),
+      v.literal("in_progress"),
+      v.literal("passed"),
+      v.literal("failed"),
+      v.literal("abandoned"),
+      v.literal("error"),
+    ),
+    questions: v.array(
+      v.object({
+        id: v.string(),
+        objectiveId: v.string(),
+        stopIndex: v.union(v.number(), v.null()),
+        prompt: v.string(),
+        options: v.array(v.string()),
+        correctIndex: v.number(),
+        explanation: v.string(),
+        citation: v.object({
+          documentId: v.id("documents"),
+          namingCode: v.string(),
+          version: v.number(),
+          chunkId: v.union(v.id("chunks"), v.null()),
+          quote: v.string(),
+        }),
+        answerIndex: v.union(v.number(), v.null()),
+        answeredAt: v.union(v.number(), v.null()),
+        flag: v.union(v.string(), v.null()),
+      }),
+    ),
+    // Rounds: walking progress through the stops.
+    round: v.union(
+      v.null(),
+      v.object({
+        currentStop: v.number(),
+        visited: v.array(v.id("assets")),
+        wrongScans: v.number(),
+        evidence: v.array(
+          v.object({
+            stopIndex: v.number(),
+            kind: v.union(v.literal("photo"), v.literal("note")),
+            text: v.union(v.string(), v.null()),
+            storageId: v.union(v.id("_storage"), v.null()),
+            at: v.number(),
+          }),
+        ),
+      }),
+    ),
+    score: v.union(v.number(), v.null()),
+    startedAt: v.number(),
+    finishedAt: v.union(v.number(), v.null()),
+    error: v.union(v.string(), v.null()),
+  })
+    .index("by_personId", ["personId"])
+    .index("by_trainingId", ["trainingId"]),
+
+  // Proof that a named person passed (CONTEXT.md: Training record).
+  trainingRecords: defineTable({
+    personId: v.id("people"),
+    trainingId: v.id("trainings"),
+    trainingVersion: v.number(),
+    attemptId: v.id("trainingAttempts"),
+    trainingCode: v.string(),
+    trainingTitle: v.string(),
+    score: v.number(),
+    passedAt: v.number(),
+  })
+    .index("by_personId", ["personId"])
+    .index("by_trainingId", ["trainingId"]),
+
+  // ---- Learn: Skills ------------------------------------------------------------
+  skills: defineTable({
+    name: v.string(),
+    description: v.string(),
+    area: v.union(v.string(), v.null()),
+    documentIds: v.array(v.id("documents")),
+    trainingIds: v.array(v.id("trainings")),
+    // Months a level stays valid; null = does not expire.
+    validityMonths: v.union(v.number(), v.null()),
+    sortOrder: v.number(),
+  }),
+
+  skillLevels: defineTable({
+    personId: v.id("people"),
+    skillId: v.id("skills"),
+    // 0 not trained, 1 trained, 2 qualified, 3 can train others.
+    level: v.number(),
+    source: v.union(v.literal("training"), v.literal("signoff"), v.literal("seed")),
+    recordId: v.union(v.id("trainingRecords"), v.null()),
+    signedOffBy: v.union(v.id("people"), v.null()),
+    achievedAt: v.number(),
+    expiresAt: v.union(v.number(), v.null()),
+    retrainNeeded: v.boolean(),
+    retrainReason: v.union(v.string(), v.null()),
+  })
+    .index("by_personId", ["personId"])
+    .index("by_skillId", ["skillId"])
+    .index("by_personId_and_skillId", ["personId", "skillId"]),
+
+  // Audit trail of every level change.
+  skillEvents: defineTable({
+    personId: v.id("people"),
+    skillId: v.id("skills"),
+    fromLevel: v.number(),
+    toLevel: v.number(),
+    reason: v.string(),
+    byPersonId: v.union(v.id("people"), v.null()),
+    at: v.number(),
+  }).index("by_personId", ["personId"]),
+
+  skillProfiles: defineTable({
+    name: v.string(),
+    description: v.string(),
+    targets: v.array(v.object({ skillId: v.id("skills"), level: v.number() })),
+    sortOrder: v.number(),
+  }),
+
 
   qaMessages: defineTable({
     sessionId: v.id("qaSessions"),

@@ -21,6 +21,7 @@ import {
   useState,
 } from "react"
 import { useLocation } from "wouter"
+import { useCheckIn } from "@/lib/checkIn"
 import {
   Copy,
   Mic,
@@ -166,7 +167,9 @@ export function AskPanel({
   onCitationClick,
   className,
 }: AskPanelProps) {
-  const [, navigate] = useLocation()
+  const [location, navigate] = useLocation()
+  // Logged with each question (convex/usage.logAsk): who asked, if checked in.
+  const { person: checkedInPerson } = useCheckIn()
 
   const [scope, setScope] = useState<AskPanelScope>(scopeProp)
   useEffect(() => setScope(scopeProp), [scopeProp])
@@ -354,7 +357,13 @@ export function AskPanel({
           "Content-Type": "application/json",
           Authorization: `Bearer ${authToken}`,
         },
-        body: JSON.stringify({ scope: askScope, question, history }),
+        body: JSON.stringify({
+          scope: askScope,
+          question,
+          history,
+          personId: checkedInPerson?._id ?? null,
+          surface: location.startsWith("/m") ? "floor" : "desktop",
+        }),
         signal: ac.signal,
       })
       if (!res.ok || !res.body) {

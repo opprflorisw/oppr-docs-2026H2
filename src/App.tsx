@@ -28,6 +28,11 @@ import { MobileDocsPage } from "@/pages/mobile/MobileDocsPage"
 import { MobileDocPage } from "@/pages/mobile/MobileDocPage"
 import { MobileAskPage } from "@/pages/mobile/MobileAskPage"
 import { AuthGate } from "@/auth/AuthGate"
+import { FindingsPage } from "@/pages/desktop/FindingsPage"
+import { KnowledgeHealthPage } from "@/pages/desktop/KnowledgeHealthPage"
+import { TrainingPage } from "@/pages/desktop/TrainingPage"
+import { AttemptPage } from "@/pages/desktop/AttemptPage"
+import { PersonSkillsPage } from "@/pages/desktop/PersonSkillsPage"
 
 function AnalysisRoute() {
   const [, params] = useRoute<{ slug: string }>("/analysis/:slug")
@@ -68,10 +73,15 @@ function App() {
             <Switch>
               <Route path="/" component={HomePage} />
               <Route path="/library" component={LibraryPage} />
+              <Route path="/library/findings" component={FindingsPage} />
+              <Route path="/library/health" component={KnowledgeHealthPage} />
               <Route path="/documents">
                 <Redirect to="/library" replace />
               </Route>
               <Route path="/learn" component={LearnPage} />
+              <Route path="/learn/trainings/:id" component={TrainingPage} />
+              <Route path="/learn/attempts/:id" component={AttemptPage} />
+              <Route path="/learn/people/:id" component={PersonSkillsPage} />
               <Route path="/wiki" component={WikiListPage} />
               <Route path="/wiki/:id" component={WikiPage} />
               <Route path="/assets" component={AssetsPage} />
