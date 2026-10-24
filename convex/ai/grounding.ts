@@ -93,8 +93,8 @@ const NUM = String.raw`\d+(?:\.\d+)?`
 export function normalise(text: string): string {
   let t = text.normalize("NFKC")
   // Every dash and minus variant becomes "-"; non-breaking spaces become " ".
-  t = t.replace(/[‐-―−﹘﹣－]/g, "-")
-  t = t.replace(/[   ]/g, " ")
+  t = t.replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, "-")
+  t = t.replace(/[\u00A0\u2007\u202F]/g, " ")
   t = t.toUpperCase()
   t = wordsToDigits(t)
   // Decimal comma: 1,5 -> 1.5
@@ -474,4 +474,49 @@ export function labelledValueMismatch(point: string, cited: string): string | nu
     }
   }
   return null
+}
+
+/**
+ * A Wiki table row (wiki lane): the row as a whole must pass checkPoint, and
+ * every cell must be backed by the cited passages on its own, so one
+ * grounded cell cannot carry an invented neighbour. A cell's codes and
+ * quantities must occur in the cited text, and a worded cell must share at
+ * least half of its content words with the cited text or its column heading.
+ */
+export function checkTableRow(
+  row: { columns: string[]; cells: string[]; sources: string[] },
+  provided: Map<string, ProvidedExcerpt>,
+): { ok: true; point: CheckedPoint & { cells: string[] } } | { ok: false; dropped: DroppedPoint } {
+  const cells = row.columns.map((_, i) => String(row.cells[i] ?? "").trim())
+  const text = row.columns
+    .map((c, i) => (cells[i] ? `${c.trim()}: ${cells[i]}` : ""))
+    .filter(Boolean)
+    .join(" | ")
+  if (cells.filter(Boolean).length === 0) return { ok: false, dropped: { text, reason: "no-valid-source" } }
+  const whole = checkPoint({ text, sources: row.sources }, provided)
+  if (!whole.ok) return { ok: false, dropped: (whole as { dropped: DroppedPoint }).dropped }
+  const excerpts = whole.point.sources.map((s) => provided.get(s)!)
+  const citedText = excerpts.map((e) => e.text).join("\n")
+  const cited = extract(normalise(citedText))
+  const labelCodes = extract(normalise(excerpts.map((e) => e.label ?? "").join("\n"))).codes
+  for (let i = 0; i < cells.length; i++) {
+    const cell = cells[i]
+    if (!cell) continue
+    const mine = extract(normalise(cell))
+    for (const code of mine.codes) {
+      if (!cited.codes.includes(code) && !labelCodes.includes(code))
+        return { ok: false, dropped: { text, reason: "unsupported-token", detail: `${row.columns[i]}: ${code}` } }
+    }
+    for (const q of mine.quantities) {
+      if (!quantitySupported(q, cited.quantities))
+        return { ok: false, dropped: { text, reason: "unsupported-token", detail: `${row.columns[i]}: ${q.raw}` } }
+    }
+    if (mine.codes.length === 0 && mine.quantities.length === 0 && support(cell, `${citedText}\n${row.columns[i]}`) < 0.5) {
+      return {
+        ok: false,
+        dropped: { text, reason: "weak-support", detail: `the cell "${cell}" is not in the cited passages` },
+      }
+    }
+  }
+  return { ok: true, point: { ...whole.point, cells } }
 }

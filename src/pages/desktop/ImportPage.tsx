@@ -4,7 +4,7 @@
 //     body (headings + paragraphs + trailing figures), commit the images to
 //     the library, and create a PRE-DRAFT document straight in the editor.
 //   - Scan / no text layer            → stop. Offer to attach the original as a
-//     scrollable PDF element inside a pre-draft instead of faking an extract.
+//     scrollable PDF element inside a new draft instead of faking an extract.
 //
 // There is no AI-mapping step, no cross-link step, and no naming-code gate. The
 // naming code, asset links, and structure refinements are all done by hand in
@@ -73,9 +73,9 @@ function RedirectJob({ jobId }: { jobId: Id<"importJobs"> }) {
   }, [job, navigate])
 
   return (
-    <main className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+    <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
       <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
-    </main>
+    </div>
   )
 }
 
@@ -160,7 +160,7 @@ function NewImport() {
           extractStats: result.stats,
           structuredDoc: null,
         })
-        toast.warning("Looks like a scan — no extractable text.", { id: tid })
+        toast.warning("Looks like a scan: no text to extract.", { id: tid })
         setScan({
           jobId,
           storageId,
@@ -211,7 +211,7 @@ function NewImport() {
         body,
         chunks,
       })
-      toast.success(`Imported ${file.name} — opening editor.`, { id: tid })
+      toast.success(`Imported ${file.name}. Opening the editor.`, { id: tid })
       navigate(`/docs/${docId}/edit`)
     } catch (err) {
       console.error(err)
@@ -235,7 +235,7 @@ function NewImport() {
             content: [
               {
                 type: "text",
-                text: `Imported from ${scan.filename} — scanned PDF, no extractable text. Annotate around the attachment below.`,
+                text: `Imported from ${scan.filename}: a scanned PDF with no text to extract. Annotate around the attachment below.`,
               },
             ],
           },
@@ -258,7 +258,7 @@ function NewImport() {
         body,
         chunks: [],
       })
-      toast.success("Attached — opening editor.", { id: tid })
+      toast.success("Attached. Opening the editor.", { id: tid })
       navigate(`/docs/${docId}/edit`)
     } catch (err) {
       console.error(err)
@@ -273,9 +273,9 @@ function NewImport() {
       <PageHeader
         icon={Upload}
         title="Import external document"
-        subtitle="Drop a PDF. We pull the text and images straight into the editor as a pre-draft. Scanned PDFs are attached as-is."
+        subtitle="Drop a PDF. We pull the text and images straight into the editor as a new draft. Scanned PDFs are attached as-is."
       />
-      <main className="flex-1 overflow-y-auto px-6 py-6">
+      <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto max-w-2xl space-y-4">
           {scan ? (
             <ScanCard
@@ -290,7 +290,7 @@ function NewImport() {
                 <CardTitle className="text-base">Import a PDF</CardTitle>
                 <CardDescription className="text-xs">
                   Digital PDFs are extracted to text + images and opened in the
-                  editor. No template, no AI, no naming code up front — you set
+                  editor. No template, no AI, no naming code up front: you set
                   all of that in the editor. The source PDF is kept for audit.
                 </CardDescription>
               </CardHeader>
@@ -326,7 +326,7 @@ function NewImport() {
                       <div className="text-sm font-medium">
                         {busyMsg || "Working…"}
                       </div>
-                      <div className="text-[11px] text-muted-foreground">
+                      <div className="text-xs text-muted-foreground">
                         Don't close this tab.
                       </div>
                     </>
@@ -336,7 +336,7 @@ function NewImport() {
                       <div className="text-sm font-medium">
                         Drop a PDF, or click to browse
                       </div>
-                      <div className="text-[11px] text-muted-foreground">
+                      <div className="text-xs text-muted-foreground">
                         PDF up to 50 MB
                       </div>
                     </>
@@ -361,7 +361,7 @@ function NewImport() {
             </Card>
           )}
         </div>
-      </main>
+      </div>
     </>
   )
 }
@@ -393,7 +393,7 @@ function ScanCard({
           <AlertDescription className="text-sm leading-relaxed">
             We couldn't find a selectable text layer in this PDF ({scan.pageCount}{" "}
             page{scan.pageCount === 1 ? "" : "s"}), so there's nothing to extract.
-            You can attach it as a scrollable PDF inside a new pre-draft and
+            You can attach it as a scrollable PDF inside a new draft and
             annotate around it. (OCR for scans is planned for a later release.)
           </AlertDescription>
         </Alert>

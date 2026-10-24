@@ -3,6 +3,8 @@ import { useQuery } from "convex/react"
 import { Link } from "wouter"
 import { AlertTriangle, ListChecks, Plus, Search } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
+import type { Id } from "../../../convex/_generated/dataModel"
+import { useCheckIn } from "@/lib/checkIn"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -17,7 +19,7 @@ type StatusFilter = "all" | "published" | "work" | "review"
 
 const KIND_FILTERS: { value: KindFilter; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "course", label: "Courses" },
+  { value: "course", label: "Trainings" },
   { value: "round", label: "Rounds" },
 ]
 const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
@@ -27,9 +29,30 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: "review", label: "Needs review after a change" },
 ]
 
-// Learn tab: the Trainings library (courses and Rounds), with Guided creation of a new Training.
+/**
+ * "New Training", the primary action of the Learn header on the Trainings
+ * tab. Opens the Training builder. Only for a checked-in Engineer.
+ */
+export function TrainingsTabPrimary() {
+  const { person } = useCheckIn()
+  const [creating, setCreating] = useState(false)
+  if (person?.kind !== "engineer") return null
+  return (
+    <>
+      <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
+        <Plus className="h-4 w-4" />
+        New Training
+      </Button>
+      <TrainingGuidedCreation open={creating} onOpenChange={setCreating} />
+    </>
+  )
+}
+
+// Learn tab: the Trainings library (Trainings and Rounds). "New Training" lives in the Learn header (TrainingsTabPrimary).
 export function TrainingsTab() {
   const trainings = useQuery(api.trainings.list, {})
+  const { person } = useCheckIn()
+  const engineer = person?.kind === "engineer"
   const [creating, setCreating] = useState(false)
   const [kind, setKind] = useState<KindFilter>("all")
   const [status, setStatus] = useState<StatusFilter>("all")
@@ -90,16 +113,12 @@ export function TrainingsTab() {
           <button
             type="button"
             onClick={() => setStatus("review")}
-            className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
+            className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
           >
             <AlertTriangle className="h-3 w-3" />
             {needsReview} {needsReview === 1 ? "needs" : "need"} review after a change
           </button>
         )}
-        <Button size="sm" className="ml-auto gap-1.5" onClick={() => setCreating(true)}>
-          <Plus className="h-3.5 w-3.5" />
-          New Training
-        </Button>
       </div>
 
       {trainings === undefined ? (
@@ -121,13 +140,15 @@ export function TrainingsTab() {
           <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
             <ListChecks className="h-8 w-8 text-primary" />
             <p className="text-sm font-medium">No Trainings yet</p>
-            <p className="max-w-sm text-xs text-muted-foreground">
-              A Training says what a person must prove, with Learning objectives taken from published
-              documents. Describe one and the assistant drafts it for you.
+            <p className="max-w-sm text-sm text-muted-foreground">
+              A Training says what a person must prove, with Learning objectives taken from Published
+              documents. {engineer ? "Describe one and the assistant drafts it for you." : "An Engineer makes them."}
             </p>
-            <Button size="sm" variant="outline" className="mt-1 gap-1.5" onClick={() => setCreating(true)}>
-              <Plus className="h-3.5 w-3.5" /> New Training
-            </Button>
+            {engineer && (
+              <Button size="sm" variant="outline" className="mt-1 gap-1.5" onClick={() => setCreating(true)}>
+                <Plus className="h-4 w-4" /> New Training
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : rows.length === 0 ? (
@@ -169,10 +190,11 @@ export function TrainingsTab() {
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span className="truncate text-sm font-medium">{t.title}</span>
                     <KindBadge kind={t.kind} />
-                    <StatusBadge status={t.status} className="h-5 px-1.5 text-[10px]" />
+                    <StatusBadge status={t.status} />
                     {t.liveVersion != null && t.currentVersion !== t.liveVersion && (
-                      <span className="text-[10px] text-muted-foreground">v{t.liveVersion} in use</span>
+                      <span className="text-xs text-muted-foreground">v{t.liveVersion} in use</span>
                     )}
+                    <FindingMarker trainingId={t._id} />
                   </span>
                   <span className="block truncate text-xs text-muted-foreground">
                     <span className="font-mono">
@@ -189,22 +211,13 @@ export function TrainingsTab() {
                     )}
                   </span>
                   {t.needsReview && (
-                    <span className="flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                    <span className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300">
                       <AlertTriangle className="h-3 w-3 shrink-0" />
                       Review after change: {t.needsReviewReason ?? "a source document changed"}
                     </span>
                   )}
                 </span>
-                <span className="hidden w-28 shrink-0 text-right sm:block">
-                  <span className="block text-sm font-semibold tabular-nums">
-                    {t.stats.passRate == null ? "–" : `${t.stats.passRate}%`}
-                  </span>
-                  <span className="block text-[11px] text-muted-foreground">
-                    {t.stats.finished === 0
-                      ? "No Attempts yet"
-                      : `pass rate · ${t.stats.records} ${t.stats.records === 1 ? "record" : "records"}`}
-                  </span>
-                </span>
+                <TrainingRowSide trainingId={t._id} isLive={t.liveVersion != null} passRate={t.stats.passRate} finished={t.stats.finished} />
               </Link>
             ))}
           </CardContent>
@@ -213,5 +226,59 @@ export function TrainingsTab() {
 
       <TrainingGuidedCreation open={creating} onOpenChange={setCreating} />
     </div>
+  )
+}
+
+/** "Finding" when a cited passage has an open contradiction nobody has settled or kept. */
+function FindingMarker({ trainingId }: { trainingId: Id<"trainings"> }) {
+  const open = useQuery(api.trainings.openFindingsForObjectives, { trainingId })
+  const count = (open ?? []).reduce((n, o) => n + o.findings.filter((f) => !f.acked).length, 0)
+  if (count === 0) return null
+  return (
+    <span
+      title="A cited passage has an open contradiction Finding"
+      className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
+    >
+      <AlertTriangle className="h-3 w-3" /> Finding
+    </span>
+  )
+}
+
+/** The right column: who still needs it, then the pass rate. */
+function TrainingRowSide({
+  trainingId,
+  isLive,
+  passRate,
+  finished,
+}: {
+  trainingId: Id<"trainings">
+  isLive: boolean
+  passRate: number | null
+  finished: number
+}) {
+  const assigned = useQuery(api.assignments.listForTraining, isLive ? { trainingId } : "skip")
+  const s = assigned?.summary
+  const needed = s ? s.assigned - s.passed : 0
+  return (
+    <span className="hidden w-44 shrink-0 text-right sm:block">
+      {s && s.assigned > 0 ? (
+        <>
+          <span className="block text-sm font-medium">
+            Needed by {needed}
+            {s.overdue > 0 && <span className="text-red-700 dark:text-red-300"> · Overdue {s.overdue}</span>}
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            {s.passed} of {s.assigned} passed{passRate != null ? ` · pass rate ${passRate}%` : ""}
+          </span>
+        </>
+      ) : (
+        <>
+          <span className="block text-sm font-semibold tabular-nums">{passRate == null ? "No Attempts" : `${passRate}%`}</span>
+          <span className="block text-xs text-muted-foreground">
+            {finished === 0 ? (isLive ? "Nobody assigned" : "Not in use yet") : "pass rate"}
+          </span>
+        </>
+      )}
+    </span>
   )
 }

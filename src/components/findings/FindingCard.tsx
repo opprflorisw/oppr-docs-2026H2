@@ -1,7 +1,7 @@
 import { useState } from "react"
-import { Link } from "wouter"
+import { Link, useLocation } from "wouter"
 import { toast } from "sonner"
-import { CheckCircle2, CircleSlash, Sparkles, X } from "lucide-react"
+import { ArrowRight, CheckCircle2, CircleSlash, Loader2, Sparkles, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { useCheckIn } from "@/lib/checkIn"
@@ -27,6 +27,10 @@ export function FindingCard({ finding, highlighted }: { finding: FindingView; hi
   const revisionDoc = finding.proposedRevision
     ? [finding.a, finding.b].find((s) => s.documentId === finding.proposedRevision!.documentId)
     : null
+  const [, navigate] = useLocation()
+  const revisionState = finding.proposedRevision?.state ?? null
+  const preparing = open && revisionState === "generating"
+  const ready = open && revisionState === "ready"
 
   return (
     <Card
@@ -52,7 +56,17 @@ export function FindingCard({ finding, highlighted }: { finding: FindingView; hi
 
         <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
           <StatusLine finding={finding} revisionCode={revisionDoc?.namingCode ?? null} />
-          {open && (
+          {preparing ? (
+            <p role="status" className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Preparing a revision of {revisionDoc?.namingCode ?? "the document"}...
+            </p>
+          ) : ready && finding.proposedRevision ? (
+            <Button size="sm" onClick={() => navigate(`/docs/${finding.proposedRevision!.documentId}`)}>
+              Review the proposed revision
+              <ArrowRight />
+            </Button>
+          ) : open && (
             <div className="flex shrink-0 items-center gap-1.5">
               <Button
                 size="sm"

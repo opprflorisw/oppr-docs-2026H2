@@ -1,33 +1,25 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useMutation, useQuery } from "convex/react"
-import { Link, useLocation, useRoute } from "wouter"
+import { Link, useRoute } from "wouter"
 import { toast } from "sonner"
-import {
-  ArrowLeft,
-  ArrowRight,
-  Award,
-  CircleAlert,
-  ClipboardCheck,
-  Loader2,
-  Printer,
-  RotateCcw,
-  Sparkles,
-  TrendingUp,
-  XCircle,
-} from "lucide-react"
+import { ArrowLeft, ArrowRight, Award, CircleAlert, ClipboardCheck, Loader2, Printer, RotateCcw, XCircle } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { Button } from "@/components/ui/button"
 import { useCheckIn } from "@/lib/checkIn"
-import { cn } from "@/lib/utils"
 import { errorText, fmtDate, KindBadge, ProgressBar } from "@/components/learn/training/lib"
-import { QuestionCard } from "@/components/learn/training/QuestionCard"
+import { isAnswered, QuestionCard } from "@/components/learn/training/QuestionCard"
 import { AttemptReview, type AttemptView } from "@/components/learn/training/AttemptReview"
+import { AttemptIntro } from "@/components/learn/training/AttemptIntro"
+import { PresentSteps } from "@/components/learn/training/PresentSteps"
+import { AttemptResult } from "@/components/learn/training/AttemptResult"
 import { RoundRunner } from "@/components/learn/training/RoundRunner"
 
-// /learn/attempts/:id: doing (or reviewing) one Attempt; every question cites its source.
+// /learn/attempts/:id: doing (or reviewing) one Attempt. The same steps as
+// on the phone: Prepare, Present (when the Training has a breakdown), Check,
+// then the result with the next step and the full record.
 export function AttemptPage() {
   const [, params] = useRoute<{ id: string }>("/learn/attempts/:id")
   const id = params?.id as Id<"trainingAttempts"> | undefined
@@ -73,7 +65,7 @@ export function AttemptPage() {
         <PageHeader
           icon={ClipboardCheck}
           title={a.training ? a.training.title : "Attempt"}
-          subtitle={
+          statusLine={
             <span className="flex flex-wrap items-center gap-1.5">
               <span className="font-mono">
                 {a.training?.code} · v{a.trainingVersion}
@@ -83,17 +75,11 @@ export function AttemptPage() {
               <span>· started {fmtDate(a.startedAt)}</span>
             </span>
           }
-          actions={
-            finished ? (
-              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => window.print()}>
-                <Printer className="h-3.5 w-3.5" /> Print
-              </Button>
-            ) : undefined
-          }
+          secondary={finished ? [{ label: "Print", icon: Printer, onClick: () => window.print() }] : undefined}
         />
       </div>
       <div className="mx-auto w-full max-w-3xl space-y-4 p-6 print:max-w-none print:p-0">
-        {a.status === "generating" && <Generating startedAt={a.startedAt} kind={a.training?.kind ?? "course"} />}
+        {a.status === "generating" && <AttemptIntro a={a} generating />}
         {a.status === "error" && <GenerationError a={a} isOwner={isOwner} />}
         {a.status === "abandoned" && (
           <Notice>
@@ -112,7 +98,7 @@ export function AttemptPage() {
                 <FinishBar a={a} personId={person._id} />
               </>
             ) : (
-              <CourseRunner key={a._id} a={a} personId={person._id} />
+              <CourseFlow key={a._id} a={a} personId={person._id} />
             )
           ) : (
             <Notice>
@@ -123,10 +109,12 @@ export function AttemptPage() {
           ))}
         {finished && (
           <>
-            <Result a={a} isOwner={isOwner} />
-            <div className="flex items-center gap-2 pt-2 print:hidden">
-              <h2 className="text-sm font-semibold">Every question and answer</h2>
-              <span className="text-[11px] text-muted-foreground">This is the record an auditor or labour inspector sees.</span>
+            <div className="print:hidden">
+              <AttemptResult a={a} personId={person?._id ?? null} />
+            </div>
+            <div className="flex items-baseline gap-2 pt-2 print:hidden">
+              <h2 className="text-sm font-semibold">The Training record</h2>
+              <span className="text-xs text-muted-foreground">What an auditor or labour inspector sees.</span>
             </div>
             <AttemptReview a={a} />
           </>
@@ -150,29 +138,6 @@ function Shell({ crumbs, children }: { crumbs: { label: string; href?: string }[
 
 function Notice({ children }: { children: React.ReactNode }) {
   return <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm">{children}</div>
-}
-
-function Generating({ startedAt, kind }: { startedAt: number; kind: "course" | "round" }) {
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(t)
-  }, [])
-  const secs = Math.max(0, Math.floor((now - startedAt) / 1000))
-  return (
-    <div className="flex flex-col items-center gap-3 rounded-lg border px-6 py-12 text-center">
-      <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-        <Sparkles className="h-5 w-5 text-primary" />
-        <Loader2 className="absolute h-10 w-10 animate-spin text-primary/40" />
-      </span>
-      <p className="text-sm font-medium">Preparing your questions</p>
-      <p className="max-w-md text-xs text-muted-foreground">
-        They are written fresh for you from the published documents, one or more for every Learning objective, and each is
-        checked against the passage it cites.{kind === "round" ? " Then you walk the Round stop by stop." : ""}
-      </p>
-      <p className="text-[11px] tabular-nums text-muted-foreground">{secs}s · usually under a minute</p>
-    </div>
-  )
 }
 
 function GenerationError({ a, isOwner }: { a: AttemptView; isOwner: boolean }) {
@@ -210,32 +175,81 @@ function GenerationError({ a, isOwner }: { a: AttemptView; isOwner: boolean }) {
 }
 
 function Progress({ a }: { a: AttemptView }) {
-  const pct = a.progress.total ? (a.progress.answered / a.progress.total) * 100 : 0
+  const answered = a.questions.filter(isAnswered).length
+  const pct = a.progress.total ? (answered / a.progress.total) * 100 : 0
   return (
     <div className="space-y-1">
-      <div className="flex justify-between text-[11px] text-muted-foreground">
+      <div className="flex justify-between text-xs text-muted-foreground">
         <span>
-          {a.progress.answered} of {a.progress.total} answered
+          {answered} of {a.progress.total} answered
           {a.round && ` · stop ${Math.min(a.round.currentStop + 1, a.stops.length)} of ${a.stops.length}`}
         </span>
-        <span>Pass mark {a.passMark}%</span>
       </div>
       <ProgressBar value={pct} />
     </div>
   )
 }
 
+/** Prepare, Present (when there is a breakdown), then the questions. */
+function CourseFlow({ a, personId }: { a: AttemptView; personId: Id<"people"> }) {
+  const markPresentSeen = useMutation(api.attempts.markPresentSeen)
+  const started = a.questions.some(isAnswered)
+  const hasSteps = a.breakdown.length > 0
+  const [stage, setStage] = useState<"intro" | "present" | "questions">(started ? "questions" : "intro")
+  const [marking, setMarking] = useState(false)
+
+  async function presentDone() {
+    setMarking(true)
+    try {
+      await markPresentSeen({ id: a._id, personId })
+    } catch {
+      // Not recorded; the steps were still shown.
+    } finally {
+      setMarking(false)
+      setStage("questions")
+    }
+  }
+
+  if (stage === "intro") {
+    return (
+      <div className="space-y-3">
+        <AttemptIntro a={a} generating={false} />
+        <Button
+          className="gap-1.5"
+          onClick={() => setStage(hasSteps && a.presentSeenAt == null ? "present" : "questions")}
+        >
+          {hasSteps && a.presentSeenAt == null ? "Show me the steps" : "Start the questions"}
+          <ArrowRight className="h-4 w-4" />
+        </Button>
+      </div>
+    )
+  }
+  if (stage === "present") {
+    return (
+      <PresentSteps
+        steps={a.breakdown}
+        retry={a.attemptNumber > 1 || a.earlierFails > 0}
+        busy={marking}
+        onDone={() => void presentDone()}
+        onSkip={() => void presentDone()}
+      />
+    )
+  }
+  return <CourseRunner a={a} personId={personId} />
+}
+
 function CourseRunner({ a, personId }: { a: AttemptView; personId: Id<"people"> }) {
-  const firstOpen = a.questions.findIndex((q) => q.answerIndex === null)
+  const firstOpen = a.questions.findIndex((q) => !isAnswered(q))
   const [index, setIndex] = useState(firstOpen < 0 ? Math.max(0, a.questions.length - 1) : firstOpen)
   const q = a.questions[index]
   if (!q) return <Notice>This Attempt has no questions.</Notice>
   const last = index === a.questions.length - 1
-  const answered = q.answerIndex !== null
+  const answered = isAnswered(q)
   return (
     <div className="space-y-4">
       <Progress a={a} />
       <QuestionCard
+        key={q.id}
         attemptId={a._id}
         personId={personId}
         question={q}
@@ -257,15 +271,12 @@ function CourseRunner({ a, personId }: { a: AttemptView; personId: Id<"people"> 
           </div>
         }
       />
-      <p className="text-center text-[11px] text-muted-foreground">
-        Answers are final once chosen. Each question shows its source after you answer.
-      </p>
     </div>
   )
 }
 
 function FinishBar({ a, personId }: { a: AttemptView; personId: Id<"people"> }) {
-  const ready = a.progress.answered === a.progress.total && a.stops.every((s) => s.done)
+  const ready = a.questions.every(isAnswered) && a.stops.every((s) => s.done)
   if (!ready) return null
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
@@ -278,118 +289,29 @@ function FinishBar({ a, personId }: { a: AttemptView; personId: Id<"people"> }) 
 function FinishButton({ a, personId }: { a: AttemptView; personId: Id<"people"> }) {
   const finish = useMutation(api.attempts.finish)
   const [busy, setBusy] = useState(false)
-  const open = a.progress.total - a.progress.answered
+  const open = a.questions.filter((q) => !isAnswered(q)).length
   return (
-    <Button
-      size="sm"
-      className="gap-1.5"
-      disabled={busy || open > 0}
-      title={open > 0 ? `${open} still open` : undefined}
-      onClick={async () => {
-        setBusy(true)
-        try {
-          await finish({ id: a._id, personId })
-          window.scrollTo({ top: 0, behavior: "smooth" })
-        } catch (err) {
-          toast.error(errorText(err))
-        } finally {
-          setBusy(false)
-        }
-      }}
-    >
-      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Award className="h-3.5 w-3.5" />}
-      See your result
-    </Button>
-  )
-}
-
-function Result({ a, isOwner }: { a: AttemptView; isOwner: boolean }) {
-  const passed = a.status === "passed"
-  const start = useMutation(api.attempts.start)
-  const [, navigate] = useLocation()
-  const [busy, setBusy] = useState(false)
-  const canRetry = isOwner && !passed && a.training?.liveVersion != null && a.training.status !== "archived"
-  return (
-    <div
-      className={cn(
-        "space-y-3 rounded-lg border p-5 print:hidden",
-        passed
-          ? "border-emerald-300 bg-emerald-50/70 dark:border-emerald-500/40 dark:bg-emerald-500/10"
-          : "border-red-300 bg-red-50/60 dark:border-red-500/40 dark:bg-red-500/10",
-      )}
-    >
-      <div className="flex items-center gap-4">
-        <span
-          className={cn(
-            "flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-lg font-bold tabular-nums text-white",
-            passed ? "bg-emerald-500" : "bg-red-500",
-          )}
-        >
-          {a.score ?? 0}%
-        </span>
-        <div className="min-w-0">
-          <p className={cn("text-base font-semibold", passed ? "text-emerald-800 dark:text-emerald-200" : "text-red-800 dark:text-red-200")}>
-            {passed ? "Passed" : "Not passed this time"}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            {a.progress.correct} of {a.progress.total} correct. The pass mark is {a.passMark}%.
-            {a.round && ` ${a.round.wrongScans} wrong ${a.round.wrongScans === 1 ? "scan" : "scans"}.`}
-          </p>
-        </div>
-      </div>
-      {passed ? (
-        <p className="flex items-start gap-1.5 text-sm">
-          <ClipboardCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-          A Training record for {a.personName} was written on {fmtDate(a.finishedAt, true)}: {a.training?.code} v{a.trainingVersion}, with every question and answer below.
-        </p>
-      ) : (
-        <p className="text-sm">
-          This Attempt is kept as it is. Read the explanations below{canRetry ? ", then try again: you get new questions" : ""}.
-        </p>
-      )}
-      {a.skillsRaised.length > 0 && (
-        <div className="space-y-1">
-          {a.skillsRaised.map((s) => (
-            <p key={s.skillId} className="flex items-center gap-1.5 text-sm font-medium">
-              <TrendingUp className="h-4 w-4 text-emerald-600" />
-              {s.renewed ? `Skill renewed: ${s.name}, level ${s.toLevel}` : `Skill raised: ${s.name}, level ${s.fromLevel} to ${s.toLevel}`}
-            </p>
-          ))}
-        </div>
-      )}
-      <div className="flex flex-wrap gap-2">
-        <Button asChild size="sm" variant="outline" className="gap-1.5 bg-background">
-          <Link href={`/learn/trainings/${a.trainingId}`}>
-            <ArrowLeft className="h-3.5 w-3.5" /> Back to the Training
-          </Link>
-        </Button>
-        {passed && (
-          <Button asChild size="sm" variant="outline" className="gap-1.5 bg-background">
-            <Link href={`/learn/people/${a.personId}`}>Skills of {a.personName.split(" ")[0]}</Link>
-          </Button>
-        )}
-        {canRetry && (
-          <Button
-            size="sm"
-            className="gap-1.5"
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true)
-              try {
-                const id = await start({ trainingId: a.trainingId, personId: a.personId })
-                navigate(`/learn/attempts/${id}`)
-              } catch (err) {
-                toast.error(errorText(err))
-              } finally {
-                setBusy(false)
-              }
-            }}
-          >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
-            Try again with new questions
-          </Button>
-        )}
-      </div>
+    <div className="flex items-center gap-2">
+      {open > 0 && <span className="text-xs text-muted-foreground">{open} still open</span>}
+      <Button
+        size="sm"
+        className="gap-1.5"
+        disabled={busy || open > 0}
+        onClick={async () => {
+          setBusy(true)
+          try {
+            await finish({ id: a._id, personId })
+            window.scrollTo({ top: 0, behavior: "smooth" })
+          } catch (err) {
+            toast.error(errorText(err))
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Award className="h-3.5 w-3.5" />}
+        See your result
+      </Button>
     </div>
   )
 }

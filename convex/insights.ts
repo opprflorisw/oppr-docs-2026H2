@@ -4,7 +4,7 @@
 // health looks at Published Documents only: the goal is a smaller, better
 // library, not a bigger one.
 import { v } from "convex/values"
-import { internalMutation, internalQuery, query, QueryCtx } from "./_generated/server"
+import { internalMutation, internalQuery, mutation, query, QueryCtx } from "./_generated/server"
 import { Doc, Id } from "./_generated/dataModel"
 import { requireUser } from "./lib/auth"
 import { isPublished } from "./lib/published"
@@ -645,5 +645,58 @@ export const saveReport = internalMutation({
       .order("desc")
       .take(20)
     for (const r of older.slice(5)) await ctx.db.delete(r._id)
+  },
+})
+
+// ---- Ask feedback on the floor -----------------------------------------------
+
+const ASK_FEEDBACK_REASONS = {
+  wrong_machine: "Wrong machine",
+  out_of_date: "Out of date",
+  missing_step: "Missing step",
+  other: "Other",
+} as const
+
+/**
+ * "Helpful" or "Unclear or wrong?" under an Ask answer on the phone. Unclear
+ * marks become content flags (source "ask") on each cited Published document,
+ * so they show in Document insights and inform the next revision. Helpful is
+ * only acknowledged: it changes nothing in the documents.
+ */
+export const askFeedback = mutation({
+  args: {
+    verdict: v.union(v.literal("helpful"), v.literal("unclear")),
+    reason: v.optional(
+      v.union(v.literal("wrong_machine"), v.literal("out_of_date"), v.literal("missing_step"), v.literal("other")),
+    ),
+    question: v.string(),
+    citations: v.array(v.object({ documentId: v.id("documents"), chunkId: v.union(v.id("chunks"), v.null()) })),
+    personId: v.union(v.id("people"), v.null()),
+  },
+  handler: async (ctx, args) => {
+    await requireUser(ctx)
+    if (args.verdict === "helpful") return { flagged: 0 }
+    const label = ASK_FEEDBACK_REASONS[args.reason ?? "other"]
+    const question = args.question.trim().slice(0, 300)
+    const note = question ? `Ask answer marked "${label}". Question: ${question}` : `Ask answer marked "${label}".`
+    const seen = new Set<string>()
+    let flagged = 0
+    for (const c of args.citations.slice(0, 12)) {
+      if (seen.has(c.documentId)) continue
+      seen.add(c.documentId)
+      const d = await ctx.db.get(c.documentId)
+      if (!d || !isPublished(d) || d.liveVersion == null) continue
+      await ctx.db.insert("contentFlags", {
+        documentId: d._id,
+        version: d.liveVersion,
+        chunkId: c.chunkId,
+        source: "ask",
+        note,
+        personId: args.personId,
+        at: Date.now(),
+      })
+      flagged += 1
+    }
+    return { flagged }
   },
 })

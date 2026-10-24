@@ -44,7 +44,9 @@ import {
 } from "@/lib/convex-adapters"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { useChatSize, type ChatSize } from "@/components/mobile/use-mobile-prefs"
+import { useChatSize, useOnline, type ChatSize } from "@/components/mobile/use-mobile-prefs"
+import { FloorFeedback, FloorSources } from "@/components/mobile/AskFloor"
+import { FloorPrimaryButton, FloorSecondaryButton, MobileSheet } from "@/components/mobile/MobileSheet"
 import { cn, isMobilePath } from "@/lib/utils"
 import { LogReferenceModal } from "@/components/docs/LogReferenceModal"
 import { MessageContent } from "./MessageContent"
@@ -54,6 +56,7 @@ import { StarterPrompts } from "./StarterPrompts"
 import { ScopeChip } from "./ScopeChip"
 import { ClearChatDialog } from "./ClearChatDialog"
 import { AskConflictWarning } from "./AskConflictWarning"
+import { starterQuestions } from "@/components/wiki/wikiStarters"
 
 // Mobile font-size dial. Mounted in the AskPanel header when `compact`.
 // The size lands on the scroll container; bubbles and MessageContent inherit
@@ -143,7 +146,7 @@ function writeStore(key: string, value: string) {
   }
 }
 
-function useAskThreadKey(personId: string | null): string {
+export function useAskThreadKey(personId: string | null): string {
   const [anon, setAnon] = useState<string>(() => {
     const stored = readStore(ANON_KEY)
     const [key, at] = (stored ?? "").split("@")
@@ -190,7 +193,22 @@ type SpeechRecognitionCtor = new () => SpeechRecognitionInstance
 export type AskPanelScope =
   | { kind: "doc"; id: string }
   | { kind: "asset"; id: string }
+  | { kind: "wiki"; id: string }
   | { kind: "library" }
+
+/**
+ * Where a scope's thread is saved (qaSessions). The table knows doc, asset and
+ * library; an Ask this Wiki thread is kept under the library kind with its
+ * own id "wiki:<id>", so it never mixes with the whole-library thread.
+ */
+export function askSessionScope(scope: AskPanelScope): {
+  scopeKind: "doc" | "asset" | "library"
+  scopeId: string
+} {
+  if (scope.kind === "library") return { scopeKind: "library", scopeId: "library" }
+  if (scope.kind === "wiki") return { scopeKind: "library", scopeId: `wiki:${scope.id}` }
+  return { scopeKind: scope.kind, scopeId: scope.id }
+}
 
 export interface AskPanelProps {
   scope: AskPanelScope
@@ -213,7 +231,17 @@ export interface AskPanelProps {
   initialQuestion?: string | null
   /** Called once the initial question has been sent. */
   onInitialQuestionSent?: () => void
+  /**
+   * "floor": the phone's Ask. No inner card or title (the page header shows
+   * the scope), 17px answers, one source chip, no Related rail, a 16px
+   * composer with the mic inside, Helpful or Unclear feedback, and offline
+   * handling.
+   */
+  variant?: "default" | "floor"
 }
+
+/** No answer starts within this time: stop and say so. */
+const ASK_TIMEOUT_MS = 30_000
 
 export function AskPanel({
   scope: scopeProp,
@@ -226,7 +254,10 @@ export function AskPanel({
   autoFocus = false,
   initialQuestion = null,
   onInitialQuestionSent,
+  variant = "default",
 }: AskPanelProps) {
+  const floor = variant === "floor"
+  const online = useOnline()
   const [location, navigate] = useLocation()
   // Logged with each question (convex/usage.logAsk): who asked, if checked in.
   const { person: checkedInPerson } = useCheckIn()
@@ -246,8 +277,16 @@ export function AskPanel({
   const authToken = useAuthToken()
   const { size: chatSize, setSize: setChatSize } = useChatSize()
 
-  const scopeKindArg = scope.kind
-  const scopeIdArg = scope.kind === "library" ? "library" : scope.id
+  const { scopeKind: scopeKindArg, scopeId: scopeIdArg } = askSessionScope(scope)
+  // Ask this Wiki: starter questions from the Wiki's section headings.
+  const wikiForStarters = useQuery(
+    api.wikis.get,
+    scope.kind === "wiki" ? { id: scope.id as Id<"wikis"> } : "skip",
+  )
+  const wikiStarters =
+    scope.kind === "wiki"
+      ? starterQuestions(wikiForStarters?.content?.sections.map((x) => x.heading) ?? [])
+      : null
   // Whose thread this is: the checked-in person, or the current Anonymous one.
   const who = useAskThreadKey(checkedInPerson?._id ?? null)
 
@@ -373,6 +412,7 @@ export function AskPanel({
 
   async function send(question: string) {
     if (!question.trim() || pending) return
+    if (!online) return
     if (!authToken) {
       toast.error("Not signed in.")
       return
@@ -392,6 +432,15 @@ export function AskPanel({
 
     const ac = new AbortController()
     abortRef.current = ac
+    // No first words within 30 seconds: give up, keep the question.
+    let gotText = false
+    let timedOut = false
+    const timeout = window.setTimeout(() => {
+      if (!gotText) {
+        timedOut = true
+        ac.abort()
+      }
+    }, ASK_TIMEOUT_MS)
 
     let activeSessionId: Id<"qaSessions">
     try {
@@ -416,11 +465,7 @@ export function AskPanel({
 
       const history = messages.map((m) => ({ role: m.role, text: m.text }))
       const askScope =
-        scope.kind === "library"
-          ? { kind: "library" as const }
-          : scope.kind === "doc"
-            ? { kind: "doc" as const, id: scope.id }
-            : { kind: "asset" as const, id: scope.id }
+        scope.kind === "library" ? { kind: "library" as const } : { kind: scope.kind, id: scope.id }
 
       const res = await fetch(`${siteUrl}/ai/askStream`, {
         method: "POST",
@@ -464,6 +509,7 @@ export function AskPanel({
             continue
           }
           if (event.type === "delta" && typeof event.text === "string") {
+            gotText = true
             accumulated += event.text
             setStreamingText(accumulated)
           } else if (event.type === "done") {
@@ -505,6 +551,12 @@ export function AskPanel({
       })
       setStreamingText("")
     } catch (err) {
+      if (timedOut) {
+        setStreamingText("")
+        setInput(question)
+        toast.error("Could not reach Ask. Try again.")
+        return
+      }
       if (ac.signal.aborted) {
         setStreamingText("")
         return
@@ -523,9 +575,31 @@ export function AskPanel({
       }
       setStreamingText("")
     } finally {
+      window.clearTimeout(timeout)
       setPending(false)
       if (abortRef.current === ac) abortRef.current = null
     }
+  }
+
+  // Offline: the question stays in the box. Pressing Send (Enter) while
+  // offline queues it, and it goes out when the connection is back.
+  const queuedRef = useRef(false)
+  const [queued, setQueued] = useState(false)
+  useEffect(() => {
+    if (!online || !queuedRef.current) return
+    queuedRef.current = false
+    setQueued(false)
+    if (input.trim()) void send(input)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online])
+  function submit() {
+    if (!input.trim()) return
+    if (!online) {
+      queuedRef.current = true
+      setQueued(true)
+      return
+    }
+    void send(input)
   }
 
   useEffect(() => {
@@ -638,11 +712,13 @@ export function AskPanel({
   return (
     <div
       className={cn(
-        "flex h-full min-h-0 flex-col rounded-md border bg-card text-card-foreground",
-        compact ? "" : "shadow-sm",
+        "flex h-full min-h-0 flex-col",
+        floor ? "bg-background" : "rounded-md border bg-card text-card-foreground",
+        !floor && !compact && "shadow-sm",
         className,
       )}
     >
+      {!floor && (
       <header className="space-y-1.5 border-b px-3 py-2.5">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">Ask</h2>
@@ -673,16 +749,33 @@ export function AskPanel({
           )}
         </div>
       </header>
+      )}
 
       <div
         ref={scrollRef}
         className={cn(
-          "flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3",
-          compact ? CHAT_SIZE_CLASS[chatSize] : "text-sm",
+          "flex-1 min-h-0 overflow-y-auto",
+          floor ? "space-y-4 px-4 py-4 text-[17px] leading-relaxed" : "space-y-3 px-3 py-3",
+          !floor && (compact ? CHAT_SIZE_CLASS[chatSize] : "text-sm"),
         )}
       >
-        {visibleMessages.length === 0 && !pending && (
-          <StarterPrompts scope={scope} onPick={(p) => void send(p)} />
+        {floor && messages.length > 0 && !pending && (
+          <div className="-mb-2 flex justify-end">
+            <button
+              type="button"
+              onClick={handleClearChat}
+              className="flex min-h-11 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-muted-foreground"
+            >
+              <Trash2 className="h-4 w-4" />
+              Start over
+            </button>
+          </div>
+        )}
+        {visibleMessages.length === 0 && !pending && wikiStarters && (
+          <WikiStarterPrompts starters={wikiStarters} floor={floor} onPick={(p) => void send(p)} />
+        )}
+        {visibleMessages.length === 0 && !pending && !wikiStarters && (
+          <StarterPrompts scope={scope} floor={floor} onPick={(p) => void send(p)} />
         )}
         {visibleMessages.map((m, i) => (
           <MessageBlock
@@ -733,13 +826,32 @@ export function AskPanel({
             }}
             onRegenerate={handleRegenerate}
             pending={pending}
+            floor={floor}
           />
         ))}
         {pending && !streamingText && (
-          <div className="text-xs italic text-muted-foreground">Thinking…</div>
+          <div className={cn("italic text-muted-foreground", floor ? "text-base" : "text-xs")}>
+            {floor ? "Looking in the Published documents..." : "Thinking…"}
+          </div>
         )}
       </div>
 
+      {floor && (
+        <FloorComposer
+          taRef={taRef}
+          input={input}
+          setInput={setInput}
+          onSubmit={submit}
+          onStop={handleStop}
+          onMic={handleMic}
+          listening={listening}
+          pending={pending}
+          online={online}
+          queued={queued}
+        />
+      )}
+
+      {!floor && (
       <div className="border-t p-2">
         <div className="flex items-end gap-2">
           <Textarea
@@ -796,20 +908,145 @@ export function AskPanel({
           </div>
         </div>
       </div>
+      )}
 
-      <LogReferenceModal
-        log={activeLog}
-        open={!!activeLog}
-        onOpenChange={(o) => !o && setActiveLog(null)}
-      />
+      {floor ? (
+        <>
+          {activeLog && (
+            <MobileSheet
+              title={activeLog.name}
+              description={<span className="font-mono">{activeLog.code}</span>}
+              onClose={() => setActiveLog(null)}
+            >
+              <p className="px-2 pb-3 text-base text-muted-foreground">
+                You fill in this log in Oppr LOGS, the checklist app on this phone.
+              </p>
+            </MobileSheet>
+          )}
+          {clearOpen && (
+            <MobileSheet
+              title="Start over?"
+              description="The questions and answers on this phone are cleared. The documents do not change."
+              onClose={() => setClearOpen(false)}
+              footer={
+                <>
+                  <FloorPrimaryButton onClick={() => void handleClearConfirm()}>Start over</FloorPrimaryButton>
+                  <FloorSecondaryButton onClick={() => setClearOpen(false)}>Keep the conversation</FloorSecondaryButton>
+                </>
+              }
+            />
+          )}
+        </>
+      ) : (
+        <>
+          <LogReferenceModal
+            log={activeLog}
+            open={!!activeLog}
+            onOpenChange={(o) => !o && setActiveLog(null)}
+          />
 
-      <ClearChatDialog
-        open={clearOpen}
-        onOpenChange={setClearOpen}
-        onConfirm={handleClearConfirm}
-        scope={scope}
-        messageCount={messages.length}
-      />
+          <ClearChatDialog
+            open={clearOpen}
+            onOpenChange={setClearOpen}
+            onConfirm={handleClearConfirm}
+            scope={scope}
+            messageCount={messages.length}
+          />
+        </>
+      )}
+    </div>
+  )
+}
+
+/** The floor composer: a 16px box with the mic inside, and a big Send. */
+function FloorComposer({
+  taRef,
+  input,
+  setInput,
+  onSubmit,
+  onStop,
+  onMic,
+  listening,
+  pending,
+  online,
+  queued,
+}: {
+  taRef: React.RefObject<HTMLTextAreaElement | null>
+  input: string
+  setInput: (v: string) => void
+  onSubmit: () => void
+  onStop: () => void
+  onMic: () => void
+  listening: boolean
+  pending: boolean
+  online: boolean
+  queued: boolean
+}) {
+  return (
+    <div
+      className="border-t bg-background px-3 pt-2"
+      style={{ paddingBottom: "max(14px, var(--sab, env(safe-area-inset-bottom, 0px)))" }}
+    >
+      {!online && (
+        <p role="status" className="mb-2 rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
+          {queued
+            ? "No connection. Your question is sent as soon as you are back online."
+            : "Ask needs a connection. Your question stays here and is sent when you are back online."}
+        </p>
+      )}
+      <div className="flex items-end gap-2">
+        <div className="relative min-w-0 flex-1">
+          <Textarea
+            ref={taRef}
+            rows={1}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault()
+                onSubmit()
+              }
+            }}
+            placeholder={listening ? "Listening..." : "Ask a question"}
+            aria-label="Your question"
+            disabled={pending}
+            enterKeyHint="send"
+            className="min-h-12 resize-none overflow-hidden rounded-2xl py-3 pl-4 pr-12 text-base leading-6"
+          />
+          <button
+            type="button"
+            onClick={onMic}
+            disabled={pending}
+            aria-label={listening ? "Stop voice input" : "Speak your question"}
+            className={cn(
+              "absolute bottom-0.5 right-0.5 flex h-11 w-11 items-center justify-center rounded-full transition",
+              listening ? "bg-red-600 text-white motion-safe:animate-pulse" : "text-muted-foreground",
+            )}
+          >
+            {listening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+          </button>
+        </div>
+        {pending ? (
+          <button
+            type="button"
+            onClick={onStop}
+            aria-label="Stop the answer"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-slate-700 text-white"
+          >
+            <Square className="h-5 w-5" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={!input.trim() || !online}
+            aria-label="Send"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#6E59A5] text-white shadow-sm transition active:scale-95 disabled:opacity-40"
+          >
+            <Send className="h-5 w-5" />
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -832,6 +1069,7 @@ interface MessageBlockProps {
   onCopy: () => void
   onRegenerate: () => void
   pending: boolean
+  floor?: boolean
 }
 
 function MessageBlock({
@@ -849,13 +1087,19 @@ function MessageBlock({
   onCopy,
   onRegenerate,
   pending,
+  floor = false,
 }: MessageBlockProps) {
   const isUser = message.role === "user"
 
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-lg bg-primary px-3 py-2 text-primary-foreground whitespace-pre-wrap break-words">
+        <div
+          className={cn(
+            "max-w-[85%] whitespace-pre-wrap break-words",
+            floor ? "rounded-2xl rounded-br-md bg-[#6E59A5] px-4 py-2.5 text-white" : "rounded-lg bg-primary px-3 py-2 text-primary-foreground",
+          )}
+        >
           {message.text}
         </div>
       </div>
@@ -864,7 +1108,12 @@ function MessageBlock({
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-[92%] space-y-2.5 rounded-lg bg-muted px-3 py-2 text-foreground">
+      <div
+        className={cn(
+          "text-foreground",
+          floor ? "w-full space-y-3 rounded-2xl rounded-bl-md bg-muted/60 px-4 py-3" : "max-w-[92%] space-y-2.5 rounded-lg bg-muted px-3 py-2",
+        )}
+      >
         <MessageContent
           text={message.text}
           streaming={streaming}
@@ -873,7 +1122,14 @@ function MessageBlock({
           citationCount={message.citations?.length ?? 0}
         />
 
-        {message.citations && message.citations.length > 0 && (
+        {floor && message.citations && message.citations.length > 0 && (
+          <FloorSources
+            citations={message.citations}
+            domIdPrefix={`citation-${message.id}`}
+            onOpen={onCitationOpen}
+          />
+        )}
+        {!floor && message.citations && message.citations.length > 0 && (
           <SourcesBlock
             citations={message.citations}
             domIdPrefix={`citation-${message.id}`}
@@ -889,7 +1145,8 @@ function MessageBlock({
           />
         )}
 
-        {!streaming &&
+        {!floor &&
+          !streaming &&
           message.citations &&
           message.citations.length > 0 && (
             <RelatedRail
@@ -903,7 +1160,11 @@ function MessageBlock({
             />
           )}
 
-        {!streaming && (
+        {floor && !streaming && !message.text.startsWith("Error:") && (
+          <FloorFeedback question={question} citations={message.citations ?? []} />
+        )}
+
+        {!floor && !streaming && (
           <div className="flex items-center gap-1 pt-1">
             <Button
               type="button"
@@ -930,6 +1191,40 @@ function MessageBlock({
             )}
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+/** Ask this Wiki: starter questions made from the Wiki's section headings. */
+function WikiStarterPrompts({
+  starters,
+  floor,
+  onPick,
+}: {
+  starters: string[]
+  floor: boolean
+  onPick: (q: string) => void
+}) {
+  return (
+    <div className="space-y-2">
+      <p className={cn("text-muted-foreground", floor ? "text-sm" : "text-xs")}>
+        Answers come only from the documents this Wiki is built from, at the versions it cites.
+      </p>
+      <div className={cn("flex flex-col", floor ? "gap-2" : "gap-1.5")}>
+        {starters.map((q) => (
+          <button
+            key={q}
+            type="button"
+            onClick={() => onPick(q)}
+            className={cn(
+              "border bg-background text-left text-muted-foreground transition-colors [@media(hover:hover)]:hover:border-primary/50 [@media(hover:hover)]:hover:text-foreground",
+              floor ? "min-h-12 rounded-2xl px-4 py-3 text-base" : "rounded-md px-3 py-2 text-xs",
+            )}
+          >
+            {q}
+          </button>
+        ))}
       </div>
     </div>
   )

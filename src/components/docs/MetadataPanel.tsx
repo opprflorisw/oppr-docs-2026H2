@@ -5,16 +5,16 @@
 // allocated server-side. Tags and manual asset-linking are gone: linked assets
 // are derived from the asset pills in the body and shown read-only here.
 //
-// Lifecycle roles (reviewer / approver) are set here. The author is always the
-// creator (shown read-only). Gating happens at the transition, not at save, so
-// these can be left empty while drafting.
+// Lifecycle roles are people (CONTEXT.md: people act through check-in): Owner,
+// Reviewer and Approver are Engineers; the author is the checked-in person.
+// Gating happens at the transition, not at save, so these can be left empty
+// while drafting. Four-eyes is enforced on the server.
 
 import { useMemo, type ReactNode } from "react"
 import { z } from "zod"
 import type { DocumentType } from "@/types"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
 import {
   Select,
   SelectContent,
@@ -26,6 +26,7 @@ import { Separator } from "@/components/ui/separator"
 import { useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import { useDocTypes } from "@/lib/typeMeta"
+import { useCheckIn } from "@/lib/checkIn"
 import { BookMarked, Factory, Hash, Play } from "lucide-react"
 
 export interface MetadataValue {
@@ -33,20 +34,26 @@ export interface MetadataValue {
   type: DocumentType
   location: string
   discipline: string
-  ownerId: string
-  reviewerId: string
-  approverId: string
+  /** People (kind "engineer") as ids, "" when unassigned. */
+  ownerPersonId: string
+  reviewerPersonId: string
+  approverPersonId: string
 }
 
-export const metadataSchema = z.object({
-  title: z.string().trim().min(1, "Title is required").max(200),
-  type: z.string().trim().min(1, "Type is required"),
-  location: z.string().trim().min(1, "Location is required"),
-  discipline: z.string().trim().min(1, "Discipline is required"),
-  ownerId: z.string().default(""),
-  reviewerId: z.string().default(""),
-  approverId: z.string().default(""),
-})
+export const metadataSchema = z
+  .object({
+    title: z.string().trim().min(1, "Give the document a title").max(200),
+    type: z.string().trim().min(1, "Choose a type"),
+    location: z.string().trim().min(1, "Choose a location"),
+    discipline: z.string().trim().min(1, "Choose a discipline"),
+    ownerPersonId: z.string().default(""),
+    reviewerPersonId: z.string().default(""),
+    approverPersonId: z.string().default(""),
+  })
+  .refine((v) => !v.reviewerPersonId || v.reviewerPersonId !== v.approverPersonId, {
+    message: "The reviewer and the approver must be two different Engineers",
+    path: ["approverPersonId"],
+  })
 
 export interface ValidationResult {
   ok: boolean
@@ -111,9 +118,9 @@ export function MetadataPanel({
   derivedLogs = [],
 }: MetadataPanelProps) {
   const filingLocked = Boolean(fixedNamingCode)
-  const me = useQuery(api.users.me)
+  const { person, people } = useCheckIn()
   const vocab = useQuery(api.naming.listVocabulary)
-  const users = useQuery(api.users.list) ?? []
+  const engineers = useMemo(() => (people ?? []).filter((p) => p.kind === "engineer"), [people])
 
   const locations = vocab?.locations ?? []
   const disciplines = vocab?.disciplines ?? []
@@ -147,13 +154,8 @@ export function MetadataPanel({
     onChange({ ...value, ...p })
   }
 
-  const userLabel = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const u of users) map.set(u.id, u.name ?? u.email ?? "User")
-    return map
-  }, [users])
-
-  const meId = me?._id ?? null
+  // "Set to me" is the checked-in Engineer; hidden when Anonymous.
+  const meId = person?.kind === "engineer" ? person._id : null
 
   return (
     <aside className="space-y-4 rounded-lg border bg-card p-4 text-card-foreground">
@@ -186,7 +188,7 @@ export function MetadataPanel({
             label="Location"
             required={!filingLocked}
             display={value.location}
-            placeholder="—"
+            placeholder="Choose"
             value={value.location}
             onValueChange={(v) => patch({ location: v })}
             error={filingLocked ? undefined : errors["location"]}
@@ -202,7 +204,7 @@ export function MetadataPanel({
             label="Discipline"
             required={!filingLocked}
             display={value.discipline}
-            placeholder="—"
+            placeholder="Choose"
             value={value.discipline}
             onValueChange={(v) => patch({ discipline: v })}
             error={filingLocked ? undefined : errors["discipline"]}
@@ -246,7 +248,7 @@ export function MetadataPanel({
             )}
           </div>
           {filingLocked ? (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Fixed once the document is created.{" "}
               {onRequestRefile && (
                 <button
@@ -254,14 +256,13 @@ export function MetadataPanel({
                   className="text-primary hover:underline"
                   onClick={onRequestRefile}
                 >
-                  Need a different filing? Create a new document…
+                  Need a different filing? Create a new document
                 </button>
               )}
             </p>
           ) : (
-            <p className="text-[11px] text-muted-foreground">
-              Auto-generated on create — next in this location + discipline +
-              type sequence.
+            <p className="text-xs text-muted-foreground">
+              Given on create: the next number for this location, discipline and type.
             </p>
           )}
         </div>
@@ -269,31 +270,19 @@ export function MetadataPanel({
 
       <Separator />
 
-      {/* Owner — shown on the PDF cover. Defaults to the author; can be cleared. */}
+      {/* Owner: the Engineer responsible for keeping it right (PDF cover). */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Owner
-          </Label>
-          {meId && value.ownerId !== meId && (
-            <button
-              type="button"
-              className="text-[11px] text-primary hover:underline"
-              onClick={() => patch({ ownerId: meId })}
-            >
-              Set to author
-            </button>
-          )}
+          <Label className="text-xs font-semibold">Owner</Label>
+          {meId && value.ownerPersonId !== meId && <SetToMe onClick={() => patch({ ownerPersonId: meId })} />}
         </div>
         <RoleSelect
-          value={value.ownerId}
-          onChange={(id) => patch({ ownerId: id })}
-          users={users}
-          userLabel={userLabel}
+          value={value.ownerPersonId}
+          onChange={(id) => patch({ ownerPersonId: id })}
+          people={engineers}
         />
-        <p className="text-[11px] text-muted-foreground">
-          Shown on the PDF cover. Defaults to the author; leave unassigned for a
-          blank owner.
+        <p className="text-xs text-muted-foreground">
+          The Engineer who keeps it right. Shown on the PDF cover.
         </p>
       </div>
 
@@ -301,16 +290,14 @@ export function MetadataPanel({
 
       {/* Review flow — author → reviewer → approver as a numbered sequence. */}
       <div className="space-y-2">
-        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Review flow
-        </Label>
+        <Label className="text-xs font-semibold">Review flow</Label>
         <div>
           <FlowNode num={1} label="Author" connector>
-            <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-1.5 text-sm">
-              <span>{me ? (me.name ?? me.email ?? "You") : "…"}</span>
-              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                you
+            <div className="flex h-9 items-center justify-between rounded-md border bg-muted/40 px-3 text-sm">
+              <span className={person ? "" : "text-muted-foreground"}>
+                {person ? person.name : "Check in to be named the author"}
               </span>
+              {person && <span className="text-xs text-muted-foreground">checked in</span>}
             </div>
           </FlowNode>
           <FlowNode
@@ -318,33 +305,39 @@ export function MetadataPanel({
             label="Reviewer"
             connector
             action={
-              meId && value.reviewerId !== meId ? (
-                <SetToMe onClick={() => patch({ reviewerId: meId })} />
+              meId && value.reviewerPersonId !== meId ? (
+                <SetToMe onClick={() => patch({ reviewerPersonId: meId })} />
               ) : null
             }
           >
             <RoleSelect
-              value={value.reviewerId}
-              onChange={(id) => patch({ reviewerId: id })}
-              users={users}
-              userLabel={userLabel}
+              value={value.reviewerPersonId}
+              onChange={(id) => patch({ reviewerPersonId: id })}
+              people={engineers}
             />
+            {person && value.reviewerPersonId === person._id && (
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                You are writing it, so another Engineer must review it.
+              </p>
+            )}
           </FlowNode>
           <FlowNode
             num={3}
             label="Approver"
             action={
-              meId && value.approverId !== meId ? (
-                <SetToMe onClick={() => patch({ approverId: meId })} />
+              meId && value.approverPersonId !== meId ? (
+                <SetToMe onClick={() => patch({ approverPersonId: meId })} />
               ) : null
             }
           >
             <RoleSelect
-              value={value.approverId}
-              onChange={(id) => patch({ approverId: id })}
-              users={users}
-              userLabel={userLabel}
+              value={value.approverPersonId}
+              onChange={(id) => patch({ approverPersonId: id })}
+              people={engineers}
             />
+            {errors["approverPersonId"] && (
+              <p className="mt-1 text-xs text-destructive">{errors["approverPersonId"]}</p>
+            )}
           </FlowNode>
         </div>
       </div>
@@ -357,7 +350,7 @@ export function MetadataPanel({
           icon={Factory}
           title="Linked Assets"
           tone="emerald"
-          emptyHint="None. Insert one in the body (toolbar → Assets)."
+          emptyHint="None. Insert one in the body with the Assets button in the toolbar."
           items={derivedAssets.map((a) => ({
             id: a.id,
             code: a.code,
@@ -368,7 +361,7 @@ export function MetadataPanel({
           icon={BookMarked}
           title="Reference documents"
           tone="indigo"
-          emptyHint="None. Cite one in the body (toolbar → Reference document)."
+          emptyHint="None. Cite one in the body with the Reference document button."
           items={derivedRefs.map((r) => ({
             id: r.id,
             code: r.code,
@@ -379,7 +372,7 @@ export function MetadataPanel({
           icon={Play}
           title="Linked logs"
           tone="sky"
-          emptyHint="None. Insert one in the body (toolbar → Launch log)."
+          emptyHint="None. Insert one in the body with the Launch log button."
           items={derivedLogs.map((l) => ({
             id: l.id,
             code: l.code,
@@ -396,7 +389,7 @@ export function MetadataPanel({
 function CompactSelect({
   label,
   display,
-  placeholder = "—",
+  placeholder = "Choose",
   value,
   onValueChange,
   error,
@@ -426,7 +419,7 @@ function CompactSelect({
         disabled={disabled}
       >
         <SelectTrigger className="h-9 px-2">
-          <span className="truncate font-mono text-xs">
+          <span className="truncate font-mono text-sm">
             {display || <span className="text-muted-foreground">{placeholder}</span>}
           </span>
         </SelectTrigger>
@@ -453,7 +446,7 @@ function FlowNode({
   return (
     <div className="flex gap-2.5">
       <div className="flex flex-col items-center">
-        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
           {num}
         </div>
         {connector && <div className="my-1 w-px flex-1 bg-border" />}
@@ -473,7 +466,7 @@ function SetToMe({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"
-      className="text-[11px] text-primary hover:underline"
+      className="text-xs text-primary hover:underline"
       onClick={onClick}
     >
       Set to me
@@ -484,29 +477,23 @@ function SetToMe({ onClick }: { onClick: () => void }) {
 function RoleSelect({
   value,
   onChange,
-  users,
-  userLabel,
+  people,
 }: {
   value: string
   onChange: (id: string) => void
-  users: { id: string; name: string | null; email: string | null }[]
-  userLabel: Map<string, string>
+  people: { _id: string; name: string; role: string }[]
 }) {
+  const current = people.find((p) => p._id === value)
   return (
-    <Select
-      value={value || NONE}
-      onValueChange={(v) => onChange(v === NONE ? "" : v)}
-    >
+    <Select value={value || NONE} onValueChange={(v) => onChange(v === NONE ? "" : v)}>
       <SelectTrigger className="h-9">
-        <SelectValue>
-          {value ? (userLabel.get(value) ?? "User") : "Unassigned"}
-        </SelectValue>
+        <SelectValue>{value ? (current?.name ?? "Engineer") : "Not chosen yet"}</SelectValue>
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={NONE}>Unassigned</SelectItem>
-        {users.map((u) => (
-          <SelectItem key={u.id} value={u.id}>
-            {u.name ?? u.email ?? "User"}
+        <SelectItem value={NONE}>Not chosen yet</SelectItem>
+        {people.map((p) => (
+          <SelectItem key={p._id} value={p._id}>
+            {p.name} <span className="text-muted-foreground">· {p.role}</span>
           </SelectItem>
         ))}
       </SelectContent>
@@ -562,7 +549,7 @@ function LinkCard({
       <div className="flex items-center gap-1.5">
         <Icon className={`h-4 w-4 shrink-0 ${iconTone}`} />
         <Label
-          className={`text-[10px] font-semibold uppercase tracking-wider ${headTone}`}
+          className={`text-xs font-semibold ${headTone}`}
         >
           {title}
         </Label>
@@ -575,15 +562,15 @@ function LinkCard({
               className={`flex items-center gap-1.5 rounded border px-1.5 py-1 ${itemTone}`}
             >
               <Icon className={`h-3 w-3 shrink-0 ${iconTone}`} />
-              <span className="font-mono text-[11px] font-medium">{it.code}</span>
-              <span className={`truncate text-[11px] ${labelTone}`}>
+              <span className="font-mono text-xs font-medium">{it.code}</span>
+              <span className={`truncate text-xs ${labelTone}`}>
                 {it.label}
               </span>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="text-[11px] text-muted-foreground">{emptyHint}</p>
+        <p className="text-xs text-muted-foreground">{emptyHint}</p>
       )}
     </div>
   )

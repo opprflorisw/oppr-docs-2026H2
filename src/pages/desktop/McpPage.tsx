@@ -2,7 +2,6 @@ import { useEffect, useState, type ReactNode } from "react"
 import { ArrowRight, Cable, CheckCircle2, Sparkles } from "lucide-react"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { ModelLocations } from "@/components/mcp/ModelLocations"
 import { Scenarios } from "@/components/mcp/Scenarios"
@@ -32,12 +31,13 @@ export function McpPage() {
       <PageHeader
         icon={Cable}
         title="MCP"
-        subtitle="Connect the AI your company already uses to Oppr, so the messy work happens there and only clean, reviewed knowledge lives here."
-        actions={
-          <Button size="sm" variant="outline" asChild>
-            <a href="#connect">Connect an assistant</a>
-          </Button>
-        }
+        statusLine="The messy work happens in your own AI; only clean, reviewed knowledge lives here."
+        primary={{
+          label: "Connect an assistant",
+          icon: Cable,
+          onClick: () =>
+            document.getElementById("connect")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+        }}
       />
       <div className="mx-auto w-full max-w-6xl space-y-10 p-6">
         <Section

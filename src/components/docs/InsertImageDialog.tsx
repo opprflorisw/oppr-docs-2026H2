@@ -174,7 +174,7 @@ function LibraryTab({
         </div>
       )}
       <p className="text-[11px] text-muted-foreground">
-        Picks reuse the image and its stored alt text — no re-upload.
+        Picks reuse the image and its stored alt text, with no new upload.
       </p>
     </div>
   )
@@ -196,7 +196,7 @@ function UploadTab({
   function pickFile(f: File | null) {
     if (!f) return
     if (f.size > MAX_BYTES) {
-      toast.error(`File too large — ${(f.size / 1024 / 1024).toFixed(1)} MB. Limit is 10 MB.`)
+      toast.error(`The file is too large: ${(f.size / 1024 / 1024).toFixed(1)} MB. Limit is 10 MB.`)
       return
     }
     if (!f.type.startsWith("image/")) {
@@ -238,7 +238,7 @@ function UploadTab({
         altText: alt.trim(),
       })
       if (result.deduped) {
-        toast.success("Image already in the library — reused.")
+        toast.success("This image is already in the library, so it is reused.")
       } else {
         toast.success("Image uploaded.")
       }

@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils"
 import type { DocumentStatus } from "@/types"
 
 export const STATUS_LABELS: Record<DocumentStatus, string> = {
-  pre_draft: "Pre-draft",
+  pre_draft: "New draft",
   draft: "Draft",
   in_review: "In review",
   approved: "Approved",
@@ -11,80 +11,39 @@ export const STATUS_LABELS: Record<DocumentStatus, string> = {
   archived: "Archived",
 }
 
+/**
+ * The status palette (index.css --status-*). These colours are reserved for
+ * status: Draft grey, In review amber, Approved blue, Published green,
+ * Archived slate. Nothing else on a page uses them.
+ */
+export const STATUS_CLASSES: Record<DocumentStatus, string> = {
+  pre_draft:
+    "border-dashed border-status-draft/40 bg-status-draft-bg text-status-draft",
+  draft: "border-status-draft/25 bg-status-draft-bg text-status-draft",
+  in_review: "border-status-review/30 bg-status-review-bg text-status-review",
+  approved: "border-status-approved/30 bg-status-approved-bg text-status-approved",
+  published:
+    "border-status-published/30 bg-status-published-bg text-status-published",
+  archived: "border-status-archived/30 bg-status-archived-bg text-status-archived",
+}
+
 interface StatusBadgeProps {
   status: DocumentStatus
   className?: string
 }
 
-/**
- * Maps a document status to a badge variant + colour:
- *   draft      → secondary (muted)
- *   in_review  → outline w/ amber text
- *   published  → success (green)
- *   archived   → outline w/ muted text
- */
 export function StatusBadge({ status, className }: StatusBadgeProps) {
   const label = STATUS_LABELS[status] ?? status
-
-  switch (status) {
-    case "pre_draft":
-      return (
-        <Badge
-          variant="outline"
-          className={cn(
-            "border-dashed border-muted-foreground/50 text-muted-foreground",
-            className,
-          )}
-        >
-          {label}
-        </Badge>
-      )
-    case "draft":
-      return (
-        <Badge variant="secondary" className={cn("font-medium", className)}>
-          {label}
-        </Badge>
-      )
-    case "in_review":
-      return (
-        <Badge
-          variant="outline"
-          className={cn(
-            "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-50",
-            className,
-          )}
-        >
-          {label}
-        </Badge>
-      )
-    case "approved":
-      return (
-        <Badge
-          variant="outline"
-          className={cn(
-            "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-50",
-            className,
-          )}
-        >
-          {label}
-        </Badge>
-      )
-    case "published":
-      return (
-        <Badge variant="success" className={cn("font-medium", className)}>
-          {label}
-        </Badge>
-      )
-    case "archived":
-      return (
-        <Badge
-          variant="outline"
-          className={cn("text-muted-foreground", className)}
-        >
-          {label}
-        </Badge>
-      )
-    default:
-      return <Badge className={className}>{label}</Badge>
-  }
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "whitespace-nowrap font-medium",
+        STATUS_CLASSES[status] ?? STATUS_CLASSES.draft,
+        className,
+      )}
+    >
+      {label}
+    </Badge>
+  )
 }

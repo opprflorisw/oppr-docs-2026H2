@@ -8,8 +8,8 @@ import { requireUser } from "../lib/auth"
 import { CHAT_MODEL } from "./constants"
 import { z } from "zod"
 import { claudeConfigured, claudeJson, describeClaudeError } from "./llm"
-import { checkPoint, DroppedPoint, ProvidedExcerpt, RawPoint } from "./grounding"
-import { loadScopeOptions } from "../wikis"
+import { checkPoint, checkTableRow, DroppedPoint, ProvidedExcerpt } from "./grounding"
+import { loadScopeOptions, type WikiFormat } from "../wikis"
 
 // Wiki generation and the Guided creation assistant for Wikis.
 
@@ -30,7 +30,17 @@ const WikiOut = z.object({
   sections: z.array(
     z.object({
       heading: z.string(),
-      points: z.array(z.object({ text: z.string(), sources: z.array(z.string()) })),
+      kind: z.enum(["bullets", "steps", "table"]),
+      safety: z.boolean(),
+      columns: z.array(z.string()),
+      points: z.array(
+        z.object({
+          text: z.string(),
+          cells: z.array(z.string()),
+          key: z.boolean(),
+          sources: z.array(z.string()),
+        }),
+      ),
     }),
   ),
 })
@@ -38,6 +48,7 @@ const GuideOut = z.object({
   reply: z.string(),
   title: z.string(),
   purpose: z.string(),
+  format: z.enum(["overview", "steps", "reference"]),
   areas: z.array(z.string()),
   disciplines: z.array(z.string()),
   assetCodes: z.array(z.string()),
@@ -47,13 +58,14 @@ const GuideOut = z.object({
 
 // ---- Generation -------------------------------------------------------------
 
-const WIKI_SYSTEM = [
+const WIKI_BASE = [
   "You write a Wiki inside Oppr Knowledge, a factory's controlled knowledge base.",
-  "A Wiki is an overview for the audience named in PURPOSE AND AUDIENCE, built ONLY from the numbered EXCERPTS of published documents you are given. Nothing else you know counts.",
+  "A Wiki is a page for the audience named in PURPOSE AND AUDIENCE, built ONLY from the numbered EXCERPTS of published documents you are given. Nothing else you know counts.",
+  "People read it standing at a machine or on a break: it must be quick to scan. Short sections, short points, the most important thing first.",
   "Every point is checked by code against the excerpts it cites. A point that fails the check is deleted, so a careless point is simply lost.",
   "",
   "Writing points:",
-  "- One fact or one instruction per point, in one or two short sentences, in plain language that fits the audience. Use the imperative for instructions.",
+  "- One fact or one instruction per point, in one or two short sentences (at most about 25 words), in plain language that fits the audience. Use the imperative for instructions.",
   "- Stay close to the wording of the excerpt. Paraphrase only to make it shorter or clearer, never to add meaning.",
   "- Write numbers as digits with the unit exactly as the excerpt writes it (40 Nm, 190 °C, 20 %, 170-220 °C). Copy codes such as PX-4400 or EXL-201 exactly.",
   "- Keep every prohibition and warning as strong as the excerpt says it: never turn \"never\" or \"do not\" into a permission, and never drop a condition (\"while the line is only stopped\", \"at operating temperature\").",
@@ -65,11 +77,39 @@ const WIKI_SYSTEM = [
   "- Cite the excerpt that states the fact, not one that is merely about the same topic. If a point combines facts from several excerpts, cite every one of them.",
   "- If two excerpts disagree (for example two documents give different values), write ONE point that states both values, says which document gives which (by document type or title, such as \"the changeover SOP\" and \"the supplier manual\"), and cites both. Do not choose between them and do not average them.",
   "",
-  "Structure:",
-  "- Organise points into 2 to 6 sections with short headings that fit the purpose. Safety warnings come first where relevant. Within a procedure, keep the order of the excerpts.",
+  "Sections:",
+  "- Each section has a short heading in sentence case (only the first word and names capitalised) that says what the reader gets, such as \"Before you start\" or \"Settings for 32 mm pipe\".",
+  "- `kind` is \"bullets\" for separate facts, \"steps\" for a procedure whose order matters (points in the order of the excerpts, one action each, no numbers in the text), or \"table\" for values that compare across the same columns (settings, limits, intervals, PPE per task).",
+  "- A table section sets `columns` to 2 to 4 short column headings taken from the excerpts, and each point is one row: `cells` holds the row's values in column order, copied from the excerpt, and `text` repeats the row as one sentence. Other sections set `columns` and `cells` to [].",
+  "- Set `safety` to true on a section that is about hazards, PPE, lockout or what never to do. Put it first when it applies to the whole job. Keep safety sections short.",
+  "- Mark 3 to 5 points across the whole Wiki with `key: true`: the facts a reader must remember if they read nothing else (the main hazard, the critical value, the one step people get wrong). All other points have `key: false`.",
   "- Leave out what does not serve the purpose. If the excerpts do not cover something the purpose asks for, leave it out rather than fill the gap.",
   "- Do not write an introduction, a conclusion or filler.",
-].join("\n")
+]
+
+const FORMAT_RULES: Record<WikiFormat, string[]> = {
+  overview: [
+    "",
+    "FORMAT: Overview.",
+    "- 3 to 7 sections of 2 to 6 points each. Use \"steps\" where the excerpts give a procedure and \"table\" where they give comparable values; bullets otherwise.",
+  ],
+  steps: [
+    "",
+    "FORMAT: Step by step.",
+    "- Build the Wiki around doing the job: an optional safety section first, then \"Before you start\", then one or more \"steps\" sections in the order of the job, then \"When you are done\" or \"If something goes wrong\" when the excerpts cover it.",
+    "- Most points are steps: one action each, in the order of the excerpts.",
+  ],
+  reference: [
+    "",
+    "FORMAT: Quick reference.",
+    "- Build the Wiki for looking things up: prefer \"table\" sections for values, settings, limits, intervals and codes, and short \"bullets\" sections for rules.",
+    "- Keep it compact: few words, many values. A safety section stays first when it applies.",
+  ],
+}
+
+function wikiSystem(format: WikiFormat) {
+  return [...WIKI_BASE, ...FORMAT_RULES[format]].join("\n")
+}
 
 const WIKI_SCHEMA: ResponseSchema = {
   type: SchemaType.OBJECT,
@@ -80,22 +120,27 @@ const WIKI_SCHEMA: ResponseSchema = {
         type: SchemaType.OBJECT,
         properties: {
           heading: { type: SchemaType.STRING },
+          kind: { type: SchemaType.STRING, format: "enum", enum: ["bullets", "steps", "table"] },
+          safety: { type: SchemaType.BOOLEAN },
+          columns: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
           points: {
             type: SchemaType.ARRAY,
             items: {
               type: SchemaType.OBJECT,
               properties: {
                 text: { type: SchemaType.STRING },
+                cells: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+                key: { type: SchemaType.BOOLEAN },
                 sources: {
                   type: SchemaType.ARRAY,
                   items: { type: SchemaType.STRING },
                 },
               },
-              required: ["text", "sources"],
+              required: ["text", "sources", "key", "cells"],
             },
           },
         },
-        required: ["heading", "points"],
+        required: ["heading", "kind", "safety", "columns", "points"],
       },
     },
   },
@@ -112,12 +157,39 @@ interface GenerationDoc {
   chunks: { chunkId: Id<"chunks">; text: string; section: string | null }[]
 }
 
+type Citation = {
+  chunkId: Id<"chunks">
+  documentId: Id<"documents">
+  namingCode: string
+  version: number
+  section: string | null
+}
+type OutSection = {
+  heading: string
+  kind?: "bullets" | "steps" | "table"
+  safety?: boolean
+  columns?: string[]
+  points: { text: string; key?: boolean; cells?: string[]; citations: Citation[] }[]
+}
+
+type RawSection = {
+  heading?: string
+  kind?: string
+  safety?: boolean
+  columns?: string[]
+  points?: { text?: string; cells?: string[]; key?: boolean; sources?: string[] }[]
+}
+
+// At most this many "At a glance" points, whatever the model marks.
+const MAX_KEY_POINTS = 5
+
 export const generate = internalAction({
   args: { wikiId: v.id("wikis"), ticket: v.number() },
   handler: async (ctx, args): Promise<void> => {
     const input: {
       title: string
       purpose: string
+      format: WikiFormat
       ticket: number
       docs: GenerationDoc[]
     } | null = await ctx.runQuery(internal.wikis.loadForGeneration, {
@@ -136,22 +208,7 @@ export const generate = internalAction({
     }))
     const save = (fields: {
       status: "ready" | "empty" | "failed"
-      content: {
-        intro: string
-        sections: {
-          heading: string
-          points: {
-            text: string
-            citations: {
-              chunkId: Id<"chunks">
-              documentId: Id<"documents">
-              namingCode: string
-              version: number
-              section: string | null
-            }[]
-          }[]
-        }[]
-      } | null
+      content: { intro: string; sections: OutSection[] } | null
       droppedPoints: number
       error: string | null
     }) =>
@@ -219,17 +276,18 @@ export const generate = internalAction({
       ...blocks,
     ].join("\n")
 
-    let raw: { sections?: { heading?: string; points?: RawPoint[] }[] }
+    const system = wikiSystem(input.format)
+    let raw: { sections?: RawSection[] }
     try {
       if (useClaude) {
         raw = await claudeJson({
-          system: WIKI_SYSTEM,
+          system,
           messages: [{ role: "user", content: prompt }],
           schema: WikiOut,
           effort: "medium",
         })
       } else {
-        const result = await geminiJson(apiKey!, WIKI_SYSTEM, WIKI_SCHEMA).generateContent(prompt)
+        const result = await geminiJson(apiKey!, system, WIKI_SCHEMA).generateContent(prompt)
         raw = JSON.parse(result.response.text())
       }
     } catch (err) {
@@ -242,40 +300,72 @@ export const generate = internalAction({
       return
     }
 
+    const cite = (keys: string[]): Citation[] =>
+      keys.map((key) => {
+        const m = keyMeta.get(key)!
+        return {
+          chunkId: m.chunkId,
+          documentId: m.doc.documentId,
+          namingCode: m.doc.namingCode,
+          version: m.doc.version,
+          section: m.section,
+        }
+      })
+    const logDrop = (why: DroppedPoint) =>
+      // Visible in the Convex logs, for tuning the prompt and the check.
+      console.log(
+        `Wiki ${args.wikiId}: dropped point (${why.reason}${why.detail ? `: ${why.detail}` : ""}): ${why.text}`,
+      )
+
     let dropped = 0
-    const sections = []
+    const sections: OutSection[] = []
     for (const s of raw.sections ?? []) {
-      const points = []
+      const columns = Array.isArray(s.columns) ? s.columns.map((c) => String(c).trim()).filter(Boolean) : []
+      const isTable = s.kind === "table" && columns.length >= 2
+      const kind: OutSection["kind"] = isTable ? "table" : s.kind === "steps" ? "steps" : "bullets"
+      const points: OutSection["points"] = []
       for (const p of s.points ?? []) {
-        const checked = checkPoint(
-          { text: String(p?.text ?? ""), sources: Array.isArray(p?.sources) ? p.sources.map(String) : [] },
-          provided,
-        )
-        if (!checked.ok) {
-          const why = (checked as { dropped: DroppedPoint }).dropped
-          dropped += 1
-          // Visible in the Convex logs, for tuning the prompt and the check.
-          console.log(
-            `Wiki ${args.wikiId}: dropped point (${why.reason}${why.detail ? `: ${why.detail}` : ""}): ${why.text}`,
+        const sourcesIn = Array.isArray(p?.sources) ? p.sources.map(String) : []
+        if (isTable) {
+          const checked = checkTableRow(
+            { columns, cells: Array.isArray(p?.cells) ? p.cells.map(String) : [], sources: sourcesIn },
+            provided,
           )
+          if (!checked.ok) {
+            dropped += 1
+            logDrop((checked as { dropped: DroppedPoint }).dropped)
+            continue
+          }
+          points.push({
+            text: checked.point.text,
+            cells: checked.point.cells,
+            key: Boolean(p?.key),
+            citations: cite(checked.point.sources),
+          })
+          continue
+        }
+        const checked = checkPoint({ text: String(p?.text ?? ""), sources: sourcesIn }, provided)
+        if (!checked.ok) {
+          dropped += 1
+          logDrop((checked as { dropped: DroppedPoint }).dropped)
           continue
         }
         points.push({
           text: checked.point.text,
-          citations: checked.point.sources.map((key) => {
-            const m = keyMeta.get(key)!
-            return {
-              chunkId: m.chunkId,
-              documentId: m.doc.documentId,
-              namingCode: m.doc.namingCode,
-              version: m.doc.version,
-              section: m.section,
-            }
-          }),
+          key: Boolean(p?.key),
+          citations: cite(checked.point.sources),
         })
       }
       const heading = String(s.heading ?? "").trim()
-      if (heading && points.length > 0) sections.push({ heading, points })
+      if (heading && points.length > 0) {
+        sections.push({
+          heading,
+          kind,
+          safety: Boolean(s.safety),
+          ...(isTable ? { columns } : {}),
+          points,
+        })
+      }
     }
 
     if (sections.length === 0) {
@@ -286,6 +376,27 @@ export const generate = internalAction({
         error: "The model returned nothing that could be traced to a published source.",
       })
       return
+    }
+
+    // "At a glance" holds 3 to 5 points. Keep the first marked ones; when the
+    // model marked none, the first point of each safety section and then of
+    // each other section stands in.
+    let keys = 0
+    for (const s of sections) for (const p of s.points) if (p.key) keys += 1
+    if (keys > MAX_KEY_POINTS) {
+      let left = MAX_KEY_POINTS
+      for (const s of sections)
+        for (const p of s.points) {
+          if (!p.key) continue
+          if (left > 0) left -= 1
+          else p.key = false
+        }
+    } else if (keys === 0) {
+      const ordered = [...sections.filter((s) => s.safety), ...sections.filter((s) => !s.safety)]
+      for (const s of ordered.slice(0, 3)) {
+        const first = s.points.find((p) => !p.cells)
+        if (first) first.key = true
+      }
     }
 
     const docWord = withText.length === 1 ? "document" : "documents"
@@ -311,15 +422,18 @@ export const generate = internalAction({
 
 const GUIDE_SYSTEM = [
   "You help an engineer create a Wiki in Oppr Knowledge through a short conversation.",
-  "A Wiki is an AI-generated overview of published knowledge for a specific audience. Its Scope decides which published documents it is built from.",
+  "A Wiki is an AI-generated page of published knowledge for a specific audience. Its Scope decides which published documents it is built from.",
   "A Scope combines any of: areas (plant areas), disciplines, assets (machines) and specific documents. A document is included when it is linked to a chosen asset, chosen explicitly, or matches the chosen areas and disciplines.",
-  "You work on a DRAFT with fields: title, purpose (one line: who it is for and what they need), areas, disciplines, assetCodes, documentCodes.",
+  "You work on a DRAFT with fields: title, purpose, format, areas, disciplines, assetCodes, documentCodes.",
+  "`format` is how the Wiki reads: \"overview\" (sections of key facts, the default), \"steps\" (step by step, built around doing the job in order) or \"reference\" (quick reference: tables of values, settings and limits).",
   "The person sees the draft next to the conversation and can edit any field themselves. CURRENT DRAFT always holds their latest edits and wins over anything said earlier.",
   "Rules:",
   "- Always return the COMPLETE next draft. Copy every field from CURRENT DRAFT unchanged unless the latest MESSAGE asks to change it. Never clear a field the person set.",
+  "- When the person asks for a step list, a procedure, a checklist or \"step by step\", set format to \"steps\". For a cheat sheet, quick reference, values or a table, set \"reference\". For an overview or summary, set \"overview\". You CAN set the format: never say you cannot.",
   "- Only use codes that appear in OPTIONS. Never invent codes. If nothing in OPTIONS fits the request, keep the Scope as it is, say so, and name the closest options.",
-  "- Choose the narrowest Scope that covers what they asked for. Prefer assets and areas over listing many documents.",
-  "- Fill in title and purpose yourself from what they said. A title is 2 to 6 words, names the subject and does not contain the word Wiki.",
+  "- Choose the narrowest Scope that covers what they asked for. Prefer assets and areas over listing many documents. A Wiki reads well from about 3 to 8 documents.",
+  "- Title: 2 to 6 words in sentence case (only the first word and names capitalised), names the subject, does not contain the word Wiki. For example \"Line 2 changeover essentials\".",
+  "- Purpose: one line in the form \"For <role> who <task>\", for example \"For night-shift operators who run changeovers on line 2\".",
   "- `reply` is at most two short sentences, in the language of the person's message. Do not list the draft field by field: the screen already shows which fields changed. Mention a choice only when it is not obvious.",
   "- Ask at most ONE question, and only when you cannot fill a fitting Scope or the audience without it. If you can make a reasonable draft, make it and do not ask.",
   "- Set `ready` to true once the draft has a title, a purpose and a non-empty Scope that fits the request. Then end the reply with: Check the draft and press Create, or tell me what to change.",
@@ -332,6 +446,7 @@ const GUIDE_SCHEMA: ResponseSchema = {
     reply: { type: SchemaType.STRING },
     title: { type: SchemaType.STRING },
     purpose: { type: SchemaType.STRING },
+    format: { type: SchemaType.STRING, format: "enum", enum: ["overview", "steps", "reference"] },
     areas: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
     disciplines: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
     assetCodes: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
@@ -342,6 +457,7 @@ const GUIDE_SCHEMA: ResponseSchema = {
     "reply",
     "title",
     "purpose",
+    "format",
     "areas",
     "disciplines",
     "assetCodes",
@@ -355,18 +471,31 @@ export const guideOptions = internalQuery({
   handler: async (ctx) => loadScopeOptions(ctx),
 })
 
+const formatArg = v.union(v.literal("overview"), v.literal("steps"), v.literal("reference"))
+
 const draftValidator = v.object({
   title: v.string(),
   purpose: v.string(),
+  format: v.optional(formatArg),
   scope: v.object({
     areas: v.array(v.string()),
     disciplines: v.array(v.string()),
     assetIds: v.array(v.id("assets")),
     documentIds: v.array(v.id("documents")),
+    excludedDocumentIds: v.optional(v.array(v.id("documents"))),
   }),
 })
 
 type Options = Awaited<ReturnType<typeof loadScopeOptions>>
+
+/** A format asked for in so many words wins over what the model returns. */
+export function formatAskedFor(message: string): WikiFormat | null {
+  const m = message.toLowerCase()
+  if (/\bstep[- ]?(?:by[- ]step|list|s\b)|\bprocedure\b|\bchecklist\b|\bin order\b/.test(m)) return "steps"
+  if (/\bquick[- ]?ref|\breference\b|\bcheat[- ]?sheet\b|\btable\b|\bvalues\b|\bsettings\b/.test(m)) return "reference"
+  if (/\boverview\b|\bsummary\b/.test(m)) return "overview"
+  return null
+}
 
 export const guide = action({
   args: {
@@ -407,9 +536,11 @@ export const guide = action({
       ),
     ].join("\n")
 
+    const currentFormat: WikiFormat = args.draft.format ?? "overview"
     const currentDraft = JSON.stringify({
       title: args.draft.title,
       purpose: args.draft.purpose,
+      format: currentFormat,
       areas: args.draft.scope.areas,
       disciplines: args.draft.scope.disciplines,
       assetCodes: args.draft.scope.assetIds.map((id) => assetCode.get(String(id))).filter(Boolean),
@@ -448,6 +579,7 @@ export const guide = action({
       reply?: string
       title?: string
       purpose?: string
+      format?: string
       areas?: string[]
       disciplines?: string[]
       assetCodes?: string[]
@@ -490,6 +622,11 @@ MESSAGE: ${latest.text}` },
     const assetByCode = new Map(options.assets.map((a) => [a.code.toUpperCase(), a._id]))
     const docByCode = new Map(options.documents.map((d) => [d.namingCode.toUpperCase(), d._id]))
     const uniq = <T,>(xs: T[]) => Array.from(new Set(xs))
+    const documentIds = uniq(
+      (out.documentCodes ?? [])
+        .map((c) => docByCode.get(c.toUpperCase()))
+        .filter((x): x is Id<"documents"> => x !== undefined),
+    )
     const scope = {
       areas: uniq((out.areas ?? []).map((s) => s.toUpperCase()).filter((s) => areaSet.has(s))),
       disciplines: uniq((out.disciplines ?? []).map((s) => s.toUpperCase()).filter((s) => discSet.has(s))),
@@ -498,21 +635,23 @@ MESSAGE: ${latest.text}` },
           .map((c) => assetByCode.get(c.toUpperCase()))
           .filter((x): x is Id<"assets"> => x !== undefined),
       ),
-      documentIds: uniq(
-        (out.documentCodes ?? [])
-          .map((c) => docByCode.get(c.toUpperCase()))
-          .filter((x): x is Id<"documents"> => x !== undefined),
-      ),
+      documentIds,
+      // Documents taken out by hand stay out, unless now picked by name.
+      excludedDocumentIds: (args.draft.scope.excludedDocumentIds ?? []).filter((id) => !documentIds.includes(id)),
     }
     const scopeEmpty =
       scope.areas.length + scope.disciplines.length + scope.assetIds.length + scope.documentIds.length === 0
     // An empty title or purpose from the model never wipes what the person had.
     const title = String(out.title ?? "").trim() || args.draft.title
     const purpose = String(out.purpose ?? "").trim() || args.draft.purpose
+    const modelFormat = ["overview", "steps", "reference"].includes(String(out.format))
+      ? (out.format as WikiFormat)
+      : currentFormat
+    const format = formatAskedFor(latest.text) ?? modelFormat
 
     return {
       reply: String(out.reply ?? "").trim() || "I've updated the draft.",
-      draft: { title, purpose, scope },
+      draft: { title, purpose, format, scope },
       ready: Boolean(out.ready) && !scopeEmpty && title.trim() !== "",
     }
   },
@@ -533,9 +672,9 @@ export const STUB_INTRO_PREFIX = "Offline stand-in, no AI:"
 
 function stubWiki(docs: GenerationDoc[]) {
   const provided = new Map<string, ProvidedExcerpt>()
-  const sections = []
+  const sections: OutSection[] = []
   for (const d of docs) {
-    const points = []
+    const points: OutSection["points"] = []
     for (const c of d.chunks) {
       if (c.text === c.section) continue // headings
       const key = String(c.chunkId)
@@ -544,6 +683,7 @@ function stubWiki(docs: GenerationDoc[]) {
       if (!checked.ok) continue
       points.push({
         text: c.text,
+        key: points.length === 0 && sections.length < 3,
         citations: [
           {
             chunkId: c.chunkId,
@@ -556,7 +696,7 @@ function stubWiki(docs: GenerationDoc[]) {
       })
       if (points.length >= 6) break
     }
-    if (points.length) sections.push({ heading: d.title, points })
+    if (points.length) sections.push({ heading: d.title, kind: "bullets", points })
   }
   return {
     status: "ready" as const,
@@ -574,11 +714,13 @@ function stubGuide(
   draft: {
     title: string
     purpose: string
+    format?: WikiFormat
     scope: {
       areas: string[]
       disciplines: string[]
       assetIds: Id<"assets">[]
       documentIds: Id<"documents">[]
+      excludedDocumentIds?: Id<"documents">[]
     }
   },
   options: Options,
@@ -611,6 +753,7 @@ function stubGuide(
     disciplines: uniq([...draft.scope.disciplines, ...newDisciplines.map((d) => d.code)]),
     assetIds: uniq([...draft.scope.assetIds, ...newAssets.map((a) => a._id)]),
     documentIds: uniq([...draft.scope.documentIds, ...newDocs.map((d) => d._id)]),
+    excludedDocumentIds: draft.scope.excludedDocumentIds ?? [],
   }
   const scopeSize =
     scope.areas.length + scope.disciplines.length + scope.assetIds.length + scope.documentIds.length
@@ -620,6 +763,8 @@ function stubGuide(
     ...newAssets.map((a) => a.code),
     ...newDocs.map((d) => d.namingCode),
   ]
+  const asked = formatAskedFor(last)
+  const format = asked ?? draft.format ?? "overview"
 
   const title = draft.title || last.replace(/^(make|create|build|i want|i need)( me)?( a)?( wiki)?( (about|on|for))?\s*/i, "").replace(/\s+/g, " ").trim().slice(0, 70)
   const titleCased = title ? title.charAt(0).toUpperCase() + title.slice(1) : ""
@@ -631,6 +776,8 @@ function stubGuide(
     reply = "Nothing is published yet, so a Wiki would have nothing to draw from. Publish a document first."
   } else if (matched.length > 0) {
     reply = `I matched your words to: ${matched.join(", ")}. Check the draft and press Create, or adjust any field.`
+  } else if (asked) {
+    reply = `The format is now ${asked === "steps" ? "Step by step" : asked === "reference" ? "Quick reference" : "Overview"}.`
   } else if (ready) {
     reply = "I found nothing new to match in that message. Change any field in the draft yourself, or press Create."
   } else {
@@ -638,7 +785,7 @@ function stubGuide(
   }
   return {
     reply: `${STUB_INTRO_PREFIX} ${reply}`,
-    draft: { title: titleCased, purpose, scope },
+    draft: { title: titleCased, purpose, format, scope },
     ready,
   }
 }

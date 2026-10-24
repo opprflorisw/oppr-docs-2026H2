@@ -31,12 +31,17 @@ export default function WrappedManualMobile({
       <div className="flex items-center gap-2 rounded-2xl border bg-card px-3 py-2">
         <BookLock className="h-4 w-4 shrink-0 text-primary" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium">
+          <p className="truncate text-sm font-medium">
             {data.supplier ? `By ${data.supplier}` : "Supplier document"}, wrapped unchanged
           </p>
-          <p className="truncate font-mono text-[10px] text-muted-foreground">
+          <p className="truncate font-mono text-xs text-muted-foreground">
             {data.namingCode} · {data.stampLabel ?? data.expectedLabel}
           </p>
+          {(data.supplierDocNo || data.supplierRevision) && (
+            <p className="truncate text-xs text-muted-foreground">
+              {[data.supplierDocNo, data.supplierRevision].filter(Boolean).join(" · ")}
+            </p>
+          )}
         </div>
         {data.stampedUrl && !data.stamping ? (
           <button

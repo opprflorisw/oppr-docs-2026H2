@@ -8,23 +8,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Button } from "@/components/ui/button"
 import type { Doc } from "@/types"
 
 interface DeleteDocumentDialogProps {
   doc: Doc | null
   open: boolean
   onOpenChange: (open: boolean) => void
-  onArchive: () => void
   onConfirmDelete: () => void
   busy?: boolean
 }
 
+// Permanent delete is only offered for a draft that was never Published and
+// that nothing cites (the server checks both). Everything else is withdrawn.
 export function DeleteDocumentDialog({
   doc,
   open,
   onOpenChange,
-  onArchive,
   onConfirmDelete,
   busy = false,
 }: DeleteDocumentDialogProps) {
@@ -32,34 +31,17 @@ export function DeleteDocumentDialog({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete this document permanently?</AlertDialogTitle>
+          <AlertDialogTitle>Delete {doc?.naming_code || "this draft"} permanently?</AlertDialogTitle>
           <AlertDialogDescription className="space-y-2">
+            <span className="block">{doc?.title}</span>
             <span className="block">
-              <span className="font-mono text-xs font-semibold">
-                {doc?.naming_code}
-              </span>{" "}
-              <span>· {doc?.title}</span>
-            </span>
-            <span className="block">
-              This removes the document, every version, all chunks, asset
-              links, and any uploaded PDF from Convex storage. There is no
-              undo.
-            </span>
-            <span className="block">
-              If you only want to hide it from the active library, archive it
-              instead — it stays in the database and can be restored later.
+              This draft was never Published. Deleting removes it, every version, its passages, asset
+              links and any uploaded PDF. There is no undo.
             </span>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter className="gap-2 sm:gap-2">
           <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-          <Button
-            variant="outline"
-            onClick={onArchive}
-            disabled={busy || doc?.status === "archived"}
-          >
-            Archive instead
-          </Button>
           <AlertDialogAction
             onClick={(e) => {
               e.preventDefault()
@@ -68,7 +50,7 @@ export function DeleteDocumentDialog({
             disabled={busy}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
-            {busy ? "Deleting…" : "Delete permanently"}
+            {busy ? "Deleting..." : "Delete permanently"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

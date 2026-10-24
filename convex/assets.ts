@@ -273,3 +273,85 @@ export const update = mutation({
     }
   },
 })
+
+/**
+ * What surrounds an Asset on its page: the Skills needed to work here (linked
+ * to its Published Documents or to Trainings and Rounds that stop here), open
+ * Findings on its Documents, and Wikis (Overviews) that cover it.
+ */
+export const workContext = query({
+  args: { id: v.id("assets") },
+  handler: async (ctx, args) => {
+    await requireUser(ctx)
+    const links = await ctx.db
+      .query("documentAssets")
+      .withIndex("by_assetId", (q) => q.eq("assetId", args.id))
+      .take(500)
+    const docIds = new Set(links.map((l) => String(l.documentId)))
+
+    // Trainings built on these Documents, or Rounds that stop at this Asset.
+    const trainingIds = new Set<string>()
+    for (const t of await ctx.db.query("trainings").take(1000)) {
+      if (t.status === "archived") continue
+      const row = await ctx.db
+        .query("trainingVersions")
+        .withIndex("by_trainingId_and_version", (q) =>
+          q.eq("trainingId", t._id).eq("version", t.liveVersion ?? t.currentVersion),
+        )
+        .unique()
+      if (!row) continue
+      if (
+        row.stops.some((s) => s.assetId === args.id) ||
+        row.objectives.some((o) => docIds.has(String(o.documentId)))
+      )
+        trainingIds.add(String(t._id))
+    }
+    const skills = (await ctx.db.query("skills").take(500)).filter(
+      (s) =>
+        s.documentIds.some((d) => docIds.has(String(d))) ||
+        s.trainingIds.some((t) => trainingIds.has(String(t))),
+    )
+
+    const findings: {
+      _id: Doc<"findings">["_id"]
+      kind: Doc<"findings">["kind"]
+      summary: string
+      codes: string[]
+    }[] = []
+    const seen = new Set<string>()
+    for (const raw of docIds) {
+      const documentId = raw as Doc<"documents">["_id"]
+      const sides = [
+        await ctx.db
+          .query("findings")
+          .withIndex("by_documentA_and_status", (q) => q.eq("documentA", documentId).eq("status", "open"))
+          .take(50),
+        await ctx.db
+          .query("findings")
+          .withIndex("by_documentB_and_status", (q) => q.eq("documentB", documentId).eq("status", "open"))
+          .take(50),
+      ]
+      for (const rows of sides) {
+        for (const f of rows) {
+          if (seen.has(String(f._id))) continue
+          seen.add(String(f._id))
+          findings.push({ _id: f._id, kind: f.kind, summary: f.summary, codes: [f.a.namingCode, f.b.namingCode] })
+        }
+      }
+    }
+
+    const wikis = (await ctx.db.query("wikis").take(500))
+      .filter(
+        (w) =>
+          w.scope.assetIds.includes(args.id) ||
+          w.sources.some((s) => docIds.has(String(s.documentId))),
+      )
+      .map((w) => ({ _id: w._id, title: w.title, purpose: w.purpose, status: w.status, generatedAt: w.generatedAt }))
+
+    return {
+      skills: skills.map((s) => ({ _id: s._id, name: s.name })),
+      findings,
+      wikis,
+    }
+  },
+})

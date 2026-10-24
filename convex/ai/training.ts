@@ -8,14 +8,15 @@
 // option order is shuffled by code, never taken from the model.
 import { ConvexError, v } from "convex/values"
 import { z } from "zod"
-import { action, internalAction } from "../_generated/server"
+import { action, internalAction, internalQuery } from "../_generated/server"
 import { internal } from "../_generated/api"
 import { Id } from "../_generated/dataModel"
 import { requireUser } from "../lib/auth"
 import { claudeConfigured, claudeJson, describeClaudeError } from "./llm"
 import { checkPoint, factTokens, normalise, ProvidedExcerpt, support } from "./grounding"
 import { aiStubEnabled } from "./wiki"
-import { EMBEDDING_DIM, EMBEDDING_MODEL } from "./constants"
+import { CHAT_MODEL, EMBEDDING_DIM, EMBEDDING_MODEL } from "./constants"
+import { getVersion, makeDocCache, resolveObjective, type SampleQuestion } from "../trainings"
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 const MAX_GUIDE_DOCS = 5
@@ -84,7 +85,9 @@ const GUIDE_SYSTEM = [
   "Rules:",
   "- Always return the COMPLETE next draft. Copy every field from CURRENT DRAFT unchanged unless the latest MESSAGE asks to change it, or it is empty and you can fill it. Never drop an objective or stop the person made unless they ask.",
   "- Only use codes that appear in OPTIONS. Never invent codes.",
-  "- Objectives: propose 3 to 8 for a new Training. Each states one thing the person must know or do, in plain words, starting with a verb (for example \"Tighten the die bolts in the right pattern and to the right torque\"). It must be fully covered by ONE passage in PASSAGES.",
+  "- Objectives: propose 3 to 8 for a new Training. Each states one thing the person must know or do, in plain words, starting with a verb (for example \"Tighten the die bolts in the right pattern and to the right torque\"). It must be fully covered by ONE passage in PASSAGES. Use an observable verb (tighten, check, set, tell, wear, stop), never \"know\" or \"understand\".",
+  "- An objective NEVER states the value, number or setting the person must know: write \"Tighten the die bolts to the right torque\", not \"Tighten the die bolts to 40 Nm\". The value stays in the passage, so the question can ask for it.",
+  "- When KIND IS LOCKED is given, keep that kind. Ask before you would change it.",
   "- `source` is the key of that passage (for example \"E12\"). Only keys from PASSAGES. Keep the source of an existing objective unless asked. `quote` is the shortest sentence or phrase of that passage that states it, copied character for character; use the whole passage if unsure.",
   "- An objective never adds a number, code or rule its passage does not state. Prefer safety-critical points and the steps where mistakes happen. Leave out table headers and titles.",
   "- `id`: copy the id of an existing objective you keep; use \"\" for a new one.",
@@ -180,8 +183,19 @@ export const guide = action({
       v.object({ role: v.union(v.literal("user"), v.literal("assistant")), text: v.string() }),
     ),
     draft: guideDraftValidator,
+    /** The person chose the kind (Training or Round) on purpose: the assistant keeps it. */
+    kindLocked: v.optional(v.boolean()),
   },
-  handler: async (ctx, args): Promise<{ reply: string; draft: GuideDraft; ready: boolean }> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    reply: string
+    draft: GuideDraft
+    ready: boolean
+    existing: { _id: Id<"trainings">; code: string; title: string; kind: "course" | "round"; status: string }[]
+    droppedObjectives: string[]
+  }> => {
     await requireUser(ctx)
     if (aiStubEnabled() || !claudeConfigured()) {
       throw new ConvexError("The assistant is not available on this server. Fill in the draft yourself.")
@@ -287,7 +301,10 @@ export const guide = action({
         system: `${GUIDE_SYSTEM}\n\nOPTIONS:\n${optionsText}\n\nPASSAGES:\n${blocks.length ? blocks.join("\n") : "(none yet)"}`,
         messages: [
           ...history.slice(0, -1).map((m) => ({ role: m.role, content: m.text })),
-          { role: "user" as const, content: `CURRENT DRAFT: ${currentDraft}\n\nMESSAGE: ${latest.text}` },
+          {
+            role: "user" as const,
+            content: `${args.kindLocked ? `KIND IS LOCKED: ${draft.kind}\n\n` : ""}CURRENT DRAFT: ${currentDraft}\n\nMESSAGE: ${latest.text}`,
+          },
         ],
         schema: GuideOut,
         effort: "low",
@@ -306,6 +323,7 @@ export const guide = action({
     const objectives: GuideDraft["objectives"] = []
     const idAtPosition = new Map<number, string>()
     let dropped = 0
+    const droppedObjectives: string[] = []
     for (const [i, o] of out.objectives.entries()) {
       if (objectives.length >= MAX_GUIDE_OBJECTIVES) break
       const text = o.text.trim()
@@ -325,6 +343,7 @@ export const guide = action({
         if (why && why.reason !== "weak-support") {
           console.log(`Training guide: dropped objective (${why.reason} ${why.detail ?? ""}): ${text}`)
           dropped += 1
+          droppedObjectives.push(text)
           continue
         }
       } else if (kept) {
@@ -332,6 +351,7 @@ export const guide = action({
       }
       if (!source) {
         dropped += 1
+        droppedObjectives.push(text)
         continue
       }
       let id = kept ? kept.id : `o${objectives.length + 1}`
@@ -341,7 +361,7 @@ export const guide = action({
       objectives.push({ id, text, ...source })
     }
 
-    const kind = out.kind === "round" ? "round" : "course"
+    const kind = args.kindLocked ? draft.kind : out.kind === "round" ? "round" : "course"
     const assetByCode = new Map(options.assets.map((a) => [a.code.toUpperCase(), a]))
     const stops: GuideDraft["stops"] = []
     if (kind === "round") {
@@ -389,9 +409,14 @@ export const guide = action({
       (kind === "course" || (stops.length > 0 && objectives.every((o) => covered.has(o.id))))
     let reply = out.reply.trim() || "I've updated the draft."
     if (dropped > 0) {
-      reply += ` I left out ${dropped} ${dropped === 1 ? "objective" : "objectives"} I could not trace to a published passage.`
+      reply += ` I left out ${dropped} ${dropped === 1 ? "objective" : "objectives"} I could not trace to a published passage: ${droppedObjectives.map((x) => `"${x}"`).join(", ")}.`
     }
-    return { reply, draft: next, ready: Boolean(out.ready) && complete }
+    // Trainings that already use these source documents (the duplicate warning in step 1).
+    const sameSource: { _id: Id<"trainings">; code: string; title: string; kind: "course" | "round"; status: string }[] = await ctx.runQuery(
+      internal.trainings.existingForDocuments,
+      { documentIds },
+    )
+    return { reply, draft: next, ready: Boolean(out.ready) && complete, existing: sameSource, droppedObjectives }
   },
 })
 
@@ -404,6 +429,7 @@ const QuestionsOut = z.object({
       prompt: z.string(),
       correct: z.string(),
       distractors: z.array(z.string()),
+      whyWrong: z.array(z.string()),
       explanation: z.string(),
     }),
   ),
@@ -417,11 +443,14 @@ const QUESTION_SYSTEM = [
   "Each question:",
   "- `prompt`: one clear question for the person named under AUDIENCE, about the situation on the floor (\"You are about to ...\", \"What do you do when ...\", \"Which value ...\"). Do not give the answer away in the prompt. No \"which of these is NOT\" and no \"all of the above\".",
   "- `correct`: the right answer, short (a few words up to one sentence), stated by the passage. Copy numbers with their units and any codes exactly as the passage writes them.",
-  "- `distractors`: exactly 3 wrong answers of the same form and length as the correct one, plausible to someone who did not read the passage, and clearly wrong according to it (a different number, the wrong order, a step that is skipped, a rule turned around). Never use a product, asset or document code that does not appear in the passages.",
+  "- `distractors`: exactly 3 wrong answers of the same form and length as the correct one, plausible to someone who did not read the passage, and clearly wrong according to it (a different number, the wrong order, a step that is skipped, a rule turned around). Never use a product, asset or document code that does not appear in the passages. The correct answer must not be longer or more detailed than the wrong ones.",
+  "- `whyWrong`: one short sentence per distractor, in the same order, saying why it is wrong in the words of the passage (\"The passage says 190 °C, not 230 °C.\").",
+  "- The prompt never contains the value or wording of the correct answer. Ask for the value instead of stating it.",
+  "- For a table passage: name the row and the column header in the prompt; the options differ only in the value, never in the row.",
   "- `explanation`: one or two sentences that say why the correct answer is right, in the words of the passage. Keep every \"never\", \"do not\" and condition as strong as the passage says it.",
   "- `objective`: the key of the objective it tests (for example \"O2\").",
   "",
-  "Write exactly the number of questions asked per objective. Make them fresh: use the VARIATION SEED to pick a different angle, wording and situation, and never repeat or closely reword a question listed under ASKED BEFORE.",
+  "Write exactly the number of questions asked per objective. When an objective asks for 2, take two different angles (for example the value, and what goes wrong without it). Make them fresh: use the VARIATION SEED to pick a different angle, wording and situation, never repeat or closely reword a question listed under ASKED BEFORE, and word the correct answer differently from the answers listed under CORRECT BEFORE.",
 ].join("\n")
 
 interface GenObjective {
@@ -436,6 +465,7 @@ interface GenObjective {
   section: string | null
   quote: string
   stopIndex: number | null
+  critical?: boolean
 }
 
 interface GenInput {
@@ -445,6 +475,8 @@ interface GenInput {
   objectives: GenObjective[]
   pool: { text: string; section: string | null; namingCode: string }[]
   previousPrompts: string[]
+  previousCorrect?: string[]
+  missedBefore?: string[]
 }
 
 interface Built {
@@ -453,6 +485,9 @@ interface Built {
   prompt: string
   correct: string
   distractors: string[]
+  /** Parallel to distractors. */
+  whyWrong: string[]
+  source: "model" | "fallback"
   explanation: string
   citation: {
     documentId: Id<"documents">
@@ -472,8 +507,42 @@ function shuffle<T>(xs: T[]): T[] {
   return a
 }
 
-/** One question the model wrote, checked against its objective's passage. Null when it fails. */
-function verify(
+/** A section label worth showing: never a page number. */
+const sectionLabel = (s: string | null) => (s && !/^page\s*\d+$/i.test(s.trim()) ? s : null)
+
+/** The sentence of the passage that states the answer best: stored as the citation quote. */
+function matchedSentence(passage: string, answer: string, fallback: string): string {
+  const sentences = passage
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 12)
+  let best = ""
+  let bestScore = 0
+  for (const s of sentences) {
+    const sc = support(answer, s)
+    if (sc > bestScore) {
+      bestScore = sc
+      best = s
+    }
+  }
+  return bestScore >= 0.5 && best ? best : fallback
+}
+
+const median = (xs: number[]) => {
+  const a = [...xs].sort((x, y) => x - y)
+  return a.length === 0 ? 0 : a.length % 2 ? a[(a.length - 1) / 2] : (a[a.length / 2 - 1] + a[a.length / 2]) / 2
+}
+
+/**
+ * One question the model wrote, checked against its objective's passage.
+ * Rejected when: a field is empty; fewer than 3 distinct wrong options; the
+ * correct answer or explanation says what the passage does not; the prompt
+ * gives the answer away (a fact of the correct answer, such as its number,
+ * is in the prompt); the correct answer shares nothing with the passage; the
+ * correct answer is more than 1.5 times as long as the median wrong one; a
+ * code or number is invented; or a wrong option is supported by the passage.
+ */
+export function verify(
   raw: z.infer<typeof QuestionsOut>["questions"][number],
   o: GenObjective,
   allowedCodes: Set<string>,
@@ -486,14 +555,35 @@ function verify(
   if (!prompt || !correct || !explanation) return { reason: "empty field" }
   const seen = new Set([squash(correct)])
   const distractors: string[] = []
-  for (const d of raw.distractors) {
+  const why: string[] = []
+  for (const [i, d] of raw.distractors.entries()) {
     const t = d.trim()
     if (!t || seen.has(squash(t))) continue
     seen.add(squash(t))
     distractors.push(t)
+    why.push((raw.whyWrong?.[i] ?? "").trim())
   }
   if (distractors.length < 3) return { reason: "fewer than 3 distinct wrong options" }
   const options = distractors.slice(0, 3)
+  const whyWrong = why.slice(0, 3)
+  // The prompt must not state the answer: a value (number with or without a
+  // unit) of the correct answer appearing in the prompt. A code such as
+  // PX-4400 or EXL-201 may set the scene.
+  const answerFacts = factTokens(correct).filter((t) => /\d/.test(t) && !(/[A-Z]/.test(t) && !t.includes(" ")))
+  const promptFacts = new Set(factTokens(prompt))
+  const promptNums = new Set(numbersIn(prompt))
+  for (const f of answerFacts) {
+    const n = numbersIn(f)
+    if (promptFacts.has(f) || (n.length > 0 && n.every((x) => promptNums.has(x))))
+      return { reason: `prompt gives the answer away (${f})` }
+  }
+  // The correct answer must be about the passage.
+  if (o.passage && support(correct, o.passage) < 0.34 && !factTokens(correct).some((t) => factTokens(o.passage!).includes(t)))
+    return { reason: "correct option is missing the passage's facts" }
+  // A correct answer that is much longer than the wrong ones gives itself away.
+  const med = median(options.map((d) => d.length))
+  if (med > 0 && correct.length > 1.5 * med && correct.length - med > 12)
+    return { reason: "correct option is much longer than the wrong ones" }
   const label = `${o.namingCode} v${o.version} ${o.documentTitle} ${o.section ?? ""}`
   const provided = new Map<string, ProvidedExcerpt>([["P", { key: "P", text: o.passage!, label }]])
   const checked = checkPoint({ text: `${correct}. ${explanation}`, sources: ["P"] }, provided)
@@ -520,13 +610,15 @@ function verify(
     prompt,
     correct,
     distractors: options,
+    whyWrong: whyWrong.map((w, i) => w || `${o.namingCode} does not say "${options[i]}".`),
+    source: "model",
     explanation,
     citation: {
       documentId: o.documentId,
       namingCode: o.namingCode,
       version: o.version!,
       chunkId: o.chunkId,
-      quote: o.quote,
+      quote: o.passage ? matchedSentence(o.passage, `${correct}. ${explanation}`, o.quote) : o.quote,
     },
   }
 }
@@ -547,11 +639,9 @@ const SWAPS: [string, string][] = [
   ["increase", "decrease"],
   ["rises", "drops"],
   ["clockwise", "anticlockwise"],
-  ["crosswise", "one by one"],
   ["empty", "full"],
-  ["when", "unless"],
-  ["may", "may not"],
-  ["your own", "every"],
+  // Left out on purpose: "when"/"unless", "may"/"may not", "your own"/"every"
+  // and "crosswise"/"one by one" broke the grammar of the sentence.
 ]
 // Interchangeable things of the plant: swapping one for another makes a
 // statement false (a role, a piece of protective equipment).
@@ -678,12 +768,15 @@ function fallbackQuestion(o: GenObjective, pool: GenInput["pool"]): Built | null
     }
     // Three wrong options when the sentence allows it; two still make a fair question.
     if (wrong.length < 2) continue
+    const section = sectionLabel(o.section)
     return {
       objectiveId: o.id,
       stopIndex: o.stopIndex,
-      prompt: `${o.text.replace(/[.\s]+$/, "")}. Which of these does ${o.namingCode} say${o.section ? ` under "${o.section}"` : ""}?`,
+      prompt: `${o.text.replace(/[.\s]+$/, "")}. Which of these does ${o.namingCode} say${section ? ` under "${section}"` : ""}?`,
       correct: sentence,
       distractors: wrong,
+      whyWrong: wrong.map(() => `${o.namingCode} says: "${sentence}"`),
+      source: "fallback",
       explanation: `${o.namingCode} v${o.version} states: "${sentence}"`,
       citation: {
         documentId: o.documentId,
@@ -697,19 +790,26 @@ function fallbackQuestion(o: GenObjective, pool: GenInput["pool"]): Built | null
   return null
 }
 
-async function askModel(input: GenInput, objectives: GenObjective[], perObjective: number, avoid: string[]) {
+async function askModel(
+  input: GenInput,
+  objectives: GenObjective[],
+  perObjective: (o: GenObjective) => number,
+  avoid: string[],
+  maxTokens = 12000,
+) {
   const blocks = objectives.map((o, i) =>
     [
       `[O${i + 1}] OBJECTIVE: ${o.text}`,
-      `SOURCE: ${o.namingCode} v${o.version} ${o.documentTitle}${o.section ? `, section "${o.section}"` : ""}`,
+      `QUESTIONS: ${perObjective(o)}`,
+      `SOURCE: ${o.namingCode} v${o.version} ${o.documentTitle}${sectionLabel(o.section) ? `, section "${o.section}"` : ""}`,
       `PASSAGE: ${o.passage}`,
     ].join("\n"),
   )
+  const correctBefore = input.previousCorrect ?? []
   const prompt = [
     `TRAINING: ${input.training.code} ${input.training.title}`,
     `PURPOSE: ${input.training.purpose || "(not stated)"}`,
     `AUDIENCE: ${input.personRole}`,
-    `QUESTIONS PER OBJECTIVE: ${perObjective}`,
     `VARIATION SEED: ${Math.random().toString(36).slice(2, 10)}`,
     "",
     "OBJECTIVES:",
@@ -717,14 +817,127 @@ async function askModel(input: GenInput, objectives: GenObjective[], perObjectiv
     "",
     "ASKED BEFORE (do not repeat):",
     avoid.length ? avoid.map((p) => `- ${p}`).join("\n") : "(nothing)",
+    "",
+    "CORRECT BEFORE (word the correct answer differently):",
+    correctBefore.length ? correctBefore.map((p) => `- ${p}`).join("\n") : "(nothing)",
   ].join("\n")
   return await claudeJson({
     system: QUESTION_SYSTEM,
     messages: [{ role: "user", content: prompt }],
     schema: QuestionsOut,
     effort: "low",
-    maxTokens: 12000,
+    maxTokens,
   })
+}
+
+/** Questions per objective: two different angles for a must-be-right objective. */
+const perFor = (input: GenInput) => (o: GenObjective) =>
+  o.critical ? Math.max(2, Math.min(3, input.questionsPerObjective)) : Math.max(1, Math.min(3, input.questionsPerObjective))
+
+/**
+ * Writes and checks the questions for every objective of the input: one
+ * model call for all, then one simpler call per objective that still lacks
+ * questions, then code-written fallback questions. Every objective is tested.
+ */
+async function buildQuestions(
+  input: GenInput,
+  log: string,
+): Promise<{ ok: true; built: Built[] } | { ok: false; error: string }> {
+  const objectives = input.objectives.filter((o) => o.passage && o.version != null)
+  if (objectives.length < input.objectives.length || objectives.length === 0)
+    return { ok: false, error: "A source passage of this Training is no longer published. An Engineer must review the Training first." }
+  const per = perFor(input)
+  const allowedCodes = new Set<string>()
+  for (const o of objectives) for (const c of codesIn(`${o.passage}\n${o.namingCode}`)) allowedCodes.add(c)
+  for (const p of input.pool) for (const c of codesIn(`${p.text}\n${p.namingCode}`)) allowedCodes.add(c)
+
+  const byObjective = new Map<string, Built[]>(objectives.map((o) => [o.id, []]))
+  let dropped = 0
+  const asked = [...input.previousPrompts]
+  const canUseModel = claudeConfigured() && !aiStubEnabled()
+  const trainingContext = [
+    `${input.training.code} ${input.training.title}`,
+    input.training.purpose,
+    ...objectives.map((o) => `${o.namingCode} ${o.documentTitle}`),
+  ].join("\n")
+  const take = (out: z.infer<typeof QuestionsOut>, batch: GenObjective[]) => {
+    for (const q of out.questions) {
+      const k = Number(q.objective.trim().replace(/^O/i, ""))
+      const o = batch[k - 1]
+      if (!o) continue
+      const list = byObjective.get(o.id)!
+      if (list.length >= per(o)) continue
+      const r = verify(q, o, allowedCodes, trainingContext)
+      if ("reason" in r) {
+        dropped += 1
+        console.log(`${log}: dropped question for ${o.id} (${r.reason}): ${q.prompt}`)
+        continue
+      }
+      list.push(r)
+      asked.push(r.prompt)
+    }
+  }
+
+  if (canUseModel) {
+    // 1. Everything in one call.
+    try {
+      take(await askModel(input, objectives, per, asked), objectives)
+    } catch (err) {
+      console.error(`${log}: question generation failed: ${describeClaudeError(err)}`)
+      return { ok: false, error: "The questions could not be prepared right now. Try again in a moment." }
+    }
+    // 2. One simpler call per objective that is still short, before code writes it.
+    for (const o of objectives) {
+      if ((byObjective.get(o.id)?.length ?? 0) >= per(o)) continue
+      try {
+        take(await askModel(input, [o], per, asked, 4000), [o])
+      } catch (err) {
+        console.log(`${log}: single-objective retry for ${o.id} failed: ${describeClaudeError(err)}`)
+      }
+    }
+  }
+
+  // Every objective is tested, always: fill any gap with a question built by code.
+  for (const o of objectives) {
+    const list = byObjective.get(o.id)!
+    let guard = 0
+    while (list.length < per(o) && guard++ < 6) {
+      const fb = fallbackQuestion(o, input.pool)
+      if (!fb) break
+      if (list.some((x) => squash(x.correct) === squash(fb.correct)) && guard < 6) continue
+      list.push(fb)
+    }
+    if (list.length === 0) return { ok: false as const, error: "The questions could not be traced to their sources. An Engineer should check this Training." }
+  }
+  if (dropped > 0) console.log(`${log}: ${dropped} generated questions failed the source check`)
+  const built = objectives
+    .map((o, i) => ({ o, i }))
+    .sort((a, b) => (a.o.stopIndex ?? -1) - (b.o.stopIndex ?? -1) || a.i - b.i)
+    .flatMap(({ o }) => byObjective.get(o.id)!)
+  return { ok: true, built }
+}
+
+/** A built question as stored: options shuffled by code, whyWrong in option order. */
+function toStored(b: Built, i: number, critical: boolean) {
+  const options = shuffle([b.correct, ...b.distractors])
+  const whyOf = new Map(b.distractors.map((d, k) => [d, b.whyWrong[k] ?? ""]))
+  return {
+    id: `q${i + 1}`,
+    objectiveId: b.objectiveId,
+    stopIndex: b.stopIndex,
+    prompt: b.prompt,
+    options,
+    correctIndex: options.indexOf(b.correct),
+    explanation: b.explanation,
+    citation: b.citation,
+    answerIndex: null,
+    answeredAt: null,
+    flag: null,
+    whyWrong: options.filter((x) => x !== b.correct).map((x) => whyOf.get(x) ?? ""),
+    source: b.source,
+    kind: "choice" as const,
+    ...(critical ? { critical: true } : {}),
+  }
 }
 
 export const generateQuestions = internalAction({
@@ -735,96 +948,397 @@ export const generateQuestions = internalAction({
     })
     if (!input) return
     const fail = (error: string) => ctx.runMutation(internal.attempts.failGeneration, { attemptId: args.attemptId, error })
-
-    const objectives = input.objectives.filter((o) => o.passage && o.version != null)
-    if (objectives.length < input.objectives.length || objectives.length === 0) {
-      await fail("A source passage of this Training is no longer published. An Engineer must review the Training first.")
+    // Everything was drawn from the question bank already.
+    if (input.objectives.length === 0) {
+      await ctx.runMutation(internal.attempts.saveQuestions, { attemptId: args.attemptId, questions: [] })
       return
     }
-    const per = Math.max(1, Math.min(3, input.questionsPerObjective))
-    const allowedCodes = new Set<string>()
-    for (const o of objectives) for (const c of codesIn(`${o.passage}\n${o.namingCode}`)) allowedCodes.add(c)
-    for (const p of input.pool) for (const c of codesIn(`${p.text}\n${p.namingCode}`)) allowedCodes.add(c)
-
-    const byObjective = new Map<string, Built[]>(objectives.map((o) => [o.id, []]))
-    let dropped = 0
-    const asked = [...input.previousPrompts]
-    const canUseModel = claudeConfigured() && !aiStubEnabled()
-    const trainingContext = [
-      `${input.training.code} ${input.training.title}`,
-      input.training.purpose,
-      ...objectives.map((o) => `${o.namingCode} ${o.documentTitle}`),
-    ].join("\n")
-
-    // At most two model calls: everything, then once more for what failed.
-    for (let round = 0; round < 2 && canUseModel; round++) {
-      const missing = objectives.filter((o) => (byObjective.get(o.id)?.length ?? 0) < per)
-      if (missing.length === 0) break
-      let out: z.infer<typeof QuestionsOut>
-      try {
-        out = await askModel(input, missing, per, asked)
-      } catch (err) {
-        const why = describeClaudeError(err)
-        console.error(`Attempt ${args.attemptId}: question generation failed: ${why}`)
-        if (round === 0) {
-          await fail("The questions could not be prepared right now. Try again in a moment.")
-          return
-        }
-        break
-      }
-      for (const q of out.questions) {
-        const k = Number(q.objective.trim().replace(/^O/i, ""))
-        const o = missing[k - 1]
-        if (!o) continue
-        const list = byObjective.get(o.id)!
-        if (list.length >= per) continue
-        const r = verify(q, o, allowedCodes, trainingContext)
-        if ("reason" in r) {
-          dropped += 1
-          console.log(`Attempt ${args.attemptId}: dropped question for ${o.id} (${r.reason}): ${q.prompt}`)
-          continue
-        }
-        list.push(r)
-        asked.push(r.prompt)
-      }
+    const r = await buildQuestions(input, `Attempt ${args.attemptId}`)
+    if ("error" in r) {
+      await fail(r.error)
+      return
     }
+    const critical = new Set(input.objectives.filter((o) => o.critical).map((o) => o.id))
+    const questions = r.built.map((b, i) => toStored(b, i, critical.has(b.objectiveId)))
+    await ctx.runMutation(internal.attempts.saveQuestions, {
+      attemptId: args.attemptId,
+      questions,
+      missedFirst: input.missedBefore ?? [],
+    })
+  },
+})
 
-    // Every objective is tested, always: fill any gap with a question built by code.
-    for (const o of objectives) {
-      const list = byObjective.get(o.id)!
-      while (list.length < per) {
-        const fb = fallbackQuestion(o, input.pool)
-        if (!fb) break
-        list.push(fb)
-      }
-      if (list.length === 0) {
-        await fail("The questions could not be traced to their sources. An Engineer should check this Training.")
-        return
-      }
-    }
-    if (dropped > 0) console.log(`Attempt ${args.attemptId}: ${dropped} generated questions failed the source check`)
+// ---- Builder: sample questions and image questions ---------------------------------
 
-    const ordered = objectives
-      .map((o, i) => ({ o, i }))
-      .sort((a, b) => (a.o.stopIndex ?? -1) - (b.o.stopIndex ?? -1) || a.i - b.i)
-      .flatMap(({ o }) => byObjective.get(o.id)!)
-    const questions = ordered.map((b, i) => {
-      // Code decides where the right answer sits, never the model.
-      const options = shuffle([b.correct, ...b.distractors])
+interface BuilderObjective extends GenObjective {
+  evidence?: "none" | "photo" | "note"
+  images: { imageId: Id<"images">; alt: string }[]
+}
+interface BuilderContext {
+  training: { code: string; title: string; kind: "course" | "round"; purpose: string; status: string }
+  questionsPerObjective: number
+  objectives: BuilderObjective[]
+}
+
+/** One unrecorded question per objective of the working version (trainings.sampleQuestions). */
+export const sampleQuestionsInternal = internalAction({
+  args: { trainingId: v.id("trainings"), objectiveIds: v.optional(v.array(v.string())) },
+  handler: async (ctx, args): Promise<SampleQuestion[]> => {
+    const c: BuilderContext | null = await ctx.runQuery(internal.ai.training.builderInput, { trainingId: args.trainingId })
+    if (!c) throw new ConvexError("This Training no longer exists.")
+    const objectives = c.objectives.filter((o) => !args.objectiveIds || args.objectiveIds.includes(o.id))
+    const r = await buildQuestions(
+      {
+        personRole: "operator",
+        training: c.training,
+        questionsPerObjective: 1,
+        objectives: objectives.map((o) => ({ ...o, critical: false })),
+        pool: [],
+        previousPrompts: [],
+      },
+      `Sample ${c.training.code}`,
+    )
+    if ("error" in r) throw new ConvexError(r.error)
+    return r.built.map((b, i) => {
+      const s = toStored(b, i, false)
       return {
-        id: `q${i + 1}`,
-        objectiveId: b.objectiveId,
-        stopIndex: b.stopIndex,
-        prompt: b.prompt,
-        options,
-        correctIndex: options.indexOf(b.correct),
-        explanation: b.explanation,
-        citation: b.citation,
-        answerIndex: null,
-        answeredAt: null,
-        flag: null,
+        objectiveId: s.objectiveId,
+        kind: "choice" as const,
+        prompt: s.prompt,
+        options: s.options,
+        correctIndex: s.correctIndex,
+        explanation: s.explanation,
+        whyWrong: s.whyWrong,
+        keyPoints: [],
+        source: s.source,
+        citation: s.citation,
       }
     })
-    await ctx.runMutation(internal.attempts.saveQuestions, { attemptId: args.attemptId, questions })
+  },
+})
+
+/** The working version's objectives with their passages and the pictures of their documents. */
+export const builderInput = internalQuery({
+  args: { trainingId: v.id("trainings") },
+  handler: async (ctx, args): Promise<BuilderContext | null> => {
+    const t = await ctx.db.get(args.trainingId)
+    if (!t) return null
+    const row = await getVersion(ctx, t._id, t.currentVersion)
+    if (!row) return null
+    const docs = makeDocCache(ctx)
+    const imagesByDoc = new Map<string, { imageId: Id<"images">; alt: string }[]>()
+    const objectives: BuilderObjective[] = []
+    for (const o of row.objectives) {
+      const live = await docs(o.documentId)
+      const r = resolveObjective(live, o)
+      const k = String(o.documentId)
+      if (!imagesByDoc.has(k)) {
+        const usages = await ctx.db
+          .query("imageUsages")
+          .withIndex("by_documentId_and_version", (q) =>
+            q.eq("documentId", o.documentId).eq("documentVersion", r.liveVersion ?? o.documentVersion),
+          )
+          .take(50)
+        const imgs: { imageId: Id<"images">; alt: string }[] = []
+        for (const u of usages) {
+          const img = await ctx.db.get(u.imageId)
+          if (img && u.context !== "thumbnail" && !imgs.some((x) => x.imageId === img._id))
+            imgs.push({ imageId: img._id, alt: img.altText || img.filename })
+        }
+        imagesByDoc.set(k, imgs)
+      }
+      const stop = t.kind === "round" ? row.stops.findIndex((s) => s.objectiveIds.includes(o.id)) : -1
+      objectives.push({
+        id: o.id,
+        text: o.text,
+        critical: !!o.critical,
+        documentId: o.documentId,
+        namingCode: o.namingCode,
+        documentTitle: live?.doc.title ?? "",
+        version: r.liveVersion,
+        chunkId: r.passage?.chunkId ?? o.chunkId,
+        passage: r.passage?.display ?? null,
+        section: r.passage?.section ?? null,
+        quote: o.quote,
+        stopIndex: stop >= 0 ? stop : null,
+        evidence: stop >= 0 ? row.stops[stop].evidence : "none",
+        images: imagesByDoc.get(k) ?? [],
+      })
+    }
+    return {
+      training: { code: t.code, title: t.title, kind: t.kind, purpose: row.purpose, status: t.status },
+      questionsPerObjective: row.questionsPerObjective,
+      objectives,
+    }
+  },
+})
+
+// ---- Open answers: transcribe and grade ---------------------------------------------
+
+function toBase64(bytes: Uint8Array): string {
+  let s = ""
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) s += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  return btoa(s)
+}
+
+type GeminiPart = { text: string } | { inlineData: { mimeType: string; data: string } }
+
+/** One Gemini call (the cheap model) for media: transcripts and photo grading. */
+async function gemini(parts: GeminiPart[], json = false): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not set on this deployment.")
+  const res = await fetch(`${GEMINI_BASE}/models/${CHAT_MODEL}:generateContent?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 2048, ...(json ? { responseMimeType: "application/json" } : {}) },
+    }),
+  })
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`)
+  const out = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
+  const text = (out.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim()
+  if (!text) throw new Error("Gemini returned no text.")
+  return text
+}
+
+const GradeOut = z.object({
+  verdict: z.enum(["good", "partly", "not_yet"]),
+  matched: z.array(z.string()),
+  missing: z.array(z.string()),
+  misconception: z.string(),
+  feedback: z.string(),
+})
+
+const GRADE_SYSTEM = [
+  "You grade one answer a factory operator gave in their own words to a Training question in Oppr Knowledge.",
+  "Grade ONLY against the KEY POINTS and the cited PASSAGE of a published document. Spelling, grammar and wording do not matter; the meaning does. Spoken answers are transcripts and may be rough.",
+  "- `matched`: the key points the answer names (copy the key point text). `missing`: the key points it leaves out (copy the key point text).",
+  "- `verdict`: good when every key point is there in meaning and nothing said is wrong or unsafe; partly when some key points are there and nothing is unsafe; not_yet when most are missing or something said is wrong or unsafe.",
+  "- `misconception`: when the answer states something wrong, say it in one short neutral sentence (\"Thinks the purge runs at 230 °C\"). Otherwise \"\".",
+  "- `feedback`: at most two short sentences to the operator, in plain words: what was right, what to add, and what the document says, citing it as CODE vN. No em dashes.",
+].join("\n")
+
+const PHOTO_GRADE_PROMPT = (q: { prompt: string; keyPoints: string[]; passage: string; code: string }) =>
+  [
+    "A factory operator answered this Training question by taking a photo.",
+    `QUESTION: ${q.prompt}`,
+    `KEY POINTS the photo must show: ${q.keyPoints.map((k, i) => `(${i + 1}) ${k}`).join(" ")}`,
+    `PASSAGE (${q.code}): ${q.passage}`,
+    'Return JSON: {"verdict":"good"|"partly"|"not_yet"|"unclear","matched":[key point texts shown],"missing":[key point texts not shown],"misconception":"","feedback":"one or two plain sentences to the operator"}.',
+    'Use "unclear" when the photo is too dark, blurred or does not show the subject, so a trainer must look.',
+  ].join("\n")
+
+function verdictScore(v: "good" | "partly" | "not_yet") {
+  return v === "good" ? 1 : v === "partly" ? 0.5 : 0
+}
+
+/** Keeps only key point texts that are in the list (the model may reword them). */
+function onlyKeyPoints(list: string[], keyPoints: string[]) {
+  const out: string[] = []
+  for (const x of list) {
+    const hit = keyPoints.find((k) => squash(k) === squash(x)) ?? keyPoints.find((k) => support(x, k) >= 0.6)
+    if (hit && !out.includes(hit)) out.push(hit)
+  }
+  return out
+}
+
+/**
+ * Grades an open answer. Spoken answers are transcribed by Gemini first.
+ * Typed and spoken answers are graded by Claude against the key points and
+ * the cited passage (Gemini when Claude is not configured). Photo answers
+ * are graded by Gemini vision; when that is unclear or fails, the grade is
+ * left for the trainer (gradeError).
+ */
+export const gradeOpenAnswer = internalAction({
+  args: { attemptId: v.id("trainingAttempts"), questionId: v.string() },
+  handler: async (ctx, args): Promise<void> => {
+    const g: {
+      prompt: string
+      keyPoints: string[]
+      explanation: string
+      objective: string
+      passage: string
+      citation: { namingCode: string; version: number; quote: string }
+      answerMode: "typed" | "voice" | "photo"
+      answerText: string | null
+      answerStorageId: Id<"_storage"> | null
+      personRole: string
+    } | null = await ctx.runQuery(internal.attempts.loadForGrading, args)
+    if (!g) return
+    const fail = (error: string) => ctx.runMutation(internal.attempts.failGrade, { ...args, error })
+    const code = `${g.citation.namingCode} v${g.citation.version}`
+    try {
+      if (aiStubEnabled()) {
+        await fail("Automatic checking is off on this server. A trainer will check this answer.")
+        return
+      }
+      let text = g.answerText ?? ""
+      if (g.answerMode === "voice" && g.answerStorageId) {
+        const blob = await ctx.storage.get(g.answerStorageId)
+        if (!blob) throw new Error("The recording is missing.")
+        const bytes = new Uint8Array(await blob.arrayBuffer())
+        const mime = (blob.type || "audio/webm").split(";")[0]
+        const ask = "Transcribe this spoken answer of a factory operator word for word, in the language spoken. Keep numbers, units and machine codes exactly as said. Return only the transcript. If nothing can be heard, return: (nothing audible)"
+        try {
+          text = await gemini([{ inlineData: { mimeType: mime, data: toBase64(bytes) } }, { text: ask }])
+        } catch (e) {
+          if (mime !== "audio/webm") throw e
+          text = await gemini([{ inlineData: { mimeType: "video/webm", data: toBase64(bytes) } }, { text: ask }])
+        }
+        await ctx.runMutation(internal.attempts.saveTranscript, { ...args, text })
+        if (/^\(nothing audible\)$/i.test(text.trim())) {
+          await ctx.runMutation(internal.attempts.saveGrade, {
+            ...args,
+            grade: {
+              verdict: "not_yet",
+              score: 0,
+              matched: [],
+              missing: g.keyPoints,
+              feedback: "Nothing could be heard in the recording. Ask a trainer to check, or answer in writing next time.",
+            },
+          })
+          return
+        }
+      }
+
+      if (g.answerMode === "photo" && g.answerStorageId) {
+        const blob = await ctx.storage.get(g.answerStorageId)
+        if (!blob) throw new Error("The photo is missing.")
+        const raw = await gemini(
+          [
+            { inlineData: { mimeType: (blob.type || "image/jpeg").split(";")[0], data: toBase64(new Uint8Array(await blob.arrayBuffer())) } },
+            { text: PHOTO_GRADE_PROMPT({ prompt: g.prompt, keyPoints: g.keyPoints, passage: g.passage, code }) },
+          ],
+          true,
+        )
+        const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, "")) as {
+          verdict?: string
+          matched?: string[]
+          missing?: string[]
+          misconception?: string
+          feedback?: string
+        }
+        if (parsed.verdict !== "good" && parsed.verdict !== "partly" && parsed.verdict !== "not_yet") {
+          await fail("The photo could not be checked automatically. A trainer will look at it.")
+          return
+        }
+        const matched = onlyKeyPoints(parsed.matched ?? [], g.keyPoints)
+        await ctx.runMutation(internal.attempts.saveGrade, {
+          ...args,
+          grade: {
+            verdict: parsed.verdict,
+            score: verdictScore(parsed.verdict),
+            matched,
+            missing: g.keyPoints.filter((k) => !matched.includes(k)),
+            ...(parsed.misconception?.trim() ? { misconception: parsed.misconception.trim() } : {}),
+            feedback: (parsed.feedback ?? "").trim() || `Checked against ${code}.`,
+          },
+        })
+        return
+      }
+
+      if (!text.trim()) {
+        await fail("There is no answer text to check.")
+        return
+      }
+      const user = [
+        `QUESTION: ${g.prompt}`,
+        `OBJECTIVE: ${g.objective}`,
+        `KEY POINTS: ${g.keyPoints.map((k) => `\n- ${k}`).join("")}`,
+        `PASSAGE (${code}): ${g.passage}`,
+        `AUDIENCE: ${g.personRole}`,
+        `ANSWER (${g.answerMode === "voice" ? "spoken, transcribed" : "typed"}): ${text}`,
+      ].join("\n")
+      let out: z.infer<typeof GradeOut>
+      if (claudeConfigured()) {
+        out = await claudeJson({ system: GRADE_SYSTEM, messages: [{ role: "user", content: user }], schema: GradeOut, effort: "low", maxTokens: 2000 })
+      } else {
+        const raw = await gemini(
+          [{ text: `${GRADE_SYSTEM}\n\nReturn JSON with verdict, matched, missing, misconception, feedback.\n\n${user}` }],
+          true,
+        )
+        out = GradeOut.parse(JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, "")))
+      }
+      const matched = onlyKeyPoints(out.matched, g.keyPoints)
+      const missing = g.keyPoints.filter((k) => !matched.includes(k))
+      // The verdict must agree with the key points: "good" needs every one of them.
+      let verdict = out.verdict
+      if (verdict === "good" && missing.length > 0) verdict = "partly"
+      if (verdict === "partly" && matched.length === 0) verdict = "not_yet"
+      await ctx.runMutation(internal.attempts.saveGrade, {
+        ...args,
+        grade: {
+          verdict,
+          score: verdictScore(verdict),
+          matched,
+          missing,
+          ...(out.misconception.trim() ? { misconception: out.misconception.trim() } : {}),
+          feedback: out.feedback.replace(/—/g, ",").trim() || `Checked against ${code}.`,
+        },
+      })
+    } catch (err) {
+      console.error(`Grading ${args.attemptId}/${args.questionId} failed:`, describeClaudeError(err))
+      await fail("Your answer could not be checked automatically. A trainer will check it.")
+    }
+  },
+})
+
+// ---- Self check of the question verifier ----------------------------------------------
+
+/**
+ * Runs verify() on fixed cases, so the rules can be checked without a model:
+ * npx convex run ai/training:verifySelfCheck
+ */
+export const verifySelfCheck = internalAction({
+  args: {},
+  handler: async () => {
+    const o: GenObjective = {
+      id: "o1",
+      text: "Purge the barrel with the right compound at the right temperature",
+      documentId: "x" as Id<"documents">,
+      namingCode: "EXT-OPS-SOP-0001",
+      documentTitle: "Colour changeover line 2",
+      version: 1,
+      chunkId: null,
+      passage: "Purge the barrel with purge compound PX-4400 at 190 °C until the melt runs clean.",
+      section: "Purge",
+      quote: "Purge the barrel with purge compound PX-4400 at 190 °C until the melt runs clean.",
+      stopIndex: null,
+    }
+    const codes = new Set(["PX-4400"])
+    const base = {
+      objective: "O1",
+      correct: "PX-4400 at 190 °C",
+      distractors: ["PX-4400 at 230 °C", "PX-4400 at 150 °C", "Fresh PE at 190 °C"],
+      whyWrong: ["The SOP says 190 °C.", "The SOP says 190 °C.", "The SOP says purge compound PX-4400."],
+      explanation: "Purge the barrel with purge compound PX-4400 at 190 °C until the melt runs clean.",
+    }
+    const cases = [
+      { name: "good question passes", q: { ...base, prompt: "Which compound and temperature do you purge the barrel with?" }, expect: "pass" },
+      { name: "prompt with the answer's number is rejected", q: { ...base, prompt: "You purge at 190 °C. Which compound do you use?" }, expect: "reject" },
+      {
+        name: "long correct option is rejected",
+        q: {
+          ...base,
+          prompt: "Which compound and temperature do you purge the barrel with?",
+          correct: "Purge compound PX-4400 at 190 °C until the melt runs completely clean and free of the old colour",
+        },
+        expect: "reject",
+      },
+    ]
+    return cases.map((c) => {
+      const r = verify(c.q, o, codes, "EXT-TRN-0001 Line 2 changeover")
+      const got = "reason" in r ? "reject" : "pass"
+      return {
+        name: c.name,
+        ok: got === c.expect,
+        got,
+        reason: "reason" in r ? r.reason : null,
+        whyWrongLength: "reason" in r ? null : r.whyWrong.length,
+        source: "reason" in r ? null : r.source,
+      }
+    })
   },
 })

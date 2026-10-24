@@ -1,5 +1,8 @@
-import { format } from "date-fns"
-import { History } from "lucide-react"
+import { useState } from "react"
+import { Archive, GitCompare, History, Undo2 } from "lucide-react"
+import { formatDate as fmtDay, formatDateTime } from "@/lib/time"
+import { useCheckIn } from "@/lib/checkIn"
+import { VersionCompareDialog } from "./VersionCompareDialog"
 import {
   Sheet,
   SheetContent,
@@ -32,21 +35,8 @@ interface VersionHistoryDrawerProps {
   onOpenChange: (open: boolean) => void
 }
 
-function formatDate(ms: number): string {
-  try {
-    return format(new Date(ms), "MMM d, yyyy · HH:mm")
-  } catch {
-    return String(ms)
-  }
-}
-
-function formatDay(ms: number): string {
-  try {
-    return format(new Date(ms), "MMM d, yyyy")
-  } catch {
-    return String(ms)
-  }
-}
+const formatDate = (ms: number) => formatDateTime(ms)
+const formatDay = (ms: number) => fmtDay(ms)
 
 const ROLE_LABELS = { author: "Author", reviewer: "Reviewer", approver: "Approver" } as const
 
@@ -68,6 +58,13 @@ export function VersionHistoryDrawer({
         ? { documentId: documentId as Id<"documents"> }
         : "skip",
     ) ?? []
+  // Lifecycle events that are not a sign-off: withdrawal, sent back to draft.
+  const doc = useQuery(api.documents.get, open && documentId ? { id: documentId as Id<"documents"> } : "skip")
+  const { people } = useCheckIn()
+  const nameOf = (pid: string | null) => (pid ? (people?.find((p) => p._id === pid)?.name ?? null) : null)
+  const events = [...(doc?.history ?? [])].filter((h) => h.kind !== "submitted").sort((x, y) => y.at - x.at)
+  const withdrawals = events.filter((e) => e.kind === "withdrawn")
+  const [compare, setCompare] = useState<{ from: number; to: number } | null>(null)
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -90,6 +87,22 @@ export function VersionHistoryDrawer({
             </div>
           ) : (
             <ul className="space-y-2 pb-6">
+              {withdrawals.map((w) => (
+                <li
+                  key={`w${w.at}`}
+                  className="rounded-md border border-status-archived/30 bg-status-archived-bg p-3 text-sm"
+                >
+                  <p className="flex items-center gap-1.5 font-medium">
+                    <Archive className="h-3.5 w-3.5" />
+                    Withdrawn
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatDate(w.at)}
+                    {nameOf(w.personId) ? ` by ${nameOf(w.personId)}` : ""}
+                  </p>
+                  {w.note && <p className="mt-1 text-sm">{w.note}</p>}
+                </li>
+              ))}
               {versions.map((v) => {
                 // Versions are published in order, so everything up to the
                 // live version was published once; anything after is a draft.
@@ -115,6 +128,8 @@ export function VersionHistoryDrawer({
                 const signers = (["author", "reviewer", "approver"] as const)
                   .map((role) => [...v.signers].reverse().find((x) => x.role === role))
                   .filter((x) => x != null)
+                const sentBack = events.filter((e) => e.kind === "sent_back" && e.version === v.version)
+                const previous = versions.find((x) => x.version === v.version - 1)
                 return (
                   <li
                     key={v._id}
@@ -126,18 +141,18 @@ export function VersionHistoryDrawer({
                           <span className="text-sm font-semibold">
                             v{v.version}
                           </span>
-                          <Badge variant={state.variant} className="text-[10px]">
+                          <Badge variant={state.variant} className="text-xs">
                             {state.label}
                           </Badge>
                           {isSelected && (
-                            <Badge variant="secondary" className="text-[10px]">
+                            <Badge variant="secondary" className="text-xs">
                               Viewing
                             </Badge>
                           )}
                           {v.significantChange && (
                             <Badge
                               variant="outline"
-                              className="border-amber-300 bg-amber-50 text-[10px] text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
+                              className="border-amber-300 bg-amber-50 text-xs text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
                             >
                               Significant change
                             </Badge>
@@ -149,12 +164,33 @@ export function VersionHistoryDrawer({
                             : `Started ${formatDate(v.publishedAt)}`}
                         </div>
                         {v.changeNote && (
-                          <p className="text-xs italic text-foreground/80">
+                          <p className="text-sm">
+                            <span className="text-muted-foreground">What changed: </span>
                             {v.changeNote}
                           </p>
                         )}
+                        {sentBack.map((e) => (
+                          <p key={e.at} className="flex items-start gap-1 text-xs text-muted-foreground">
+                            <Undo2 className="mt-0.5 h-3 w-3 shrink-0" />
+                            <span>
+                              Sent back to draft {formatDate(e.at)}
+                              {nameOf(e.personId) ? ` by ${nameOf(e.personId)}` : ""}
+                              {e.note ? `: ${e.note}` : ""}
+                            </span>
+                          </p>
+                        ))}
+                        {previous && (
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                            onClick={() => setCompare({ from: previous.version, to: v.version })}
+                          >
+                            <GitCompare className="h-3 w-3" />
+                            Compare with v{previous.version}
+                          </button>
+                        )}
                         {signers.length > 0 && (
-                          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 pt-1 text-[11px]">
+                          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 pt-1 text-xs">
                             {signers.map((x) => (
                               <div key={x.role} className="contents">
                                 <dt className="text-muted-foreground">
@@ -192,6 +228,15 @@ export function VersionHistoryDrawer({
             </ul>
           )}
         </ScrollArea>
+        {compare && (
+          <VersionCompareDialog
+            documentId={documentId}
+            from={compare.from}
+            to={compare.to}
+            open={compare != null}
+            onOpenChange={(o) => !o && setCompare(null)}
+          />
+        )}
       </SheetContent>
     </Sheet>
   )

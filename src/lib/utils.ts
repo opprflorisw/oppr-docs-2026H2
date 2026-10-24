@@ -1,5 +1,16 @@
 import { type ClassValue, clsx } from "clsx"
-import { twMerge } from "tailwind-merge"
+import { extendTailwindMerge } from "tailwind-merge"
+
+// The floor type tokens (tailwind.config.js fontSize) are font sizes, not
+// colours: without this, cn("text-floor-body text-muted-foreground") would
+// drop the size.
+const twMerge = extendTailwindMerge({
+  extend: {
+    classGroups: {
+      "font-size": [{ text: ["floor-title", "floor-body", "floor-secondary", "floor-meta"] }],
+    },
+  },
+})
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))

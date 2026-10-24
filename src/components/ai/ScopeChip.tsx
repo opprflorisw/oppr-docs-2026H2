@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
 import {
+  BookOpenText,
   ChevronDown,
   Factory,
   FileText,
@@ -20,9 +21,13 @@ import type { Id } from "../../../convex/_generated/dataModel"
 import type { AskPanelScope } from "./AskPanel"
 import { cn } from "@/lib/utils"
 
+/** Every Ask scope, including "This Wiki" (Ask this Wiki, wiki lane). */
+export type AnyAskScope = AskPanelScope | { kind: "wiki"; id: string }
+
 interface ScopeChipProps {
-  scope: AskPanelScope
-  onChange: (next: AskPanelScope) => void
+  scope: AnyAskScope
+  // Method syntax: callers that only handle AskPanelScope still fit.
+  onChange(next: AnyAskScope): void
   className?: string
 }
 
@@ -35,7 +40,9 @@ export function ScopeChip({ scope, onChange, className }: ScopeChipProps) {
       ? Globe
       : scope.kind === "asset"
         ? Factory
-        : FileText
+        : scope.kind === "wiki"
+          ? BookOpenText
+          : FileText
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -79,7 +86,7 @@ export function ScopeChip({ scope, onChange, className }: ScopeChipProps) {
   )
 }
 
-export function useScopeLabel(scope: AskPanelScope) {
+export function useScopeLabel(scope: AnyAskScope) {
   const doc = useQuery(
     api.documents.get,
     scope.kind === "doc" ? { id: scope.id as Id<"documents"> } : "skip",
@@ -88,9 +95,16 @@ export function useScopeLabel(scope: AskPanelScope) {
     api.assets.get,
     scope.kind === "asset" ? { id: scope.id as Id<"assets"> } : "skip",
   )
+  const wiki = useQuery(
+    api.wikis.get,
+    scope.kind === "wiki" ? { id: scope.id as Id<"wikis"> } : "skip",
+  )
   return useMemo(() => {
     if (scope.kind === "library") {
       return { kindLabel: "Library", code: null, title: "All documents" }
+    }
+    if (scope.kind === "wiki") {
+      return { kindLabel: "This Wiki", code: null, title: wiki?.title ?? null }
     }
     if (scope.kind === "doc") {
       return {
@@ -104,7 +118,7 @@ export function useScopeLabel(scope: AskPanelScope) {
       code: asset?.code ?? null,
       title: asset?.name ?? null,
     }
-  }, [scope, doc, asset])
+  }, [scope, doc, asset, wiki])
 }
 
 interface DocPick {
@@ -122,10 +136,11 @@ function ScopeSwitcher({
   scope,
   onPick,
 }: {
-  scope: AskPanelScope
-  onPick: (next: AskPanelScope) => void
+  scope: AnyAskScope
+  onPick: (next: AnyAskScope) => void
 }) {
-  const [tab, setTab] = useState<"library" | "doc" | "asset">(scope.kind)
+  const wikiScope = scope.kind === "wiki" ? scope : null
+  const [tab, setTab] = useState<"library" | "doc" | "asset" | "wiki">(scope.kind)
   const [query, setQuery] = useState("")
 
   const docs = useQuery(api.documents.list, { publishedOnly: true }) ?? []
@@ -170,9 +185,16 @@ function ScopeSwitcher({
             setTab(v as typeof tab)
             // Library needs no further choice: apply it straight away.
             if (v === "library") onPick({ kind: "library" })
+            if (v === "wiki" && wikiScope) onPick(wikiScope)
           }}
         >
-          <TabsList className="grid w-full grid-cols-3 h-8">
+          <TabsList className={cn("grid h-8 w-full", wikiScope ? "grid-cols-4" : "grid-cols-3")}>
+            {wikiScope && (
+              <TabsTrigger value="wiki" className="text-xs">
+                <BookOpenText className="mr-1 h-3 w-3" />
+                Wiki
+              </TabsTrigger>
+            )}
             <TabsTrigger value="library" className="text-xs">
               <Globe className="mr-1 h-3 w-3" />
               Library
@@ -189,7 +211,12 @@ function ScopeSwitcher({
         </Tabs>
       </div>
 
-      {tab === "library" ? (
+      {tab === "wiki" ? (
+        <p className="p-3 text-xs text-muted-foreground">
+          Answers come only from the documents this Wiki is built from, at
+          the versions it cites.
+        </p>
+      ) : tab === "library" ? (
         <div className="space-y-2 p-3">
           <p className="text-xs text-muted-foreground">
             Ask across every document in the library. Best for catalog,

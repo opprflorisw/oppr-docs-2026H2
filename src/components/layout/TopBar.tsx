@@ -4,6 +4,7 @@ import { UserMenu } from "./UserMenu"
 import { CheckInChip } from "@/components/people/CheckInChip"
 import { PhoneButton } from "@/components/phone/PhonePreview"
 import { cn } from "@/lib/utils"
+import { AskTopBarButton } from "@/components/ai/FloatingAskIda"
 
 export interface BreadcrumbItem {
   label: string
@@ -19,6 +20,7 @@ export function TopBar({ breadcrumb }: TopBarProps) {
     <div className="sticky top-0 z-30 flex h-12 items-center justify-between gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <Breadcrumb items={breadcrumb} />
       <div className="flex items-center gap-2">
+        <AskTopBarButton />
         <PhoneButton />
         <CheckInChip />
         <UserMenu />

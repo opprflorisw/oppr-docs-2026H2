@@ -425,7 +425,7 @@ async function imageObjToBlob(
       width,
       height,
       pageNumber,
-      hintAlt: `Image extracted from ${baseName} — page ${pageNumber}`,
+      hintAlt: `Image extracted from ${baseName}, page ${pageNumber}`,
       filename: `${baseName}-p${pageNumber}-${width}x${height}.jpg`,
       contentType: "image/jpeg",
     }
@@ -486,7 +486,7 @@ async function imageObjToBlob(
     width,
     height,
     pageNumber,
-    hintAlt: `Image extracted from ${baseName} — page ${pageNumber}`,
+    hintAlt: `Image extracted from ${baseName}, page ${pageNumber}`,
     filename: `${baseName}-p${pageNumber}-${width}x${height}.png`,
     contentType: "image/png",
   }

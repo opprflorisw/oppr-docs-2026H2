@@ -226,7 +226,7 @@ function AssetRow({
         </span>
       )}
       <span className="font-mono text-xs">{asset.code}</span>
-      <span className="flex-1 truncate text-muted-foreground">— {asset.name}</span>
+      <span className="flex-1 truncate text-muted-foreground">· {asset.name}</span>
       {asset.location && (
         <span className="hidden items-center gap-0.5 text-[10px] text-muted-foreground sm:inline-flex">
           <MapPin className="h-2.5 w-2.5" />

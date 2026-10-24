@@ -151,7 +151,7 @@ function VocabCard({
         </div>
         <div className="flex items-end gap-2">
           <div className="w-24 space-y-1">
-            <Label className="text-[11px]">Code</Label>
+            <Label className="text-xs">Code</Label>
             <Input
               value={code}
               onChange={(e) => setCode(e.target.value.toUpperCase())}
@@ -163,7 +163,7 @@ function VocabCard({
             />
           </div>
           <div className="flex-1 space-y-1">
-            <Label className="text-[11px]">Label</Label>
+            <Label className="text-xs">Label</Label>
             <Input
               value={label}
               onChange={(e) => setLabel(e.target.value)}
@@ -270,7 +270,7 @@ function TypesCard({ rows }: { rows: TypeRow[] | undefined }) {
                     {r.token}
                   </span>
                   {r.builtIn && (
-                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                       built-in
                     </span>
                   )}
@@ -282,7 +282,7 @@ function TypesCard({ rows }: { rows: TypeRow[] | undefined }) {
                           void guard(() => setActive({ id: r._id, active: v }))
                         }
                       />
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         {r.active ? "Active" : "Off"}
                       </span>
                     </div>
@@ -313,12 +313,12 @@ function TypesCard({ rows }: { rows: TypeRow[] | undefined }) {
         </div>
 
         <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-          <div className="text-[11px] font-medium text-muted-foreground">
+          <div className="text-xs font-medium text-muted-foreground">
             Add a type
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <div className="w-24 space-y-1">
-              <Label className="text-[11px]">Token</Label>
+              <Label className="text-xs">Token</Label>
               <Input
                 value={token}
                 onChange={(e) => setToken(e.target.value.toUpperCase())}
@@ -327,7 +327,7 @@ function TypesCard({ rows }: { rows: TypeRow[] | undefined }) {
               />
             </div>
             <div className="min-w-[10rem] flex-1 space-y-1">
-              <Label className="text-[11px]">Label</Label>
+              <Label className="text-xs">Label</Label>
               <Input
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
@@ -358,7 +358,7 @@ function IconPicker({
 }) {
   return (
     <div className="space-y-1">
-      <Label className="text-[11px]">Icon</Label>
+      <Label className="text-xs">Icon</Label>
       <div className="flex flex-wrap gap-1">
         {TYPE_ICONS.map((i) => {
           const Icon = i.icon
@@ -393,7 +393,7 @@ function ColorPicker({
 }) {
   return (
     <div className="space-y-1">
-      <Label className="text-[11px]">Color</Label>
+      <Label className="text-xs">Color</Label>
       <div className="flex flex-wrap gap-1">
         {TYPE_COLORS.map((c) => (
           <button
@@ -433,7 +433,7 @@ function IconColorEditor({
         type="button"
         variant="outline"
         size="sm"
-        className="h-7 px-2 text-[11px]"
+        className="h-7 px-2 text-xs"
         onClick={() => setOpen((o) => !o)}
       >
         Style

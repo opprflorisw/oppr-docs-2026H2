@@ -1,5 +1,5 @@
-import { mutation, query, type QueryCtx } from "./_generated/server"
-import { v } from "convex/values"
+import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server"
+import { ConvexError, v } from "convex/values"
 import { internal } from "./_generated/api"
 import { Doc, Id } from "./_generated/dataModel"
 import { afterPublish } from "./lib/onPublish"
@@ -9,6 +9,7 @@ import { walkBodyAssetIds } from "./lib/assetWalker"
 import { regenerateWikisForDocument } from "./wikis"
 import { isPublished, publishedVersion } from "./lib/published"
 import { scheduleStamp } from "./manuals"
+import { getVersion, quoteIn } from "./trainings"
 
 // Periodic review (CONTEXT.md): every Published Document is due for review
 // this many months after it was published or last confirmed.
@@ -196,7 +197,58 @@ export const listWithAssetPreviews = query({
       assetsByDoc[k].sort((x, y) => x.code.localeCompare(y.code))
     }
 
-    return { docs, assetsByDoc }
+    // Master-list columns: owner, who approved the version in use, and when
+    // it became effective. Names are the people who signed (check-in).
+    const people = await ctx.db.query("people").take(500)
+    const personName = new Map(people.map((p) => [String(p._id), p.name]))
+    const userName = new Map<string, string | null>()
+    async function nameOfUser(uid: Id<"users"> | null | undefined) {
+      if (!uid) return null
+      if (!userName.has(uid)) {
+        const u = await ctx.db.get(uid)
+        userName.set(uid, u ? (u.name ?? u.email ?? null) : null)
+      }
+      return userName.get(uid) ?? null
+    }
+    const metaByDoc: Record<
+      string,
+      {
+        owner: string | null
+        approvedBy: string | null
+        effectiveAt: number | null
+        archiveReason: string | null
+        archivedAt: number | null
+      }
+    > = {}
+    for (const d of docs) {
+      const live = d.liveVersion ?? null
+      const row =
+        live != null
+          ? await ctx.db
+              .query("documentVersions")
+              .withIndex("by_documentId_and_version", (q) =>
+                q.eq("documentId", d._id).eq("version", live),
+              )
+              .unique()
+          : null
+      const approval = [...(row?.signoffs ?? [])].reverse().find((s) => s.role === "approver")
+      const author = [...(row?.signoffs ?? [])].find((s) => s.role === "author")
+      metaByDoc[d._id] = {
+        owner:
+          (d.ownerPersonId ? personName.get(String(d.ownerPersonId)) : null) ??
+          (author?.personId ? personName.get(String(author.personId)) : null) ??
+          (await nameOfUser(d.ownerId)),
+        approvedBy: approval
+          ? ((approval.personId ? personName.get(String(approval.personId)) : null) ??
+            (await nameOfUser(approval.userId)))
+          : null,
+        effectiveAt: row?.publishedAt ?? null,
+        archiveReason: d.archiveReason ?? null,
+        archivedAt: d.archivedAt ?? null,
+      }
+    }
+
+    return { docs, assetsByDoc, metaByDoc }
   },
 })
 
@@ -282,12 +334,35 @@ export const getWithAssets = query({
     const signer = (role: SignerView["role"]) => signers.find((s) => s.role === role) ?? null
     const label = (s: SignerView | null) =>
       s?.name ? (s.title ? `${s.name} (${s.title})` : s.name) : null
+    const personOf = async (pid: Id<"people"> | null | undefined) =>
+      pid ? await ctx.db.get(pid) : null
+    const [ownerPerson, reviewerPerson, approverPerson] = await Promise.all([
+      personOf(doc.ownerPersonId),
+      personOf(doc.reviewerPersonId),
+      personOf(doc.approverPersonId),
+    ])
     const roles = {
-      owner: signer("author")?.name ?? (await nameOf(doc.ownerId)),
+      owner: ownerPerson?.name ?? signer("author")?.name ?? (await nameOf(doc.ownerId)),
       author: label(signer("author")),
       reviewer: label(signer("reviewer")),
       approver: label(signer("approver")),
     }
+    // The people named for the working version (Owner, Reviewer, Approver),
+    // and the authors of it: four-eyes is checked against these on the server.
+    const working = doc.currentVersion === serving?.version ? serving : await versionRow(doc.currentVersion)
+    const assigned = {
+      owner: ownerPerson ? { _id: ownerPerson._id, name: ownerPerson.name } : null,
+      reviewer: reviewerPerson ? { _id: reviewerPerson._id, name: reviewerPerson.name } : null,
+      approver: approverPerson ? { _id: approverPerson._id, name: approverPerson.name } : null,
+      authorPersonIds: (working?.signoffs ?? [])
+        .filter((s) => s.role === "author" && s.personId)
+        .map((s) => s.personId as Id<"people">),
+      reviewedByPersonId:
+        [...(working?.signoffs ?? [])].reverse().find((s) => s.role === "reviewer")?.personId ?? null,
+      changeNote: working?.changeNote ?? null,
+    }
+    const replacedBy = doc.replacedById ? await ctx.db.get(doc.replacedById) : null
+    const archivedBy = doc.archivedByPersonId ? await ctx.db.get(doc.archivedByPersonId) : null
     // Created: when the first version was started, which can predate this
     // row (seeded or imported history). Effective: when the version in use
     // was published.
@@ -304,7 +379,25 @@ export const getWithAssets = query({
         : doc.liveVersion === serving?.version
           ? serving
           : await versionRow(doc.liveVersion)
-    return { doc, assets, roles, createdAt, effectiveAt: live?.publishedAt ?? null }
+    return {
+      doc,
+      assets,
+      roles,
+      assigned,
+      createdAt,
+      effectiveAt: live?.publishedAt ?? null,
+      withdrawal:
+        doc.status === "archived"
+          ? {
+              reason: doc.archiveReason ?? null,
+              at: doc.archivedAt ?? null,
+              by: archivedBy?.name ?? null,
+              replacedBy: replacedBy
+                ? { _id: replacedBy._id, namingCode: replacedBy.namingCode, title: replacedBy.title }
+                : null,
+            }
+          : null,
+    }
   },
 })
 
@@ -455,9 +548,16 @@ export const create = mutation({
     chunks: chunkInputValidator,
     // Optional storageId when the body embeds an imported PDF attachment.
     pdfStorageId: v.optional(v.union(v.id("_storage"), v.null())),
+    // The checked-in person writing it (the author), and the people named
+    // for Owner, Reviewer and Approver.
+    personId: v.optional(v.id("people")),
+    ownerPersonId: v.optional(v.union(v.id("people"), v.null())),
+    reviewerPersonId: v.optional(v.union(v.id("people"), v.null())),
+    approverPersonId: v.optional(v.union(v.id("people"), v.null())),
   },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
+    const author = args.personId ? await ctx.db.get(args.personId) : null
 
     const namingCode = await allocateNamingCode(
       ctx,
@@ -480,6 +580,14 @@ export const create = mutation({
       authorId: userId,
       reviewerId: args.reviewerId ?? null,
       approverId: args.approverId ?? null,
+      ownerPersonId:
+        args.ownerPersonId !== undefined
+          ? args.ownerPersonId
+          : author?.kind === "engineer"
+            ? author._id
+            : null,
+      reviewerPersonId: args.reviewerPersonId ?? null,
+      approverPersonId: args.approverPersonId ?? null,
       tags: [],
       updatedAt: now,
     })
@@ -491,7 +599,7 @@ export const create = mutation({
       bodyJson: args.body,
       pdfStorageId: args.pdfStorageId ?? null,
       publishedAt: now,
-      signoffs: [{ role: "author", userId, at: now }],
+      signoffs: [{ role: "author", userId, at: now, ...(author ? { personId: author._id } : {}) }],
     })
 
     for (const [i, c] of args.chunks.entries()) {
@@ -545,6 +653,12 @@ export const saveContent = mutation({
     body: v.any(),
     chunks: chunkInputValidator,
     pdfStorageId: v.optional(v.union(v.id("_storage"), v.null())),
+    // The checked-in person saving (recorded as an author of this version),
+    // and the people named for the roles.
+    personId: v.optional(v.id("people")),
+    ownerPersonId: v.optional(v.union(v.id("people"), v.null())),
+    reviewerPersonId: v.optional(v.union(v.id("people"), v.null())),
+    approverPersonId: v.optional(v.union(v.id("people"), v.null())),
   },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
@@ -552,6 +666,8 @@ export const saveContent = mutation({
     if (!doc) throw new Error("Document not found")
 
     const now = Date.now()
+    if (args.ownerPersonId !== undefined || args.reviewerPersonId !== undefined || args.approverPersonId !== undefined)
+      await checkRolePeople(ctx, args)
 
     // Once a naming code exists, the type is part of it and can't drift; the
     // refile mutation is the only way to change filing (it mints a new doc).
@@ -565,6 +681,9 @@ export const saveContent = mutation({
     if (args.ownerId !== undefined) patch.ownerId = args.ownerId
     if (args.reviewerId !== undefined) patch.reviewerId = args.reviewerId
     if (args.approverId !== undefined) patch.approverId = args.approverId
+    if (args.ownerPersonId !== undefined) patch.ownerPersonId = args.ownerPersonId
+    if (args.reviewerPersonId !== undefined) patch.reviewerPersonId = args.reviewerPersonId
+    if (args.approverPersonId !== undefined) patch.approverPersonId = args.approverPersonId
     if (!doc.authorId) patch.authorId = userId
 
     // Backfill filing for documents created before location/discipline were
@@ -632,9 +751,31 @@ export const saveContent = mutation({
         JSON.stringify(existing?.bodyJson ?? null) !== JSON.stringify(args.body))
     if (reviewed && changed) {
       patch.status = "draft"
+      patch.history = [
+        ...(doc.history ?? []),
+        {
+          kind: "sent_back" as const,
+          at: now,
+          personId: args.personId ?? null,
+          version: targetVersion,
+          note: "Edited after review: back to draft",
+        },
+      ]
       if (existing) {
         await ctx.db.patch(existing._id, {
           signoffs: (existing.signoffs ?? []).filter((s) => s.role === "author"),
+        })
+      }
+    }
+
+    // Whoever changes the text is an author of this version: four-eyes
+    // checks the reviewer and approver against every author.
+    if (existing && changed && args.personId) {
+      const fresh = await ctx.db.get(existing._id)
+      const signoffs = fresh?.signoffs ?? []
+      if (!signoffs.some((s) => s.role === "author" && s.personId === args.personId)) {
+        await ctx.db.patch(existing._id, {
+          signoffs: [...signoffs, { role: "author", userId, at: now, personId: args.personId }],
         })
       }
     }
@@ -661,7 +802,7 @@ export const saveContent = mutation({
         bodyJson: args.body,
         pdfStorageId: args.pdfStorageId ?? null,
         publishedAt: now,
-        signoffs: [{ role: "author", userId, at: now }],
+        signoffs: [{ role: "author", userId, at: now, ...(args.personId ? { personId: args.personId } : {}) }],
       })
     }
 
@@ -726,19 +867,104 @@ async function recordSignoff(
   })
 }
 
-// draft → in_review. Requires a reviewer to be assigned. The author sign-off
-// for this version is already recorded by saveContent, so we don't add another.
+// ---- Four-eyes ------------------------------------------------------------------
+// People act through check-in (CONTEXT.md). The reviewer is never an author of
+// the version, and the approver is never its reviewer, compared by personId.
+
+/** The version row being worked on (the working edition). */
+async function workingRow(ctx: QueryCtx, doc: Doc<"documents">) {
+  return await ctx.db
+    .query("documentVersions")
+    .withIndex("by_documentId_and_version", (q) =>
+      q.eq("documentId", doc._id).eq("version", doc.currentVersion),
+    )
+    .unique()
+}
+
+function authorsOf(row: Doc<"documentVersions"> | null): Set<string> {
+  return new Set(
+    (row?.signoffs ?? [])
+      .filter((s) => s.role === "author" && s.personId)
+      .map((s) => String(s.personId)),
+  )
+}
+
+/** Owner, Reviewer and Approver are Engineers, and Reviewer is not Approver. */
+async function checkRolePeople(
+  ctx: MutationCtx,
+  roles: {
+    ownerPersonId?: Id<"people"> | null
+    reviewerPersonId?: Id<"people"> | null
+    approverPersonId?: Id<"people"> | null
+  },
+) {
+  for (const [label, pid] of [
+    ["Owner", roles.ownerPersonId],
+    ["Reviewer", roles.reviewerPersonId],
+    ["Approver", roles.approverPersonId],
+  ] as const) {
+    if (!pid) continue
+    const p = await ctx.db.get(pid)
+    if (!p || p.kind !== "engineer") throw new ConvexError(`The ${label} must be an Engineer.`)
+  }
+  if (roles.reviewerPersonId && roles.reviewerPersonId === roles.approverPersonId)
+    throw new ConvexError("The reviewer and the approver must be two different Engineers.")
+}
+
+// draft → in_review. Requires a reviewer. Who reviews and approves is chosen
+// here; for v2 and later the change note "What changed and why" is required.
 export const submitForReview = mutation({
-  args: { id: v.id("documents") },
+  args: {
+    id: v.id("documents"),
+    personId: v.optional(v.id("people")),
+    reviewerPersonId: v.optional(v.id("people")),
+    approverPersonId: v.optional(v.id("people")),
+    changeNote: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
-    await requireUserId(ctx)
+    const userId = await requireUserId(ctx)
     const doc = await ctx.db.get(args.id)
     if (!doc) throw new Error("Document not found")
     if (doc.status !== "draft")
-      throw new Error("Only a draft can be submitted for review.")
-    if (!doc.reviewerId)
-      throw new Error("Assign a reviewer before submitting for review.")
-    await ctx.db.patch(args.id, { status: "in_review", updatedAt: Date.now() })
+      throw new ConvexError("Only a draft can be submitted for review.")
+    const reviewerPersonId = args.reviewerPersonId ?? doc.reviewerPersonId ?? null
+    const approverPersonId = args.approverPersonId ?? doc.approverPersonId ?? null
+    if (!reviewerPersonId && !doc.reviewerId)
+      throw new ConvexError("Choose who reviews it before submitting for review.")
+    await checkRolePeople(ctx, { reviewerPersonId, approverPersonId })
+
+    const row = await workingRow(ctx, doc)
+    const authors = authorsOf(row)
+    if (args.personId) authors.add(String(args.personId))
+    if (reviewerPersonId && authors.has(String(reviewerPersonId)))
+      throw new ConvexError("You wrote this version. Another Engineer must review it.")
+
+    const note = args.changeNote?.trim() || row?.changeNote?.trim() || ""
+    if (doc.liveVersion != null && !note)
+      throw new ConvexError("Write what changed and why before submitting a new version.")
+
+    const now = Date.now()
+    if (row) {
+      const signoffs = row.signoffs ?? []
+      const addAuthor =
+        args.personId && !signoffs.some((s) => s.role === "author" && s.personId === args.personId)
+      await ctx.db.patch(row._id, {
+        ...(note ? { changeNote: note } : {}),
+        ...(addAuthor
+          ? { signoffs: [...signoffs, { role: "author" as const, userId, at: now, personId: args.personId! }] }
+          : {}),
+      })
+    }
+    await ctx.db.patch(args.id, {
+      status: "in_review",
+      updatedAt: now,
+      reviewerPersonId,
+      approverPersonId,
+      history: [
+        ...(doc.history ?? []),
+        { kind: "submitted", at: now, personId: args.personId ?? null, version: doc.currentVersion, note: note || null },
+      ],
+    })
     if (doc.origin === "wrapped") await scheduleStamp(ctx, doc._id, [doc.currentVersion])
   },
 })
@@ -750,11 +976,36 @@ export async function requireEngineer(
 ) {
   const person = await ctx.db.get(personId)
   if (!person || person.kind !== "engineer")
-    throw new Error("Check in as an Engineer to sign this off.")
+    throw new ConvexError("Check in as an Engineer to sign this off.")
   return person
 }
 
-// in_review → approved. Requires an approver to be assigned; records approval.
+async function nameOfPerson(ctx: QueryCtx, pid: Id<"people"> | null | undefined) {
+  if (!pid) return "the named Engineer"
+  return (await ctx.db.get(pid))?.name ?? "the named Engineer"
+}
+
+/** Why this person cannot give the review sign-off now, or null (four-eyes). */
+async function approveBlocker(
+  ctx: QueryCtx,
+  doc: Doc<"documents">,
+  personId: Id<"people">,
+): Promise<string | null> {
+  if (doc.status !== "in_review") return "Only a document in review can be approved."
+  if (!doc.approverId && !doc.approverPersonId) return "Choose who approves it before approving."
+  if (doc.reviewerPersonId && doc.reviewerPersonId === doc.approverPersonId)
+    return "The reviewer and the approver must be two different Engineers."
+  if (doc.approverPersonId && personId === doc.approverPersonId)
+    return "You are the approver of this version. Another Engineer must review it."
+  if (doc.reviewerPersonId && personId !== doc.reviewerPersonId)
+    return `Waiting for ${await nameOfPerson(ctx, doc.reviewerPersonId)}, the named reviewer.`
+  const row = await workingRow(ctx, doc)
+  if (authorsOf(row).has(String(personId))) return "You wrote this version. Another Engineer must review it."
+  return null
+}
+
+// in_review → approved. The review sign-off: only the named reviewer gives
+// it, never an author of the version and never the named approver.
 export const approve = mutation({
   args: { id: v.id("documents"), personId: v.id("people") },
   handler: async (ctx, args) => {
@@ -762,10 +1013,8 @@ export const approve = mutation({
     await requireEngineer(ctx, args.personId)
     const doc = await ctx.db.get(args.id)
     if (!doc) throw new Error("Document not found")
-    if (doc.status !== "in_review")
-      throw new Error("Only a document in review can be approved.")
-    if (!doc.approverId)
-      throw new Error("Assign an approver before approving.")
+    const blocker = await approveBlocker(ctx, doc, args.personId)
+    if (blocker) throw new ConvexError(blocker)
     await ctx.db.patch(args.id, { status: "approved", updatedAt: Date.now() })
     await recordSignoff(ctx, doc, "reviewer", userId, args.personId)
     if (doc.origin === "wrapped") await scheduleStamp(ctx, doc._id, [doc.currentVersion])
@@ -774,11 +1023,13 @@ export const approve = mutation({
 
 // approved → published. This edition becomes the live one served to operators,
 // QR, and RAG (liveVersion). If a previous edition was live, it is replaced here.
+// For v2 and later the publisher must decide whether it is a Significant change;
+// it is forced when a passage a Training cites is gone.
 export const publish = mutation({
   args: {
     id: v.id("documents"),
     personId: v.id("people"),
-    // CONTEXT.md: Significant change. Only meaningful for a new version of a
+    // CONTEXT.md: Significant change. Required for a new version of a
     // document that was Published before; ignored for a first publish.
     significantChange: v.optional(v.boolean()),
     changeNote: v.optional(v.string()),
@@ -789,11 +1040,222 @@ export const publish = mutation({
     const doc = await ctx.db.get(args.id)
     if (!doc) throw new Error("Document not found")
     if (doc.status !== "approved")
-      throw new Error("A document must be approved before publishing.")
+      throw new ConvexError("A document must be approved before publishing.")
+    if (doc.approverPersonId && args.personId !== doc.approverPersonId)
+      throw new ConvexError(`Waiting for ${await nameOfPerson(ctx, doc.approverPersonId)}, the named approver.`)
+    const row = await workingRow(ctx, doc)
+    const reviewer = [...(row?.signoffs ?? [])].reverse().find((s) => s.role === "reviewer")
+    if (reviewer?.personId && reviewer.personId === args.personId)
+      throw new ConvexError("You reviewed this version. Another Engineer must approve it.")
+    if (authorsOf(row).has(String(args.personId)))
+      throw new ConvexError("You wrote this version. Another Engineer must approve it.")
+
+    let significantChange = false
+    if (doc.liveVersion != null) {
+      if (args.significantChange === undefined)
+        throw new ConvexError("Choose what kind of change this is before publishing.")
+      const impact = await computeImpact(ctx, doc)
+      if (impact.forcedSignificant && !args.significantChange)
+        throw new ConvexError(
+          "A passage that a Training cites was removed, so this is a Significant change.",
+        )
+      significantChange = args.significantChange
+    }
     await publishApproved(ctx, doc, userId, args.personId, {
-      significantChange: args.significantChange ?? false,
-      changeNote: args.changeNote?.trim() || null,
+      significantChange,
+      changeNote: args.changeNote?.trim() || row?.changeNote?.trim() || null,
     })
+  },
+})
+
+// ---- Publish impact -------------------------------------------------------------
+
+const NUMBER_RE = /\d+(?:[.,]\d+)?\s*(?:°\s?[CF]|%|[a-zA-Zµ/]+)?/g
+const HAZARD_RE = /\b(warning|danger|caution|waarschuwing|gevaar)\b/i
+
+/** The text of each block (paragraph, heading, list item, cell) of a TipTap body. */
+function bodyBlocks(body: unknown): string[] {
+  const out: string[] = []
+  type Node = { type?: string; text?: string; attrs?: Record<string, unknown>; content?: Node[] }
+  const textOf = (n: Node): string => n.text ?? (n.content ?? []).map(textOf).join("")
+  const clean = (t: string) => t.replace(/\s+/g, " ").trim()
+  const walk = (n: Node | null | undefined) => {
+    if (!n || typeof n !== "object") return
+    // A safety callout counts as one passage, labelled with its kind.
+    if (n.type === "callout") {
+      const t = clean(textOf(n))
+      if (t) out.push(`${String(n.attrs?.kind ?? "note").toUpperCase()}: ${t}`)
+      return
+    }
+    // A block that holds text directly (paragraph, heading, step, cell).
+    if ((n.content ?? []).some((c) => c.type === "text")) {
+      const t = clean(textOf(n))
+      if (t) out.push(t)
+      return
+    }
+    for (const c of n.content ?? []) walk(c)
+  }
+  walk(body as Node)
+  return out
+}
+
+function numberTokens(texts: string[]): Set<string> {
+  const out = new Set<string>()
+  for (const t of texts) for (const m of t.matchAll(NUMBER_RE)) out.add(m[0].replace(/\s+/g, "").toLowerCase())
+  return out
+}
+
+function sameSet(a: Set<string>, b: Set<string>) {
+  if (a.size !== b.size) return false
+  for (const x of a) if (!b.has(x)) return false
+  return true
+}
+
+/**
+ * What publishing the working version does: Trainings that cite this
+ * Document go back to review, holders of linked Skills are flagged for
+ * re-training (both only for a Significant change), and Wikis are rebuilt.
+ */
+async function computeImpact(ctx: QueryCtx, doc: Doc<"documents">) {
+  const live = doc.liveVersion ?? null
+  const isNewVersion = live != null && doc.currentVersion > live
+  // Compare the version bodies, not the passages: passages are re-cut on
+  // every save, so the same text can be split differently.
+  const textsOf = async (version: number): Promise<string[]> => {
+    const row = await ctx.db
+      .query("documentVersions")
+      .withIndex("by_documentId_and_version", (q) => q.eq("documentId", doc._id).eq("version", version))
+      .unique()
+    if (row?.bodyKind === "tiptap") return bodyBlocks(row.bodyJson)
+    const chunks = await ctx.db
+      .query("chunks")
+      .withIndex("by_documentId_and_version", (q) => q.eq("documentId", doc._id).eq("version", version))
+      .take(2000)
+    return chunks.map((c) => c.text)
+  }
+  const curTexts = await textsOf(doc.currentVersion)
+  const liveTexts = isNewVersion && live != null ? await textsOf(live) : []
+  const curWhole = curTexts.join(" ")
+
+  const trainings: {
+    _id: Id<"trainings">
+    code: string
+    title: string
+    passageRemoved: boolean
+    removedQuotes: string[]
+  }[] = []
+  for (const t of await ctx.db.query("trainings").take(1000)) {
+    if (t.status === "archived") continue
+    const row = await getVersion(ctx, t._id, t.liveVersion ?? t.currentVersion)
+    const cited = (row?.objectives ?? []).filter((o) => o.documentId === doc._id)
+    if (cited.length === 0) continue
+    const removedQuotes = isNewVersion
+      ? cited.filter((o) => o.quote.trim() && !quoteIn(o.quote, curWhole)).map((o) => o.quote)
+      : []
+    trainings.push({ _id: t._id, code: t.code, title: t.title, passageRemoved: removedQuotes.length > 0, removedQuotes })
+  }
+
+  const trainingIds = new Set(trainings.map((t) => String(t._id)))
+  const skills = (await ctx.db.query("skills").take(500)).filter(
+    (s) => s.documentIds.includes(doc._id) || s.trainingIds.some((id) => trainingIds.has(String(id))),
+  )
+  const holderIds = new Set<string>()
+  const skillRows: { _id: Id<"skills">; name: string; holders: number }[] = []
+  for (const s of skills) {
+    const rows = await ctx.db
+      .query("skillLevels")
+      .withIndex("by_skillId", (q) => q.eq("skillId", s._id))
+      .take(1000)
+    const held = rows.filter((r) => r.level >= 1)
+    held.forEach((r) => holderIds.add(String(r.personId)))
+    skillRows.push({ _id: s._id, name: s.name, holders: held.length })
+  }
+
+  const wikis = await wikisCiting(ctx, doc._id)
+
+  const reasons: string[] = []
+  if (isNewVersion) {
+    if (!sameSet(numberTokens(liveTexts), numberTokens(curTexts)))
+      reasons.push("A number or unit changed.")
+    const hazards = (texts: string[]) => new Set(texts.filter((t) => HAZARD_RE.test(t)).map((t) => t.trim()))
+    if (!sameSet(hazards(liveTexts), hazards(curTexts)))
+      reasons.push("A WARNING, DANGER or CAUTION passage changed.")
+  }
+  const forcedSignificant = trainings.some((t) => t.passageRemoved)
+  if (forcedSignificant) reasons.unshift("A passage that a Training cites was removed.")
+
+  return {
+    isNewVersion,
+    liveVersion: live,
+    version: doc.currentVersion,
+    trainings,
+    skills: skillRows,
+    holders: holderIds.size,
+    wikis,
+    forcedSignificant,
+    suggestedSignificant: forcedSignificant || reasons.length > 0,
+    reasons,
+  }
+}
+
+/** Wikis built on (or scoped to) this Document. */
+async function wikisCiting(ctx: QueryCtx, documentId: Id<"documents">) {
+  const all = await ctx.db.query("wikis").take(500)
+  return all
+    .filter(
+      (w) =>
+        w.sources.some((s) => s.documentId === documentId) || w.scope.documentIds.includes(documentId),
+    )
+    .map((w) => ({ _id: w._id, title: w.title, status: w.status }))
+}
+
+/** The impact preview shown in the publish dialog. */
+export const publishImpact = query({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    await requireUser(ctx)
+    const doc = await ctx.db.get(args.id)
+    if (!doc) return null
+    return await computeImpact(ctx, doc)
+  },
+})
+
+/** The rail card "In Wikis (N)" on a Document. */
+export const wikisForDocument = query({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    await requireUser(ctx)
+    return await wikisCiting(ctx, args.id)
+  },
+})
+
+/** "Made from Captures": the Capture set and Captures a Draft was made from. */
+export const captureSourcesOf = query({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    await requireUser(ctx)
+    const doc = await ctx.db.get(args.id)
+    if (!doc || doc.origin !== "capture") return null
+    let setId = doc.captureSources?.setId ?? null
+    let captureIds = doc.captureSources?.captureIds ?? []
+    if (!setId) {
+      // Fall back to the set that lists this Draft (captures-backend writes it).
+      const sets = await ctx.db.query("captureSets").take(500)
+      const owner = sets.find((s) => (s.draftDocumentIds ?? []).includes(doc._id))
+      if (owner) {
+        setId = owner._id
+        if (captureIds.length === 0) captureIds = owner.captureIds
+      }
+    }
+    const set = setId ? await ctx.db.get(setId) : null
+    const captures = []
+    for (const id of captureIds) {
+      const c = await ctx.db.get(id)
+      if (!c) continue
+      const author = await ctx.db.get(c.authorId)
+      captures.push({ _id: c._id, title: c.title, author: author?.name ?? null, at: c.handedInAt ?? c.startedAt })
+    }
+    return { set: set ? { _id: set._id, title: set.title } : null, captures }
   },
 })
 
@@ -969,7 +1431,7 @@ export const setReviewInterval = mutation({
 // runs the full author → review → approve → publish cycle. The new version row
 // starts as a copy of the live content so the author edits forward from it.
 export const createNewVersion = mutation({
-  args: { id: v.id("documents") },
+  args: { id: v.id("documents"), personId: v.optional(v.id("people")) },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
     const doc = await ctx.db.get(args.id)
@@ -1017,7 +1479,7 @@ export const createNewVersion = mutation({
           }
         : {}),
       publishedAt: now,
-      signoffs: [{ role: "author", userId, at: now }],
+      signoffs: [{ role: "author", userId, at: now, ...(args.personId ? { personId: args.personId } : {}) }],
     })
     if (wrapped) await scheduleStamp(ctx, args.id, [newVersion])
 
@@ -1188,7 +1650,23 @@ export const refile = mutation({
     })
 
     if (args.archiveOld) {
-      await ctx.db.patch(args.id, { status: "archived", updatedAt: now })
+      await ctx.db.patch(args.id, {
+        status: "archived",
+        updatedAt: now,
+        archiveReason: `Refiled as ${namingCode}`,
+        archivedAt: now,
+        replacedById: newId,
+        history: [
+          ...(doc.history ?? []),
+          {
+            kind: "withdrawn",
+            at: now,
+            personId: null,
+            version: doc.liveVersion ?? doc.currentVersion,
+            note: `Refiled as ${namingCode}`,
+          },
+        ],
+      })
       await regenerateWikisForDocument(ctx, args.id, `archived ${doc.namingCode}`)
       await ctx.scheduler.runAfter(0, internal.findings.resolveStale, {})
     }
@@ -1199,28 +1677,146 @@ export const refile = mutation({
 
 // Send a document back to draft (reviewer/approver requests changes).
 export const revertToDraft = mutation({
-  args: { id: v.id("documents") },
+  args: {
+    id: v.id("documents"),
+    personId: v.optional(v.id("people")),
+    reason: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
     const doc = await ctx.db.get(args.id)
     if (!doc) throw new Error("Document not found")
     if (doc.status !== "in_review" && doc.status !== "approved")
-      throw new Error("Only an in-review or approved document can be reverted.")
-    await ctx.db.patch(args.id, { status: "draft", updatedAt: Date.now() })
+      throw new ConvexError("Only an in-review or approved document can be sent back to draft.")
+    const now = Date.now()
+    await ctx.db.patch(args.id, {
+      status: "draft",
+      updatedAt: now,
+      history: [
+        ...(doc.history ?? []),
+        {
+          kind: "sent_back",
+          at: now,
+          personId: args.personId ?? null,
+          version: doc.currentVersion,
+          note: args.reason?.trim() || null,
+        },
+      ],
+    })
     if (doc.origin === "wrapped") await scheduleStamp(ctx, doc._id, [doc.currentVersion])
   },
 })
 
+/**
+ * A withdrawn Document can no longer be trusted: Trainings built on it go back
+ * to review with the reason, so nobody is trained on withdrawn knowledge.
+ */
+async function flagTrainingsForWithdrawal(ctx: MutationCtx, doc: Doc<"documents">, reason: string) {
+  for (const t of await ctx.db.query("trainings").take(1000)) {
+    if (t.status === "archived") continue
+    const row = await getVersion(ctx, t._id, t.liveVersion ?? t.currentVersion)
+    if (!row?.objectives.some((o) => o.documentId === doc._id)) continue
+    await ctx.db.patch(t._id, { needsReview: true, needsReviewReason: reason, updatedAt: Date.now() })
+  }
+}
+
+/** Why this withdrawal cannot happen, or null: an Engineer and a reason are required. */
+async function withdrawBlocker(
+  ctx: QueryCtx,
+  doc: Doc<"documents">,
+  args: { personId?: Id<"people">; reason?: string; replacedById?: Id<"documents"> | null },
+): Promise<string | null> {
+  if (!args.personId) return "Check in as an Engineer to withdraw a document."
+  const person = await ctx.db.get(args.personId)
+  if (!person || person.kind !== "engineer") return "Check in as an Engineer to withdraw a document."
+  if (!args.reason?.trim()) return "Write why this document is withdrawn."
+  if (doc.status === "archived") return `${doc.namingCode} is already withdrawn.`
+  if (args.replacedById) {
+    if (args.replacedById === doc._id) return "A document cannot replace itself."
+    if (!(await ctx.db.get(args.replacedById))) return "The replacing document was not found."
+  }
+  return null
+}
+
+/**
+ * Document-control checks, run against the dev data without writing:
+ * `npx convex run documents:controlSelfTest`. Each line says what was
+ * tried and the refusal the server gives (null would mean it was allowed).
+ */
+export const controlSelfTest = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const docs = await ctx.db.query("documents").take(500)
+    const people = await ctx.db.query("people").take(200)
+    const engineers = people.filter((p) => p.kind === "engineer")
+    const published = docs.find((d) => d.liveVersion != null && d.status !== "archived")
+    if (!published || engineers.length < 2) return { error: "Seed data missing" }
+    const [a, b] = engineers
+    // An in-review document whose reviewer is also named as approver.
+    const sameReviewer: Doc<"documents"> = {
+      ...published,
+      status: "in_review",
+      reviewerPersonId: a._id,
+      approverPersonId: a._id,
+    }
+    const results = {
+      removePublished: await deleteBlocker(ctx, published),
+      archiveAnonymous: await withdrawBlocker(ctx, published, { reason: "Line rebuilt" }),
+      archiveEngineerNoReason: await withdrawBlocker(ctx, published, { personId: a._id, reason: "  " }),
+      archiveEngineerWithReason: await withdrawBlocker(ctx, published, { personId: a._id, reason: "Line rebuilt" }),
+      approveApproverIsReviewer: await approveBlocker(ctx, sameReviewer, a._id),
+      approveByApprover: await approveBlocker(
+        ctx,
+        { ...published, status: "in_review", reviewerPersonId: a._id, approverPersonId: b._id },
+        b._id,
+      ),
+    }
+    // The publish impact of every working draft of a Published document.
+    const drafts = []
+    for (const d of docs.filter((x) => x.liveVersion != null && x.currentVersion > x.liveVersion)) {
+      const i = await computeImpact(ctx, d)
+      drafts.push({
+        document: d.namingCode,
+        forcedSignificant: i.forcedSignificant,
+        reasons: i.reasons,
+        removed: i.trainings.flatMap((t) => t.removedQuotes.map((q) => `${t.code}: ${q.slice(0, 80)}`)),
+      })
+    }
+    return { document: published.namingCode, results, drafts }
+  },
+})
+
+// Withdraw a Document (status "archived"). A sign-off: a checked-in Engineer
+// with a reason. Optionally names the Document that replaces it.
 export const archive = mutation({
-  args: { id: v.id("documents") },
+  args: {
+    id: v.id("documents"),
+    personId: v.optional(v.id("people")),
+    reason: v.optional(v.string()),
+    replacedById: v.optional(v.union(v.id("documents"), v.null())),
+  },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
     const doc = await ctx.db.get(args.id)
     if (!doc) throw new Error("Document not found")
+    const blocker = await withdrawBlocker(ctx, doc, args)
+    if (blocker) throw new ConvexError(blocker)
+    const person = (await ctx.db.get(args.personId!))!
+    const reason = args.reason!.trim()
+    const now = Date.now()
     await ctx.db.patch(args.id, {
       status: "archived",
-      updatedAt: Date.now(),
+      updatedAt: now,
+      archivedByPersonId: person._id,
+      archiveReason: reason,
+      archivedAt: now,
+      replacedById: args.replacedById ?? null,
+      history: [
+        ...(doc.history ?? []),
+        { kind: "withdrawn", at: now, personId: person._id, version: doc.liveVersion ?? doc.currentVersion, note: reason },
+      ],
     })
+    await flagTrainingsForWithdrawal(ctx, doc, `${doc.namingCode} was withdrawn: ${reason}`)
     // Every copy of an archived Wrapped manual says it is not for use.
     if (doc.origin === "wrapped")
       await scheduleStamp(ctx, doc._id, [doc.liveVersion, doc.currentVersion])
@@ -1284,12 +1880,60 @@ export const relatedTo = query({
   },
 })
 
-export const remove = mutation({
+/**
+ * Why a Document cannot be deleted permanently, or null when it can. Only a
+ * draft that was never Published and that nothing cites may go: everything
+ * else is withdrawn instead, so the record stays (ISO 9001 7.5.3).
+ */
+async function deleteBlocker(ctx: QueryCtx, doc: Doc<"documents">): Promise<string | null> {
+  const versions = await ctx.db
+    .query("documentVersions")
+    .withIndex("by_documentId_and_version", (q) => q.eq("documentId", doc._id))
+    .take(500)
+  const everPublished =
+    doc.liveVersion != null ||
+    doc.status === "published" ||
+    versions.some((row) => (row.signoffs ?? []).some((s) => s.role === "approver"))
+  if (everPublished)
+    return `${doc.namingCode} was Published, so it stays on record. Withdraw it instead.`
+  for (const t of await ctx.db.query("trainings").take(1000)) {
+    const row = await getVersion(ctx, t._id, t.currentVersion)
+    if (row?.objectives.some((o) => o.documentId === doc._id))
+      return `Training ${t.code} cites ${doc.namingCode}. Withdraw it instead.`
+  }
+  const wikis = await wikisCiting(ctx, doc._id)
+  if (wikis.length > 0) return `The Wiki "${wikis[0].title}" uses ${doc.namingCode}. Withdraw it instead.`
+  const skill = (await ctx.db.query("skills").take(500)).find((s) => s.documentIds.includes(doc._id))
+  if (skill) return `The Skill "${skill.name}" is linked to ${doc.namingCode}. Withdraw it instead.`
+  const citingDraft = (await ctx.db.query("documents").take(500)).find((d) => d.replacedById === doc._id)
+  if (citingDraft) return `${citingDraft.namingCode} names ${doc.namingCode} as its replacement.`
+  return null
+}
+
+/** Whether "Delete permanently" is offered for a Document, and why not. */
+export const deletability = query({
   args: { id: v.id("documents") },
   handler: async (ctx, args) => {
+    await requireUser(ctx)
+    const doc = await ctx.db.get(args.id)
+    if (!doc) return null
+    const blocker = await deleteBlocker(ctx, doc)
+    return { deletable: blocker == null, reason: blocker }
+  },
+})
+
+export const remove = mutation({
+  args: { id: v.id("documents"), personId: v.optional(v.id("people")) },
+  handler: async (ctx, args) => {
     await requireUserId(ctx)
+    if (!args.personId) throw new ConvexError("Check in as an Engineer to delete a document.")
+    const person = await ctx.db.get(args.personId)
+    if (!person || person.kind !== "engineer")
+      throw new ConvexError("Check in as an Engineer to delete a document.")
     const doc = await ctx.db.get(args.id)
     if (!doc) throw new Error("Document not found")
+    const blocker = await deleteBlocker(ctx, doc)
+    if (blocker) throw new ConvexError(blocker)
 
     const versions = await ctx.db
       .query("documentVersions")

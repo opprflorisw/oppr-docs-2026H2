@@ -216,6 +216,9 @@ export const create = mutation({
     assetIds: v.array(v.id("assets")),
     reviewerId: v.optional(v.union(v.id("users"), v.null())),
     approverId: v.optional(v.union(v.id("users"), v.null())),
+    supplierDocNo: v.optional(v.string()),
+    supplierRevision: v.optional(v.string()),
+    personId: v.optional(v.id("people")),
   },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
@@ -248,6 +251,8 @@ export const create = mutation({
       updatedAt: now,
       origin: "wrapped",
       supplier,
+      supplierDocNo: args.supplierDocNo?.trim() || null,
+      supplierRevision: args.supplierRevision?.trim() || null,
     })
     await ctx.db.insert("documentVersions", {
       documentId,
@@ -260,7 +265,7 @@ export const create = mutation({
       stampLabel: null,
       pdfPageCount: pageTexts.length,
       publishedAt: now,
-      signoffs: [{ role: "author", userId, at: now }],
+      signoffs: [{ role: "author", userId, at: now, ...(args.personId ? { personId: args.personId } : {}) }],
     })
     const chunkCount = await replaceChunks(ctx, documentId, 1, pageTexts)
 
@@ -377,12 +382,19 @@ export const updateDetails = mutation({
     ownerId: v.optional(v.union(v.id("users"), v.null())),
     reviewerId: v.optional(v.union(v.id("users"), v.null())),
     approverId: v.optional(v.union(v.id("users"), v.null())),
+    ownerPersonId: v.optional(v.union(v.id("people"), v.null())),
+    reviewerPersonId: v.optional(v.union(v.id("people"), v.null())),
+    approverPersonId: v.optional(v.union(v.id("people"), v.null())),
+    supplierDocNo: v.optional(v.union(v.string(), v.null())),
+    supplierRevision: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
     const doc = await ctx.db.get(args.documentId)
     if (!doc) throw new Error("Document not found")
     if (doc.origin !== "wrapped") throw new Error("This is not a Wrapped manual.")
+    if (args.reviewerPersonId && args.reviewerPersonId === args.approverPersonId)
+      throw new Error("The reviewer and the approver must be two different Engineers.")
     if (doc.status === "published" || doc.status === "archived")
       throw new Error("Start a new version to change a Published manual.")
     const title = args.title.trim()
@@ -398,6 +410,11 @@ export const updateDetails = mutation({
     if (args.ownerId !== undefined) patch.ownerId = args.ownerId
     if (args.reviewerId !== undefined) patch.reviewerId = args.reviewerId
     if (args.approverId !== undefined) patch.approverId = args.approverId
+    if (args.ownerPersonId !== undefined) patch.ownerPersonId = args.ownerPersonId
+    if (args.reviewerPersonId !== undefined) patch.reviewerPersonId = args.reviewerPersonId
+    if (args.approverPersonId !== undefined) patch.approverPersonId = args.approverPersonId
+    if (args.supplierDocNo !== undefined) patch.supplierDocNo = args.supplierDocNo?.trim() || null
+    if (args.supplierRevision !== undefined) patch.supplierRevision = args.supplierRevision?.trim() || null
     let backToDraft = false
     if (reviewed && stampChanged) {
       patch.status = "draft"
@@ -677,6 +694,8 @@ export const getWrapped = query({
       namingCode: doc.namingCode,
       title: doc.title,
       supplier: doc.supplier ?? null,
+      supplierDocNo: doc.supplierDocNo ?? null,
+      supplierRevision: doc.supplierRevision ?? null,
       version: args.version,
       stampStatus: status,
       stampLabel: stampError == null ? (row.stampLabel ?? null) : null,

@@ -1,11 +1,12 @@
 import { useQuery } from "convex/react"
 import { Link } from "wouter"
-import { AlertTriangle, ArrowRight, Footprints, GraduationCap } from "lucide-react"
+import { AlertTriangle, ArrowRight, GraduationCap } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { StatusBadge } from "@/components/docs/StatusBadge"
+import { KIND_LABEL, KindIcon } from "./training/lib"
 
 // Card on an Asset: Rounds that stop here and Trainings on its Documents.
 export function AssetTrainingsCard({ assetId }: { assetId: Id<"assets"> }) {
@@ -17,7 +18,7 @@ export function AssetTrainingsCard({ assetId }: { assetId: Id<"assets"> }) {
       <div className="flex items-center gap-2">
         <GraduationCap className="h-4 w-4 text-primary" />
         <h2 className="text-sm font-semibold">Trainings and Rounds</h2>
-        <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+        <Badge variant="secondary" className="h-5 px-1.5 text-xs">
           {total}
         </Badge>
       </div>
@@ -36,12 +37,12 @@ export function AssetTrainingsCard({ assetId }: { assetId: Id<"assets"> }) {
               className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-muted/50"
             >
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-violet-500/10 text-violet-600">
-                <Footprints className="h-3.5 w-3.5" />
+                <KindIcon kind="round" className="h-3.5 w-3.5" />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{r.title}</span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  <span className="font-mono">{r.code}</span> · Round, stop {r.stopIndex + 1} of {r.stops}
+                  <span className="font-mono">{r.code}</span> · {KIND_LABEL.round}, stop {r.stopIndex + 1} of {r.stops}
                   {r.hint ? ` · ${r.hint}` : ""}
                 </span>
               </span>
@@ -57,7 +58,7 @@ export function AssetTrainingsCard({ assetId }: { assetId: Id<"assets"> }) {
               className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-muted/50"
             >
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-sky-500/10 text-sky-600">
-                <GraduationCap className="h-3.5 w-3.5" />
+                <KindIcon kind="course" className="h-3.5 w-3.5" />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{t.title}</span>

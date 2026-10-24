@@ -85,7 +85,7 @@ const PRESS_CROSS_SECTION = `
 <svg viewBox="0 0 540 260" xmlns="http://www.w3.org/2000/svg" class="w-full h-auto">
   <g font-family="ui-sans-serif, system-ui" font-size="12">
     <rect x="40" y="40" width="460" height="160" rx="10" fill="#f1f5f9" stroke="#334155" stroke-width="1.5"/>
-    <text x="270" y="30" text-anchor="middle" fill="#334155" font-weight="600">Briquette Press FRT-201 — cross-section</text>
+    <text x="270" y="30" text-anchor="middle" fill="#334155" font-weight="600">Briquette Press FRT-201: cross-section</text>
 
     <rect x="80" y="80" width="120" height="80" rx="4" fill="#cbd5e1" stroke="#475569"/>
     <text x="140" y="125" text-anchor="middle" fill="#1e293b">Hopper</text>
@@ -100,7 +100,7 @@ const PRESS_CROSS_SECTION = `
     <line x1="320" y1="120" x2="340" y2="120" stroke="#334155" stroke-width="2"/>
 
     <circle cx="270" cy="200" r="8" fill="#ef4444"/>
-    <text x="285" y="205" fill="#7f1d1d" font-weight="600">Hot zone — do not touch</text>
+    <text x="285" y="205" fill="#7f1d1d" font-weight="600">Hot zone: do not touch</text>
   </g>
 </svg>
 `
@@ -124,7 +124,7 @@ const SITE_MAP = `
     <text x="500" y="120" text-anchor="middle" fill="#78350f">FRT-202 · STR-301</text>
 
     <rect x="40" y="200" width="180" height="100" fill="#fce7f3" stroke="#9d174d"/>
-    <text x="130" y="240" text-anchor="middle" fill="#831843" font-weight="600">Yard — North</text>
+    <text x="130" y="240" text-anchor="middle" fill="#831843" font-weight="600">Yard, North</text>
     <text x="130" y="260" text-anchor="middle" fill="#831843">RMR-101 Reception</text>
 
     <circle cx="500" cy="240" r="20" fill="#22c55e" stroke="#15803d" stroke-width="2"/>
@@ -153,7 +153,7 @@ const KILN_STACKING = `
 <svg viewBox="0 0 540 240" xmlns="http://www.w3.org/2000/svg" class="w-full h-auto">
   <g font-family="ui-sans-serif, system-ui" font-size="11">
     <text x="270" y="22" text-anchor="middle" fill="#334155" font-weight="600">
-      Setter stacking pattern — 5 layers, offset
+      Setter stacking pattern: 5 layers, offset
     </text>
     <g stroke="#334155" stroke-width="1" fill="#fde68a">
       <rect x="60" y="40" width="60" height="20"/><rect x="130" y="40" width="60" height="20"/><rect x="200" y="40" width="60" height="20"/><rect x="270" y="40" width="60" height="20"/><rect x="340" y="40" width="60" height="20"/><rect x="410" y="40" width="60" height="20"/>
@@ -170,7 +170,7 @@ const KILN_STACKING = `
 
 export const DIAGRAM_PRESETS = {
   "process-flow": {
-    label: "Process flow — line overview",
+    label: "Process flow: line overview",
     defaultCaption: "Pigment line flow: Reception → Mixer → Mill → Press.",
     svg: PROCESS_FLOW,
   },

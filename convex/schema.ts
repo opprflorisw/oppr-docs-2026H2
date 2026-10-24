@@ -108,6 +108,38 @@ export default defineSchema({
     ),
     // Wrapped manuals: the manufacturer that supplied the PDF.
     supplier: v.optional(v.union(v.string(), v.null())),
+    // Wrapped manuals: the supplier's own document number and revision.
+    supplierDocNo: v.optional(v.union(v.string(), v.null())),
+    supplierRevision: v.optional(v.union(v.string(), v.null())),
+    // Lifecycle roles as people (CONTEXT.md: people act through check-in).
+    // The users-based ownerId/reviewerId/approverId stay for old data.
+    ownerPersonId: v.optional(v.union(v.id("people"), v.null())),
+    reviewerPersonId: v.optional(v.union(v.id("people"), v.null())),
+    approverPersonId: v.optional(v.union(v.id("people"), v.null())),
+    // Withdrawal (archive): who, why, when, and what replaces it.
+    archivedByPersonId: v.optional(v.union(v.id("people"), v.null())),
+    archiveReason: v.optional(v.union(v.string(), v.null())),
+    archivedAt: v.optional(v.union(v.number(), v.null())),
+    replacedById: v.optional(v.union(v.id("documents"), v.null())),
+    // Audit trail of lifecycle events that are not a version sign-off.
+    history: v.optional(
+      v.array(
+        v.object({
+          kind: v.union(v.literal("withdrawn"), v.literal("submitted"), v.literal("sent_back")),
+          at: v.number(),
+          personId: v.union(v.id("people"), v.null()),
+          version: v.number(),
+          note: v.union(v.string(), v.null()),
+        }),
+      ),
+    ),
+    // origin "capture": the Capture set and Captures this Draft was made from.
+    captureSources: v.optional(
+      v.object({
+        setId: v.optional(v.union(v.id("captureSets"), v.null())),
+        captureIds: v.array(v.id("captures")),
+      }),
+    ),
   })
     .index("by_namingCode", ["namingCode"])
     .index("by_ownerId", ["ownerId"]),
@@ -454,6 +486,9 @@ export default defineSchema({
     sortOrder: v.number(),
     // Skill profiles this person is measured against (Skill matrix).
     profileIds: v.optional(v.array(v.id("skillProfiles"))),
+    // The shift the person works (shift cover); derived from role when absent.
+    shift: v.optional(v.union(v.literal("early"), v.literal("late"), v.literal("night"), v.literal("day"))),
+    team: v.optional(v.string()),
   }),
 
   // ---- Wikis -----------------------------------------------------------------
@@ -467,7 +502,20 @@ export default defineSchema({
       disciplines: v.array(v.string()),
       assetIds: v.array(v.id("assets")),
       documentIds: v.array(v.id("documents")),
+      // Documents the Engineer took out of the Scope by hand (wiki lane).
+      excludedDocumentIds: v.optional(v.array(v.id("documents"))),
     }),
+    // How the Wiki reads (wiki lane). Absent means "overview".
+    format: v.optional(
+      v.union(v.literal("overview"), v.literal("steps"), v.literal("reference")),
+    ),
+    // The checked-in Engineer who created it (wiki lane).
+    createdByPersonId: v.optional(v.id("people")),
+    // Wiki home (wiki lane): position on the "Start here" path for new
+    // people (absent = not on it), and how often it was opened.
+    startHere: v.optional(v.number()),
+    views: v.optional(v.number()),
+    lastViewedAt: v.optional(v.number()),
     status: v.union(
       v.literal("generating"),
       v.literal("ready"),
@@ -481,9 +529,21 @@ export default defineSchema({
         sections: v.array(
           v.object({
             heading: v.string(),
+            // Layout of the section (wiki lane). Absent means "bullets".
+            kind: v.optional(
+              v.union(v.literal("bullets"), v.literal("steps"), v.literal("table")),
+            ),
+            // A safety section renders as a callout (wiki lane).
+            safety: v.optional(v.boolean()),
+            // Column headings of a table section; each point is one row.
+            columns: v.optional(v.array(v.string())),
             points: v.array(
               v.object({
                 text: v.string(),
+                // Shown in "At a glance" (wiki lane).
+                key: v.optional(v.boolean()),
+                // Table row cells, in column order (wiki lane).
+                cells: v.optional(v.array(v.string())),
                 citations: v.array(
                   v.object({
                     chunkId: v.id("chunks"),
@@ -523,6 +583,28 @@ export default defineSchema({
     createdBy: v.union(v.id("users"), v.null()),
     updatedAt: v.number(),
   }),
+
+  // One row per successful Wiki build (wiki lane), the last 10 per Wiki, for
+  // "what changed since the last build" and the History drawer.
+  wikiBuilds: defineTable({
+    wikiId: v.id("wikis"),
+    builtAt: v.number(),
+    trigger: v.union(v.string(), v.null()),
+    sources: v.array(
+      v.object({
+        documentId: v.id("documents"),
+        namingCode: v.string(),
+        version: v.number(),
+      }),
+    ),
+    // A compact snapshot: enough to diff points between builds.
+    content: v.array(
+      v.object({
+        heading: v.string(),
+        points: v.array(v.object({ text: v.string(), chunkIds: v.array(v.id("chunks")) })),
+      }),
+    ),
+  }).index("by_wikiId", ["wikiId"]),
 
   // ---- Seed media cache --------------------------------------------------------
   // AI-generated seed images and supplier PDFs, keyed by a stable key. Never
@@ -733,6 +815,8 @@ export default defineSchema({
     area: v.union(v.string(), v.null()),
     createdBy: v.union(v.id("users"), v.null()),
     updatedAt: v.number(),
+    // A practice or test Training: never offered "for you", never assigned.
+    isPractice: v.optional(v.boolean()),
   })
     .index("by_code", ["code"])
     .index("by_status", ["status"]),
@@ -751,6 +835,10 @@ export default defineSchema({
         documentVersion: v.number(),
         chunkId: v.union(v.id("chunks"), v.null()),
         quote: v.string(),
+        // Must be right: a wrong answer on this objective fails the Attempt.
+        critical: v.optional(v.boolean()),
+        // The breakdown key point this objective was derived from ("b2.k1").
+        keyPointId: v.optional(v.string()),
       }),
     ),
     // Rounds only: the Assets to visit, in order, and what is tested there.
@@ -788,6 +876,9 @@ export default defineSchema({
           imageId: v.optional(v.id("images")),
           // Answer by taking a photo at the stop (graded against keyPoints).
           answerByPhoto: v.optional(v.boolean()),
+          // Choice questions: why each wrong option is wrong, in option order
+          // without the correct one (length options.length - 1).
+          whyWrong: v.optional(v.array(v.string())),
         }),
       ),
     ),
@@ -801,6 +892,36 @@ export default defineSchema({
           reasons: v.array(v.string()),
           objectiveIds: v.array(v.string()),
           citation: v.optional(CITATION),
+          // Parallel to keyPoints: what kind of key point each one is.
+          keyPointKinds: v.optional(
+            v.array(v.union(v.literal("safety"), v.literal("quality"), v.literal("knack"))),
+          ),
+        }),
+      ),
+    ),
+    // Who must do it once published: Skill profiles and named people, due in dueDays.
+    audience: v.optional(
+      v.object({
+        profileIds: v.array(v.id("skillProfiles")),
+        personIds: v.array(v.id("people")),
+        dueDays: v.number(),
+      }),
+    ),
+    // The Skills this Training proves (written to skills.trainingIds on publish).
+    skillIds: v.optional(v.array(v.id("skills"))),
+    // What changed and why (required for version 2 and later).
+    changeNote: v.optional(v.string()),
+    // The Engineer named to review this version (four-eyes).
+    reviewerPersonId: v.optional(v.id("people")),
+    // Open Findings on cited passages that an Engineer checked and kept.
+    findingAcks: v.optional(
+      v.array(
+        v.object({
+          objectiveId: v.string(),
+          findingId: v.id("findings"),
+          reason: v.string(),
+          by: v.id("people"),
+          at: v.number(),
         }),
       ),
     ),
@@ -870,6 +991,14 @@ export default defineSchema({
             overriddenBy: v.optional(v.id("people")),
           }),
         ),
+        // Open answers: why the AI could not grade (left for the trainer).
+        gradeError: v.optional(v.string()),
+        // Choice questions: why each wrong option is wrong (options order, minus the correct one).
+        whyWrong: v.optional(v.array(v.string())),
+        // Who wrote the question: the model, code (fallback) or the Training's question bank.
+        source: v.optional(v.union(v.literal("model"), v.literal("fallback"), v.literal("bank"))),
+        // The objective is must-be-right (copied from the Training version).
+        critical: v.optional(v.boolean()),
       }),
     ),
     // The floor try-out, signed by a trainer (TWI step 3).
@@ -880,8 +1009,28 @@ export default defineSchema({
         at: v.number(),
         checked: v.array(v.string()),
         note: v.optional(v.string()),
+        items: v.optional(
+          v.array(
+            v.object({
+              label: v.string(),
+              result: v.union(v.literal("ok"), v.literal("coach")),
+              note: v.optional(v.string()),
+            }),
+          ),
+        ),
+        assetId: v.optional(v.id("assets")),
+        photoStorageId: v.optional(v.id("_storage")),
+        trainerLevel: v.optional(v.number()),
       }),
     ),
+    // The person read the breakdown steps (Present) before the questions.
+    presentSeenAt: v.optional(v.number()),
+    // After a fail: every missed key point was opened.
+    missesReviewedAt: v.optional(v.number()),
+    // Must-be-right objectives answered wrongly (the reason for a fail).
+    mustBeRightMissed: v.optional(v.array(v.string())),
+    // A refresher before a level expires (drawn from must-be-right objectives).
+    refresher: v.optional(v.boolean()),
     // Rounds: walking progress through the stops.
     round: v.union(
       v.null(),
@@ -946,6 +1095,8 @@ export default defineSchema({
     expiresAt: v.union(v.number(), v.null()),
     retrainNeeded: v.boolean(),
     retrainReason: v.union(v.string(), v.null()),
+    // Re-train must be done by this date (14 days after the change).
+    retrainDueAt: v.optional(v.number()),
   })
     .index("by_personId", ["personId"])
     .index("by_skillId", ["skillId"])
@@ -960,7 +1111,52 @@ export default defineSchema({
     reason: v.string(),
     byPersonId: v.union(v.id("people"), v.null()),
     at: v.number(),
+    // What the level change rests on: observed work, where, and what was seen.
+    evidence: v.optional(
+      v.object({
+        documentId: v.optional(v.id("documents")),
+        namingCode: v.optional(v.string()),
+        documentVersion: v.optional(v.number()),
+        assetId: v.optional(v.id("assets")),
+        note: v.optional(v.string()),
+        checked: v.optional(v.array(v.string())),
+      }),
+    ),
   }).index("by_personId", ["personId"]),
+
+  // Who must do a Training, by when (CONTEXT.md: Training; TWI follow-up).
+  trainingAssignments: defineTable({
+    trainingId: v.id("trainings"),
+    personId: v.id("people"),
+    dueAt: v.number(),
+    assignedBy: v.union(v.id("people"), v.null()),
+    reason: v.union(v.string(), v.null()),
+    source: v.union(v.literal("publish"), v.literal("manual"), v.literal("retrain"), v.literal("renew")),
+    status: v.union(v.literal("open"), v.literal("done"), v.literal("cancelled")),
+    createdAt: v.number(),
+    doneAt: v.union(v.number(), v.null()),
+    lastRemindedAt: v.optional(v.number()),
+  })
+    .index("by_personId", ["personId"])
+    .index("by_trainingId", ["trainingId"]),
+
+  // A trainee asks a trainer to watch them do the job (try-out), or to walk
+  // them through it after failing twice (walkthrough).
+  tryOutRequests: defineTable({
+    personId: v.id("people"),
+    trainingId: v.id("trainings"),
+    trainingVersion: v.number(),
+    attemptId: v.union(v.id("trainingAttempts"), v.null()),
+    skillIds: v.array(v.id("skills")),
+    trainerId: v.union(v.id("people"), v.null()),
+    status: v.union(v.literal("open"), v.literal("done"), v.literal("cancelled")),
+    createdAt: v.number(),
+    doneAt: v.union(v.number(), v.null()),
+    kind: v.optional(v.union(v.literal("tryout"), v.literal("walkthrough"))),
+    result: v.optional(v.union(v.literal("passed"), v.literal("again"))),
+  })
+    .index("by_trainerId", ["trainerId"])
+    .index("by_personId", ["personId"]),
 
   skillProfiles: defineTable({
     name: v.string(),

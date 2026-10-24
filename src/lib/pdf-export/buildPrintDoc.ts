@@ -9,6 +9,7 @@ import type { Asset, Doc, DocVersion } from "@/types"
 import { CALLOUT_META, type CalloutKind } from "@/components/docs/CalloutBlock"
 import { ppeDataUrl } from "@/lib/ppePictograms"
 import { buildPrintStyles } from "./printStyles"
+import { formatDate as formatDateGb } from "@/lib/time"
 
 export interface PpeCatalogEntry {
   slug: string
@@ -28,7 +29,14 @@ export interface PdfExportOptions {
   logsBlock: boolean
   recurringHeader: boolean
   recurringFooter: boolean
-  watermark: "none" | "controlled" | "draft" | "review"
+  /**
+   * "status": derived from the version's status (the default, always right):
+   *   Controlled copy · v2 · printed 24 Oct 2026, Superseded by v2, not for
+   *   use, Draft, not for use, Withdrawn, not for use.
+   * "uncontrolled": Uncontrolled reference copy (Engineers only).
+   * Older stored values ("controlled", "draft", "review") count as "status".
+   */
+  watermark: "status" | "uncontrolled" | "none" | "controlled" | "draft" | "review"
 }
 
 export const DEFAULT_PDF_OPTIONS: PdfExportOptions = {
@@ -40,7 +48,7 @@ export const DEFAULT_PDF_OPTIONS: PdfExportOptions = {
   logsBlock: true,
   recurringHeader: true,
   recurringFooter: true,
-  watermark: "controlled",
+  watermark: "status",
 }
 
 export interface RevisionEntry {
@@ -102,7 +110,53 @@ const TYPE_LABEL: Record<Doc["type"], string> = {
   lmra: "Last-Minute Risk Assessment",
 }
 
-type DisplayStatus = Doc["status"] | "superseded"
+type DisplayStatus = Doc["status"] | "superseded" | "withdrawn"
+
+const STATUS_TEXT: Record<DisplayStatus, string> = {
+  pre_draft: "Draft",
+  draft: "Draft",
+  in_review: "In review",
+  approved: "Approved",
+  published: "Published",
+  archived: "Withdrawn",
+  superseded: "Superseded",
+  withdrawn: "Withdrawn",
+}
+
+/** The status a version shows when printed: the live one, a draft, or not for use. */
+export function printStatusOf(
+  doc: Pick<Doc, "status" | "live_version" | "current_version">,
+  version: number,
+): DisplayStatus {
+  const archived = doc.status === "archived"
+  if (doc.live_version != null && version < doc.live_version) return "superseded"
+  if (doc.live_version === version) return archived ? "withdrawn" : "published"
+  if (archived) return "withdrawn"
+  return version === doc.current_version ? doc.status : "superseded"
+}
+
+/** The watermark text for an export, derived from the status. */
+export function watermarkText(
+  choice: PdfExportOptions["watermark"],
+  status: DisplayStatus,
+  version: number,
+  liveVersion: number | null,
+  printedAt: number = Date.now(),
+): string | null {
+  if (choice === "none") return null
+  if (choice === "uncontrolled") return "Uncontrolled reference copy"
+  if (status === "published") return `Controlled copy · v${version} · printed ${formatPrintDate(printedAt)}`
+  if (status === "superseded")
+    return liveVersion != null && liveVersion > version
+      ? `Superseded by v${liveVersion}, not for use`
+      : "Superseded, not for use"
+  if (status === "withdrawn" || status === "archived") return "Withdrawn, not for use"
+  return "Draft, not for use"
+}
+
+function formatPrintDate(ms: number): string {
+  return formatDateGb(ms)
+}
 
 export function buildPrintDoc(args: BuildArgs): string {
   const {
@@ -135,13 +189,14 @@ export function buildPrintDoc(args: BuildArgs): string {
   // "published", the working edition carries the document status, anything
   // older is "superseded".
   const displayVersion = version.version
-  const displayStatus: DisplayStatus =
-    doc.live_version === version.version
-      ? "published"
-      : version.version === doc.current_version
-        ? doc.status
-        : "superseded"
-  const watermarkText = watermarkLabel(options.watermark, displayStatus)
+  const displayStatus: DisplayStatus = printStatusOf(doc, version.version)
+  const wmText = watermarkText(options.watermark, displayStatus, version.version, doc.live_version)
+  const stampText =
+    options.watermark === "uncontrolled"
+      ? "Uncontrolled reference copy"
+      : displayStatus === "published"
+        ? "Controlled copy"
+        : (wmText ?? "Not for use")
 
   const footerCenter = [cover?.confidentialityLabel, cover?.footerText]
     .filter((s): s is string => !!s && s.trim().length > 0)
@@ -153,7 +208,7 @@ export function buildPrintDoc(args: BuildArgs): string {
     version: displayVersion,
     effective: options.recurringFooter ? effective : null,
     reviewBy,
-    watermark: watermarkText,
+    watermark: wmText,
     headerRightOverride: cover?.headerText ?? null,
     footerCenter: footerCenter || null,
     showPageNumbers: cover?.showPageNumbers ?? true,
@@ -196,6 +251,7 @@ export function buildPrintDoc(args: BuildArgs): string {
         displayStatus,
         cover,
         overviewHtml,
+        stampText,
       }),
     )
   }
@@ -204,8 +260,8 @@ export function buildPrintDoc(args: BuildArgs): string {
     `<section class="doc-page"><div class="doc-body">${renderTipTapDoc(version.body_json, imageUrlMap)}</div></section>`,
   )
 
-  const watermarkLayer = watermarkText
-    ? `<div class="watermark" aria-hidden="true">${escapeHtml(watermarkText)}</div>`
+  const watermarkLayer = wmText
+    ? `<div class="watermark" aria-hidden="true">${escapeHtml(wmText)}</div>`
     : ""
 
   return `<!doctype html>
@@ -246,6 +302,7 @@ function renderTitlePage(args: {
   displayStatus: DisplayStatus
   cover?: PrintCoverSettings | null
   overviewHtml: string
+  stampText: string
 }): string {
   const {
     doc,
@@ -258,6 +315,7 @@ function renderTitlePage(args: {
     displayStatus,
     cover,
     overviewHtml,
+    stampText,
   } = args
   const ownerLabel = ownerName ? escapeHtml(ownerName) : "Not assigned"
   const ppe = ppeOnDoc
@@ -283,7 +341,7 @@ function renderTitlePage(args: {
   <div class="title-main">
     <h1>${escapeHtml(doc.title)}</h1>
     <div class="title-code-badge">${escapeHtml(doc.naming_code)}</div>
-    <div class="title-edition">Version ${displayVersion} · ${escapeHtml(displayStatus)}</div>
+    <div class="title-edition">Version ${displayVersion} · ${escapeHtml(STATUS_TEXT[displayStatus])}</div>
   </div>
   <div class="title-meta-grid">
     <div><div class="k">Owner</div><div class="v">${ownerLabel}</div></div>
@@ -291,13 +349,13 @@ function renderTitlePage(args: {
     <div><div class="k">Review by</div><div class="v">${escapeHtml(reviewBy)}</div></div>
     <div><div class="k">Revision</div><div class="v">${displayVersion}</div></div>
     <div><div class="k">Type</div><div class="v">${escapeHtml(typeLabel)}</div></div>
-    <div><div class="k">Status</div><div class="v">${escapeHtml(displayStatus)}</div></div>
+    <div><div class="k">Status</div><div class="v">${escapeHtml(STATUS_TEXT[displayStatus])}</div></div>
   </div>
   ${ppe ? `<div class="title-ppe"><div class="title-ppe-label">Required PPE</div><div class="title-ppe-items">${ppe}</div></div>` : ""}
   ${overviewHtml}
   <div class="title-controlled">
     ${confidentiality}
-    <div class="stamp">Controlled copy</div>
+    <div class="stamp">${escapeHtml(stampText)}</div>
     <div>Print date ${escapeHtml(formatToday())}. Verify the latest revision in Oppr Knowledge before use. Uncontrolled when printed and not stamped or registered.</div>
   </div>
 </section>`
@@ -354,7 +412,7 @@ function buildRevisionRows(args: {
       return {
         version: r.version,
         date: formatDate(new Date(r.publishedAt).toISOString()),
-        status: isCurrent ? displayStatus : "superseded",
+        status: STATUS_TEXT[isCurrent ? displayStatus : "superseded"],
         summary: isCurrent
           ? "Current version. Review at least annually."
           : "Superseded revision.",
@@ -810,7 +868,7 @@ function formatDate(iso: string): string {
   try {
     const d = new Date(iso)
     if (Number.isNaN(d.getTime())) return iso
-    return d.toISOString().slice(0, 10)
+    return formatDateGb(d.getTime())
   } catch {
     return iso
   }
@@ -821,26 +879,14 @@ function addOneYear(iso: string): string {
     const d = new Date(iso)
     if (Number.isNaN(d.getTime())) return iso
     d.setFullYear(d.getFullYear() + 1)
-    return d.toISOString().slice(0, 10)
+    return formatDateGb(d.getTime())
   } catch {
     return iso
   }
 }
 
 function formatToday(): string {
-  return new Date().toISOString().slice(0, 10)
+  return formatDateGb(Date.now())
 }
 
-function watermarkLabel(
-  choice: PdfExportOptions["watermark"],
-  status: DisplayStatus,
-): string | null {
-  if (choice === "none") return null
-  if (choice === "controlled") return "Controlled copy"
-  if (choice === "draft") return "Draft, not for use"
-  if (choice === "review") return "Under review"
-  // Auto: derive from status when supplied
-  if (status === "draft") return "Draft, not for use"
-  if (status === "in_review") return "Under review"
-  return null
-}
+

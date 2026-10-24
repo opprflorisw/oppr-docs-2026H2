@@ -1,89 +1,110 @@
 import { useState } from "react"
 import { useLocation } from "wouter"
-import { useMutation, useQuery } from "convex/react"
-import { toast } from "sonner"
-import { ChevronRight, Footprints, Loader2 } from "lucide-react"
+import { useQuery } from "convex/react"
+import { ChevronDown, ChevronRight, Footprints, Loader2 } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
-import { errorText } from "@/components/learn/training/lib"
 import { useCheckIn } from "@/lib/checkIn"
-import { useMobileShell } from "./MobileShell"
+import { formatDate } from "@/lib/time"
+import { cn } from "@/lib/utils"
+import { useStartTraining } from "./MobileTodo"
+
+type RoundRow = {
+  _id: Id<"trainings">
+  code: string
+  title: string
+  stops: unknown[]
+  open: { _id: Id<"trainingAttempts">; currentStop: number } | null
+  lastPassedAt: number | null
+  last?: { status: string; score: number | null; at: number } | null
+}
+
+/** floor.rounds returns either a list or { forYou, other }: accept both. */
+function splitRounds(data: unknown): { forYou: RoundRow[]; other: RoundRow[] } | undefined {
+  if (data === undefined) return undefined
+  if (Array.isArray(data)) return { forYou: data as RoundRow[], other: [] }
+  const d = data as { forYou?: RoundRow[]; other?: RoundRow[] }
+  return { forYou: d.forYou ?? [], other: d.other ?? [] }
+}
 
 /**
- * Rounds on mobile Home: the live Rounds, with "Continue" for one already
- * started. Starting needs a check-in, because a Round is proof.
+ * Rounds on Home: "For you" (by your profile and area), with the other
+ * Rounds folded away. Starting needs a check-in, because a Round is proof;
+ * after the check-in the Round starts right away.
  */
-export function MobileRoundsCard() {
+export function MobileRoundsCard({ exclude = [] }: { exclude?: string[] }) {
   const { person } = useCheckIn()
-  const { openCheckIn } = useMobileShell()
-  const [, navigate] = useLocation()
-  const rounds = useQuery(api.floor.rounds, { personId: person?._id ?? null })
-  const start = useMutation(api.attempts.start)
-  const [starting, setStarting] = useState<Id<"trainings"> | null>(null)
+  const data = useQuery(api.floor.rounds, { personId: person?._id ?? null })
+  const rounds = splitRounds(data)
+  const [showOther, setShowOther] = useState(false)
 
-  if (!rounds || rounds.length === 0) return null
-
-  async function go(trainingId: Id<"trainings">, openId: Id<"trainingAttempts"> | null) {
-    if (openId) {
-      navigate(`/m/round/${openId}`)
-      return
-    }
-    if (!person) {
-      toast("Check in first: a Round is proof, so it needs to know who you are.")
-      openCheckIn()
-      return
-    }
-    setStarting(trainingId)
-    try {
-      const id = await start({ trainingId, personId: person._id })
-      navigate(`/m/round/${id}`)
-    } catch (err) {
-      toast.error(errorText(err))
-    } finally {
-      setStarting(null)
-    }
-  }
+  if (!rounds) return null
+  const forYou = rounds.forYou.filter((r) => !exclude.includes(r._id))
+  const other = rounds.other.filter((r) => !exclude.includes(r._id))
+  if (forYou.length === 0 && other.length === 0) return null
 
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1 px-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        <Footprints className="h-2.5 w-2.5" />
-        Rounds
-      </div>
-      <div className="flex flex-col gap-1">
-        {rounds.map((r) => (
+    <section className="flex flex-col gap-2">
+      <h2 className="flex items-center gap-1.5 px-1 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <Footprints className="h-4 w-4" />
+        {other.length > 0 ? "Rounds for you" : "Rounds"}
+      </h2>
+      {forYou.length === 0 && (
+        <p className="px-1 text-sm text-muted-foreground">No Round is planned for you right now.</p>
+      )}
+      {forYou.map((r) => (
+        <RoundButton key={r._id} round={r} />
+      ))}
+      {other.length > 0 && (
+        <>
           <button
-            key={r._id}
             type="button"
-            disabled={starting !== null}
-            onClick={() => void go(r._id, r.open?._id ?? null)}
-            className="flex items-center gap-2 rounded-md border bg-card px-2 py-1.5 text-left active:scale-[0.99] disabled:opacity-70"
+            aria-expanded={showOther}
+            onClick={() => setShowOther((v) => !v)}
+            className="flex min-h-11 items-center gap-1 px-1 text-sm font-medium text-muted-foreground"
           >
-            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-violet-500/10 text-violet-700 dark:text-violet-300">
-              <Footprints className="h-3 w-3" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[11px] font-medium leading-tight">{r.title}</div>
-              <div className="truncate text-[9px] text-muted-foreground">
-                <span className="font-mono">{r.code}</span> · {r.stops.length} stops
-                {r.open
-                  ? ` · stop ${Math.min(r.open.currentStop + 1, r.stops.length)} of ${r.stops.length}`
-                  : r.lastPassedAt
-                    ? " · passed before"
-                    : ""}
-              </div>
-            </div>
-            {starting === r._id ? (
-              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-            ) : (
-              <span className="flex items-center gap-0.5 text-[10px] font-medium text-primary">
-                {r.open ? "Continue" : "Start"}
-                <ChevronRight className="h-3 w-3" />
-              </span>
-            )}
+            <ChevronDown className={cn("h-4 w-4 transition-transform", showOther && "rotate-180")} />
+            Other Rounds ({other.length})
           </button>
-        ))}
-      </div>
-    </div>
+          {showOther && other.map((r) => <RoundButton key={r._id} round={r} />)}
+        </>
+      )}
+    </section>
+  )
+}
+
+function RoundButton({ round: r }: { round: RoundRow }) {
+  const [, navigate] = useLocation()
+  const { go, busy } = useStartTraining()
+  const status = r.open
+    ? `at stop ${Math.min(r.open.currentStop + 1, r.stops.length)} of ${r.stops.length}`
+    : r.lastPassedAt
+      ? `passed ${formatDate(r.lastPassedAt)}`
+      : r.last && r.last.status === "failed"
+        ? `last try ${Math.round(r.last.score ?? 0)}%, not passed`
+        : `${r.stops.length} stops`
+  const label = r.open ? "Continue" : r.lastPassedAt ? "Walk again" : "Walk it"
+  return (
+    <button
+      type="button"
+      disabled={busy !== null}
+      onClick={() => (r.open ? navigate(`/m/round/${r.open._id}`) : go({ _id: r._id, kind: "round" }))}
+      className="flex min-h-16 items-center gap-3 rounded-2xl border bg-card px-3 py-3 text-left shadow-sm transition active:scale-[0.99] disabled:opacity-70"
+    >
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#6E59A5]/10 text-[#6E59A5]">
+        <Footprints className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="line-clamp-2 block text-base font-semibold leading-snug">{r.title}</span>
+        <span className="block text-[13px] leading-snug text-muted-foreground">
+          {status.charAt(0).toUpperCase() + status.slice(1)} · <span className="font-mono">{r.code}</span>
+        </span>
+        <span className="mt-1 flex items-center gap-0.5 text-sm font-semibold text-[#6E59A5]">
+          {busy === r._id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          {label}
+          <ChevronRight className="h-4 w-4" />
+        </span>
+      </span>
+    </button>
   )
 }

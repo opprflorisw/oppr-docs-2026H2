@@ -135,7 +135,7 @@ export function AddAssetModal({ open, onOpenChange, onCreated }: AddAssetModalPr
             <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional — what this asset is and where it sits."
+              placeholder="Optional: what this asset is and where it sits."
               rows={3}
             />
           </div>

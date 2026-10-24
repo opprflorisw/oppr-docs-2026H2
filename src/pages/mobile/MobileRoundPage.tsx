@@ -1,15 +1,17 @@
 // A Round on the phone (CONTEXT.md: Round): a Training done in the plant
-// like a treasure hunt. The hint says where to go; the Operator walks there
-// and Scans the Asset's QR code. The wrong Asset gets "You're at the wrong
-// machine. Go to X." The right one opens that stop's questions, one at a
-// time with the source passage, and the photo or note it asks for. After the
-// last stop: the result, and on a pass the Training record.
+// like a treasure hunt. A Prepare card first (why, how long, the stops, the
+// pass rule). Then the clue says where to go; the Operator walks there and
+// Scans the Asset's QR code. The wrong Asset gets one card: "Wrong machine:
+// this is X", the clue once more, and Scan. The right one opens that stop's
+// questions, one at a time, and the photo or note it asks for. A finished
+// stop shows "Stop 1 done" with the next clue right under it. After the last
+// stop: the result, with every answer reviewed inside the phone.
 //
 // Works on a real phone (Scan = tap a QR code in the scan sheet) and inside
 // the Floor simulator, where clicking a machine on the plan walks there and
 // opens /m/round/:id?scan=<assetId>&n=<nonce>.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useRoute, useSearch } from "wouter"
 import { useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
@@ -17,10 +19,9 @@ import {
   AlertTriangle,
   ArrowRight,
   Award,
+  Check,
   CheckCircle2,
   Eye,
-  Footprints,
-  Home,
   Loader2,
   MapPin,
   MousePointerClick,
@@ -35,22 +36,22 @@ import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { MobileHeader } from "@/components/mobile/MobileHeader"
 import { useMobileShell } from "@/components/mobile/MobileShell"
 import { useFloorBridge } from "@/components/mobile/floorBridge"
 import { looksLikeConvexId } from "@/components/mobile/use-mobile-prefs"
 import { RoundQuestion } from "@/components/mobile/round/RoundQuestion"
 import { RoundEvidence } from "@/components/mobile/round/RoundEvidence"
 import { ScanPickerSheet } from "@/components/mobile/round/ScanPickerSheet"
+import { BottomSheet, buzz, ProofHeader, SheetButton, StickyBar } from "@/components/mobile/round/ProofChrome"
 import type { AttemptView } from "@/components/learn/training/AttemptReview"
+import { AttemptIntro } from "@/components/learn/training/AttemptIntro"
+import { AttemptResult, EveryAnswer } from "@/components/learn/training/AttemptResult"
+import { isAnswered, isRight, useAnswerDraft } from "@/components/learn/training/QuestionCard"
 import { errorText } from "@/components/learn/training/lib"
 import { useCheckIn } from "@/lib/checkIn"
 import { cn } from "@/lib/utils"
 
-type Notice =
-  | { tone: "ok"; text: string }
-  | { tone: "wrong"; scanned: string; expected: { code: string; name: string }; hint: string }
-  | { tone: "warn"; text: string }
+type Notice = { tone: "wrong"; scannedId: Id<"assets"> } | { tone: "warn"; text: string }
 
 // Scan requests already handled (per Attempt, Asset and nonce), so a
 // re-render or a remount never scans twice.
@@ -58,40 +59,54 @@ const handledScans = new Set<string>()
 
 export function MobileRoundPage() {
   const [, params] = useRoute<{ attemptId: string }>("/m/round/:attemptId")
+  const [, navigate] = useLocation()
   const id = params?.attemptId ?? ""
   const valid = looksLikeConvexId(id)
   const a = useQuery(api.attempts.get, valid ? { id: id as Id<"trainingAttempts"> } : "skip")
   const { person } = useCheckIn()
 
   const title = a?.training?.title ?? "Round"
-  const subtitle = a?.training ? `${a.training.code} · Round` : undefined
+  if (a && person && person._id === a.personId && a.status !== "passed" && a.status !== "failed") {
+    return <RoundInProgress a={a} personId={person._id} title={title} />
+  }
 
   let body: React.ReactNode
   if (!valid || a === null) {
     body = (
-      <Centered icon={<AlertTriangle className="h-6 w-6" />} tone="warn" title="This Round is not available">
+      <Centered icon={<AlertTriangle className="h-6 w-6" />} title="This Round is not available">
         It may have been removed. Start a Round from Home.
-        <HomeButton />
       </Centered>
     )
   } else if (a === undefined) {
     body = (
-      <div className="space-y-3 p-4">
-        <Skeleton className="h-24 w-full rounded-2xl" />
-        <Skeleton className="h-40 w-full rounded-2xl" />
+      <div className="space-y-3 p-3">
+        <Skeleton className="h-24 w-full rounded-xl" />
+        <Skeleton className="h-48 w-full rounded-xl" />
       </div>
     )
   } else if (!person || person._id !== a.personId) {
     body = <NotYours a={a} checkedIn={!!person} />
-  } else if (a.status === "passed" || a.status === "failed") {
-    body = <RoundResult a={a} personId={person._id} />
   } else {
-    body = <RoundInProgress a={a} personId={person._id} />
+    body = (
+      <AttemptResult
+        a={a}
+        personId={person._id}
+        review={
+          <>
+            <StopsSummary a={a} />
+            <EveryAnswer a={a} personId={person._id} />
+          </>
+        }
+      />
+    )
   }
-
   return (
     <div className="flex min-h-full flex-col">
-      <MobileHeader backTo="/m" title={title} subtitle={subtitle} />
+      <ProofHeader
+        title={title}
+        subtitle={a?.training ? `${a.training.code} · Round` : undefined}
+        onClose={() => navigate("/m")}
+      />
       {body}
     </div>
   )
@@ -99,7 +114,7 @@ export function MobileRoundPage() {
 
 // ---- In progress ------------------------------------------------------------------
 
-function RoundInProgress({ a, personId }: { a: AttemptView; personId: Id<"people"> }) {
+function RoundInProgress({ a, personId, title }: { a: AttemptView; personId: Id<"people">; title: string }) {
   const search = useSearch()
   const [, navigate] = useLocation()
   const { embedded } = useMobileShell()
@@ -116,22 +131,25 @@ function RoundInProgress({ a, personId }: { a: AttemptView; personId: Id<"people
   const [pickerOpen, setPickerOpen] = useState(false)
   const [finishing, setFinishing] = useState(false)
   const [retrying, setRetrying] = useState(false)
-  const [confirmStop, setConfirmStop] = useState(false)
+  const [menu, setMenu] = useState<null | "menu" | "confirm">(null)
+  // The stop whose "done" card (with the next clue) is on screen.
+  const [clueAfter, setClueAfter] = useState<number | null>(null)
+  const [prepared, setPrepared] = useState(() => a.stops.some((s) => s.visited) || a.questions.some(isAnswered))
   const topRef = useRef<HTMLDivElement>(null)
 
   const codeOf = useMemo(() => {
     const m = new Map<string, string>()
-    for (const x of assets ?? []) m.set(x._id, `${x.code} ${x.name}`)
-    return (assetId: string) => m.get(assetId) ?? "this Asset"
+    for (const x of assets ?? []) m.set(x._id, x.code)
+    return (assetId: string) => m.get(assetId) ?? "another machine"
   }, [assets])
 
-  const round = a.round
-  const current = round?.currentStop ?? 0
+  const current = a.round?.currentStop ?? 0
+  const n = a.stops.length
   const here = a.stops[current]
-  const allStopsDone = current >= a.stops.length
+  const allStopsDone = current >= n
   const showStop = viewStop ?? (here && here.visited ? current : null)
   // Standing at a stop (for example after reopening the page): keep it on
-  // screen until the person moves on, even once its last answer is in.
+  // screen until the person moves on.
   useEffect(() => {
     if (viewStop === null && here?.visited && !here.done) setViewStop(current)
   }, [viewStop, here?.visited, here?.done, current])
@@ -143,18 +161,15 @@ function RoundInProgress({ a, personId }: { a: AttemptView; personId: Id<"people
       try {
         const r = await scanAt({ id: a._id, personId, assetId })
         recordUsage({ kind: "scan", assetId, personId, surface: "floor" }).catch(() => {})
+        setPrepared(true)
         if (r.ok) {
-          const stop = a.stops[r.stopIndex]
           setViewStop(r.stopIndex)
-          setNotice({
-            tone: "ok",
-            text: "revisit" in r && r.revisit ? `Back at ${stop?.code ?? "this stop"}.` : `Scanned ${stop?.code ?? ""}. You found it.`,
-          })
         } else if (r.reason === "wrong_asset" && r.expected) {
-          const hint = a.stops.find((s) => s.assetId === r.expected!.assetId)?.hint ?? ""
-          setNotice({ tone: "wrong", scanned: codeOf(assetId), expected: r.expected, hint })
+          buzz(80)
+          setViewStop(null)
+          setNotice({ tone: "wrong", scannedId: assetId })
         } else if (r.reason === "finish_here_first" && r.expected) {
-          setNotice({ tone: "warn", text: `Finish this stop first: ${r.expected.code} ${r.expected.name}.` })
+          setNotice({ tone: "warn", text: `Finish this stop first: ${r.expected.code}.` })
           setViewStop(current)
         } else {
           setNotice({ tone: "warn", text: "Every stop is done. Finish the Round below." })
@@ -165,7 +180,7 @@ function RoundInProgress({ a, personId }: { a: AttemptView; personId: Id<"people
         setScanning(false)
       }
     },
-    [a._id, a.stops, personId, scanAt, recordUsage, codeOf, current],
+    [a._id, personId, scanAt, recordUsage, current],
   )
 
   // A Scan handed over by the Floor simulator (or a deep link): ?scan=<assetId>&n=<nonce>.
@@ -185,11 +200,10 @@ function RoundInProgress({ a, personId }: { a: AttemptView; personId: Id<"people
     void doScanRef.current(pending.assetId as Id<"assets">)
   }, [pending, a.status, a._id, navigate])
 
-  // Each new screen starts at the top.
-  const screenKey = `${a.status}:${showStop ?? "next"}:${current}`
-  useLayoutEffect(() => {
-    // Scroll the app's own scroller only (never the desktop page around the
-    // Floor simulator's phone).
+  // Each new screen starts at the top of the app's own scroller (never the
+  // desktop page around the phone preview).
+  const screenKey = `${a.status}:${prepared}:${showStop ?? "next"}:${current}:${notice?.tone ?? ""}`
+  useEffect(() => {
     let el = topRef.current?.parentElement ?? null
     while (el && !/(auto|scroll)/.test(getComputedStyle(el).overflowY)) el = el.parentElement
     if (el) el.scrollTop = 0
@@ -199,7 +213,6 @@ function RoundInProgress({ a, personId }: { a: AttemptView; personId: Id<"people
     if (bridge) bridge.walkTo(assetId)
     else void doScan(assetId)
   }
-
   async function retry() {
     setRetrying(true)
     try {
@@ -210,7 +223,6 @@ function RoundInProgress({ a, personId }: { a: AttemptView; personId: Id<"people
       setRetrying(false)
     }
   }
-
   async function doFinish() {
     setFinishing(true)
     try {
@@ -221,7 +233,6 @@ function RoundInProgress({ a, personId }: { a: AttemptView; personId: Id<"people
       setFinishing(false)
     }
   }
-
   async function doAbandon() {
     try {
       await abandon({ id: a._id, personId })
@@ -232,113 +243,142 @@ function RoundInProgress({ a, personId }: { a: AttemptView; personId: Id<"people
     }
   }
 
-  if (a.status === "generating") {
-    return (
-      <div ref={topRef} className="flex flex-col gap-3 p-3">
-        <StopsTrack a={a} current={current} />
-        <div className="flex flex-col items-center gap-3 rounded-2xl border bg-card px-4 py-8 text-center">
-          <Loader2 className="h-7 w-7 animate-spin text-primary" />
-          <div className="space-y-1">
-            <p className="text-sm font-semibold">Preparing your Round</p>
-            <p className="text-[12px] leading-relaxed text-muted-foreground">
-              Your questions are written fresh for you from the Published documents. This takes about half a minute.
-            </p>
-          </div>
-          {pending && (
-            <p className="rounded-lg bg-primary/5 px-3 py-2 text-[11px] text-primary">
+  const scanButton = (
+    <Button className="h-12 flex-1 gap-2 rounded-xl text-base" disabled={scanning} onClick={() => setPickerOpen(true)} data-scan>
+      {scanning ? <Loader2 className="h-5 w-5 animate-spin" /> : <ScanLine className="h-5 w-5" />}
+      Scan the QR code
+    </Button>
+  )
+  const finishButton = (
+    <Button className="h-12 flex-1 gap-2 rounded-xl text-base" disabled={finishing} onClick={() => void doFinish()} data-finish>
+      {finishing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Award className="h-5 w-5" />}
+      Finish the Round
+    </Button>
+  )
+
+  let subtitle = `Stop ${Math.min(current + 1, n)} of ${n}`
+  let screen: React.ReactNode
+  if (a.status === "error" || a.status === "abandoned") {
+    const isError = a.status === "error"
+    subtitle = a.training?.code ?? "Round"
+    screen = (
+      <>
+        <Centered
+          icon={isError ? <AlertTriangle className="h-6 w-6" /> : <RotateCcw className="h-6 w-6" />}
+          title={isError ? "Your questions could not be prepared" : "This Round was stopped"}
+        >
+          {isError ? a.error || "Something went wrong while writing the questions." : "It does not count. Start it again when you are ready."}
+        </Centered>
+        <StickyBar>
+          <Button className="h-12 flex-1 gap-2 rounded-xl text-base" disabled={retrying} onClick={() => void retry()}>
+            {retrying ? <Loader2 className="h-5 w-5 animate-spin" /> : <RotateCcw className="h-5 w-5" />}
+            {isError ? "Try again" : "Start again"}
+          </Button>
+        </StickyBar>
+      </>
+    )
+  } else if (a.status === "generating" || !prepared) {
+    const generating = a.status === "generating"
+    subtitle = "Before you start"
+    screen = (
+      <>
+        <div className="space-y-3 p-3">
+          <AttemptIntro a={a} generating={generating} />
+          {pending && generating && (
+            <p className="rounded-lg bg-primary/5 px-3 py-2 text-sm text-primary">
               You scanned a QR code. It opens as soon as your questions are ready.
             </p>
           )}
         </div>
-        {a.stops[0] && (
-          <div className="rounded-2xl border border-dashed p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Your first stop</p>
-            <p className="mt-1 text-[13px] leading-snug">{a.stops[0].hint || "The first Asset of the Round."}</p>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  if (a.status === "error" || a.status === "abandoned") {
-    const isError = a.status === "error"
-    return (
-      <div ref={topRef}>
-        <Centered
-          icon={isError ? <AlertTriangle className="h-6 w-6" /> : <RotateCcw className="h-6 w-6" />}
-          tone="warn"
-          title={isError ? "Your questions could not be prepared" : "This Round was stopped"}
-        >
-          {isError ? a.error || "Something went wrong while writing the questions." : "It does not count. Start it again when you are ready."}
-          <Button className="mt-2 h-10 gap-1.5 rounded-xl" disabled={retrying} onClick={() => void retry()}>
-            {retrying ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-            {isError ? "Try again" : "Start again"}
+        <StickyBar>
+          <Button className="h-12 flex-1 gap-2 rounded-xl text-base" disabled={generating} onClick={() => setPrepared(true)} data-start>
+            {generating ? <Loader2 className="h-5 w-5 animate-spin" /> : <Navigation className="h-5 w-5" />}
+            {generating ? "Preparing your Round" : "Go to stop 1"}
           </Button>
-        </Centered>
-      </div>
+        </StickyBar>
+      </>
+    )
+  } else if (showStop !== null && a.stops[showStop]) {
+    // The header follows the screen: it moves on once the next clue shows.
+    subtitle = clueAfter === showStop && showStop + 1 < n ? `Stop ${showStop + 2} of ${n}` : `Stop ${showStop + 1} of ${n}`
+    screen = (
+      <StopWork
+        key={showStop}
+        a={a}
+        personId={personId}
+        stopIndex={showStop}
+        scanButton={scanButton}
+        finishButton={finishButton}
+        embedded={embedded && !!bridge}
+        warn={notice?.tone === "warn" ? notice.text : null}
+        onClueShown={setClueAfter}
+      />
+    )
+  } else if (allStopsDone) {
+    subtitle = "All stops done"
+    screen = (
+      <>
+        <div className="p-3">
+          <div className="space-y-2 rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-center dark:border-emerald-500/40 dark:bg-emerald-500/10">
+            <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-600" />
+            <p className="text-base font-semibold">Every stop is done</p>
+            <p className="text-sm text-muted-foreground">Finish the Round to see your result.</p>
+          </div>
+        </div>
+        <StickyBar>{finishButton}</StickyBar>
+      </>
+    )
+  } else {
+    screen = (
+      <>
+        <div className="space-y-3 p-3">
+          <StopsTrack a={a} current={current} />
+          {notice?.tone === "warn" && <WarnNotice text={notice.text} />}
+          <ClueCard a={a} index={current} embedded={embedded && !!bridge} wrong={notice?.tone === "wrong" ? codeOf(notice.scannedId) : null} />
+        </div>
+        <StickyBar>{scanButton}</StickyBar>
+      </>
     )
   }
 
   return (
-    <div ref={topRef} className="flex flex-col gap-3 p-3 pb-6">
-      <StopsTrack a={a} current={current} />
-
-      {notice && <NoticeCard notice={notice} />}
-
-      {showStop !== null && a.stops[showStop] ? (
-        <StopWork
-          key={showStop}
-          a={a}
-          personId={personId}
-          stopIndex={showStop}
-          finishing={finishing}
-          onNextStop={() => {
-            setViewStop(null)
-            setNotice(null)
-          }}
-          onFinish={() => void doFinish()}
-        />
-      ) : allStopsDone ? (
-        <div className="space-y-3 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-center dark:border-emerald-500/40 dark:bg-emerald-500/10">
-          <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-600" />
-          <div>
-            <p className="text-sm font-semibold">Every stop is done</p>
-            <p className="text-[12px] text-muted-foreground">Finish the Round to see your result.</p>
-          </div>
-          <Button className="h-11 w-full gap-1.5 rounded-xl" disabled={finishing} onClick={() => void doFinish()}>
-            {finishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Award className="h-4 w-4" />}
-            Finish the Round
-          </Button>
-        </div>
-      ) : here ? (
-        <NextStop
-          a={a}
-          index={current}
-          scanning={scanning}
-          embedded={embedded && !!bridge}
-          onScan={() => setPickerOpen(true)}
-        />
-      ) : null}
-
-      <div className="mt-2 flex justify-center">
-        {confirmStop ? (
-          <div className="flex items-center gap-2 text-[11px]">
-            <span className="text-muted-foreground">Stop this Round? It will not count.</span>
-            <Button size="sm" variant="destructive" className="h-7 text-[11px]" onClick={() => void doAbandon()}>
-              Stop
-            </Button>
-            <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setConfirmStop(false)}>
-              Keep going
-            </Button>
-          </div>
+    <div ref={topRef} className="flex min-h-full flex-col">
+      <ProofHeader
+        title={title}
+        subtitle={subtitle}
+        onClose={() => navigate("/m")}
+        onMenu={() => setMenu("menu")}
+        menuLabel="Round options"
+      />
+      <div className="flex flex-1 flex-col">{screen}</div>
+      <ScanPickerSheet open={pickerOpen} onClose={() => setPickerOpen(false)} onScan={scanVia} hideNames />
+      <BottomSheet
+        open={menu !== null}
+        onClose={() => setMenu(null)}
+        label="Round options"
+        title={menu === "confirm" ? "Stop this Round?" : "Round options"}
+      >
+        {menu === "confirm" ? (
+          <>
+            <p className="pb-4 text-base text-muted-foreground">It will not count. You can start it again from Home.</p>
+            <div className="space-y-2">
+              <SheetButton tone="danger" onClick={() => void doAbandon()}>
+                Stop the Round
+              </SheetButton>
+              <SheetButton tone="primary" onClick={() => setMenu(null)}>
+                Keep going
+              </SheetButton>
+            </div>
+          </>
         ) : (
-          <button type="button" onClick={() => setConfirmStop(true)} className="text-[11px] text-muted-foreground hover:text-foreground">
-            Stop this Round
-          </button>
+          <div className="space-y-2">
+            <SheetButton tone="danger" onClick={() => setMenu("confirm")}>
+              Stop this Round
+            </SheetButton>
+            <SheetButton onClick={() => setMenu(null)}>Close</SheetButton>
+          </div>
         )}
-      </div>
-
-      <ScanPickerSheet open={pickerOpen} onClose={() => setPickerOpen(false)} onScan={scanVia} />
+      </BottomSheet>
     </div>
   )
 }
@@ -346,135 +386,85 @@ function RoundInProgress({ a, personId }: { a: AttemptView; personId: Id<"people
 /** Where the Round is: one dot per stop. Stops not reached yet stay a surprise. */
 function StopsTrack({ a, current }: { a: AttemptView; current: number }) {
   const n = a.stops.length
-  const done = a.stops.filter((s) => s.done).length
   return (
-    <div className="rounded-2xl border bg-card p-3">
-      <div className="flex items-baseline justify-between">
-        <p className="flex items-center gap-1.5 text-[12px] font-semibold">
-          <Footprints className="h-3.5 w-3.5 text-primary" />
-          {done >= n ? "All stops done" : `Stop ${Math.min(current + 1, n)} of ${n}`}
-        </p>
-        <p className="text-[10px] text-muted-foreground">
-          {a.progress.answered}/{a.progress.total} questions
-          {a.round && a.round.wrongScans > 0 && ` · ${a.round.wrongScans} wrong ${a.round.wrongScans === 1 ? "scan" : "scans"}`}
-        </p>
-      </div>
-      <ol className="mt-2.5 flex items-center" aria-label="Stops">
-        {a.stops.map((s, i) => {
-          const state = s.done ? "done" : i === current ? "current" : "later"
-          return (
-            <li key={s.index} className="flex flex-1 items-center last:flex-none">
-              <span
-                title={state === "done" ? `${s.code} ${s.name}` : `Stop ${i + 1}`}
-                className={cn(
-                  "flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-semibold",
-                  state === "done" && "bg-emerald-500 text-white",
-                  state === "current" && "bg-primary text-primary-foreground ring-4 ring-primary/15",
-                  state === "later" && "bg-muted text-muted-foreground",
-                )}
-              >
-                {state === "done" ? <span className="font-mono">{s.code}</span> : i + 1}
-              </span>
-              {i < n - 1 && (
-                <span className={cn("mx-1 h-0.5 flex-1 rounded-full", s.done ? "bg-emerald-400" : "bg-muted")} />
+    <ol className="flex items-center rounded-xl border bg-card px-3 py-3" aria-label="Stops">
+      {a.stops.map((s, i) => {
+        const state = s.done ? "done" : i === current ? "current" : "later"
+        return (
+          <li key={s.index} className="flex flex-1 items-center last:flex-none">
+            <span
+              title={state === "done" ? s.code : `Stop ${i + 1}`}
+              className={cn(
+                "flex h-8 min-w-8 shrink-0 items-center justify-center rounded-full px-2 text-[13px] font-semibold",
+                state === "done" && "bg-emerald-600 text-white",
+                state === "current" && "bg-primary text-primary-foreground ring-4 ring-primary/15",
+                state === "later" && "bg-muted text-muted-foreground",
               )}
-            </li>
-          )
-        })}
-      </ol>
-    </div>
+            >
+              {state === "done" ? <Check className="h-4 w-4" /> : i + 1}
+            </span>
+            {i < n - 1 && <span className={cn("mx-1 h-0.5 flex-1 rounded-full", s.done ? "bg-emerald-500" : "bg-muted")} />}
+          </li>
+        )
+      })}
+    </ol>
   )
 }
 
-function NoticeCard({ notice }: { notice: Notice }) {
-  if (notice.tone === "ok") {
-    return (
-      <p className="flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-[12px] font-medium text-emerald-800 animate-in fade-in-0 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200">
-        <CheckCircle2 className="h-4 w-4 shrink-0" />
-        {notice.text}
-      </p>
-    )
-  }
-  if (notice.tone === "warn") {
-    return (
-      <p className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900 animate-in fade-in-0 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
-        <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-        {notice.text}
-      </p>
-    )
-  }
+function WarnNotice({ text }: { text: string }) {
   return (
-    <div
-      role="alert"
-      className="space-y-1.5 rounded-2xl border-2 border-red-300 bg-red-50 p-3 animate-in fade-in-0 zoom-in-95 dark:border-red-500/50 dark:bg-red-500/10"
-    >
-      <p className="flex items-center gap-2 text-[14px] font-semibold text-red-700 dark:text-red-300">
-        <XCircle className="h-5 w-5 shrink-0" />
-        You're at the wrong machine.
-      </p>
-      <p className="text-[13px] leading-snug text-red-900 dark:text-red-100">
-        Go to{" "}
-        <span className="font-semibold">
-          <span className="font-mono">{notice.expected.code}</span> {notice.expected.name}
-        </span>
-        .
-      </p>
-      <p className="text-[11px] text-red-800/80 dark:text-red-200/80">You scanned {notice.scanned}.</p>
-      {notice.hint && <p className="rounded-lg bg-background/70 px-2.5 py-1.5 text-[12px] italic leading-snug">{notice.hint}</p>}
-    </div>
+    <p className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-900 animate-in fade-in-0 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+      <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+      {text}
+    </p>
   )
 }
 
-function NextStop({
-  a,
-  index,
-  scanning,
-  embedded,
-  onScan,
-}: {
-  a: AttemptView
-  index: number
-  scanning: boolean
-  embedded: boolean
-  onScan: () => void
-}) {
+/**
+ * Where to go next: the clue. After a wrong Scan the same card says so
+ * first ("Wrong machine: this is VAC-203"), so the clue shows only once.
+ */
+function ClueCard({ a, index, embedded, wrong }: { a: AttemptView; index: number; embedded: boolean; wrong: string | null }) {
   const stop = a.stops[index]
   const [reveal, setReveal] = useState(false)
+  if (!stop) return null
   return (
-    <div className="space-y-3 rounded-2xl border bg-card p-4">
-      <div className="flex items-center gap-2">
-        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
-          <Navigation className="h-4 w-4" />
-        </span>
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {index === 0 ? "Your first stop" : "Your next stop"}
+    <div
+      role={wrong ? "alert" : undefined}
+      data-clue
+      className={cn(
+        "space-y-3 rounded-xl border bg-card p-4",
+        wrong && "border-2 border-red-300 animate-in fade-in-0 zoom-in-95 dark:border-red-500/50",
+      )}
+    >
+      {wrong ? (
+        <p className="flex items-center gap-2 text-base font-semibold text-red-700 dark:text-red-300" data-wrong-scan>
+          <XCircle className="h-5 w-5 shrink-0" />
+          Wrong machine: this is {wrong}
         </p>
-      </div>
-      <p className="text-[17px] font-semibold leading-snug">{stop.hint || "Find the next Asset of the Round."}</p>
+      ) : (
+        <p className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+          <Navigation className="h-4 w-4 text-primary" />
+          {index === 0 ? "Your first stop" : `Stop ${index + 1}: your next stop`}
+        </p>
+      )}
+      <p className="text-lg font-semibold leading-snug">{stop.hint || "Find the next Asset of the Round."}</p>
       {reveal ? (
-        <p className="flex items-center gap-1.5 rounded-lg bg-muted px-2.5 py-1.5 text-[12px]">
-          <MapPin className="h-3.5 w-3.5 text-primary" />
+        <p className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-base">
+          <MapPin className="h-4 w-4 text-primary" />
           <span className="font-mono font-semibold">{stop.code}</span> {stop.name}
         </p>
       ) : (
-        <button
-          type="button"
-          onClick={() => setReveal(true)}
-          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-        >
-          <Eye className="h-3 w-3" /> Stuck? Show which machine
-        </button>
+        <Button variant="outline" className="h-11 w-full gap-2 rounded-xl text-sm" onClick={() => setReveal(true)}>
+          <Eye className="h-4 w-4" /> Stuck? Show which machine
+        </Button>
       )}
       {embedded && (
-        <p className="flex items-start gap-1.5 rounded-lg bg-primary/5 px-2.5 py-2 text-[11px] leading-snug text-primary">
-          <MousePointerClick className="mt-px h-3.5 w-3.5 shrink-0" />
+        <p className="flex items-start gap-2 rounded-lg bg-primary/5 px-3 py-2 text-sm leading-snug text-primary">
+          <MousePointerClick className="mt-0.5 h-4 w-4 shrink-0" />
           Click the machine on the floor plan to walk there and scan its QR code.
         </p>
       )}
-      <Button className="h-11 w-full gap-1.5 rounded-xl" disabled={scanning} onClick={onScan}>
-        {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
-        {scanning ? "Scanning…" : "Scan the QR code"}
-      </Button>
     </div>
   )
 }
@@ -483,34 +473,62 @@ function StopWork({
   a,
   personId,
   stopIndex,
-  finishing,
-  onNextStop,
-  onFinish,
+  scanButton,
+  finishButton,
+  embedded,
+  warn,
+  onClueShown,
 }: {
   a: AttemptView
   personId: Id<"people">
   stopIndex: number
-  finishing: boolean
-  onNextStop: () => void
-  onFinish: () => void
+  scanButton: React.ReactNode
+  finishButton: React.ReactNode
+  embedded: boolean
+  warn: string | null
+  onClueShown: (stopIndex: number | null) => void
 }) {
   const stop = a.stops[stopIndex]
   const qs = a.questions.filter((q) => q.stopIndex === stopIndex)
-  const firstOpen = qs.find((q) => q.answerIndex === null) ?? null
-  // The question on screen stays there after it is answered, so the
-  // feedback can be read, until the person taps Next.
-  const [activeId, setActiveId] = useState<string | null>(null)
-  useEffect(() => {
-    if (activeId === null && firstOpen) setActiveId(firstOpen.id)
-  }, [activeId, firstOpen])
+  const firstOpen = qs.find((q) => !isAnswered(q)) ?? null
+  // The question on screen stays after it is answered, so the feedback can
+  // be read, until the person taps Next.
+  const [activeId, setActiveId] = useState<string | null>(() => firstOpen?.id ?? null)
   const active = activeId === "done" ? null : (qs.find((q) => q.id === activeId) ?? firstOpen)
-  const needsEvidence = stop.evidence !== "none" && stop.evidenceGiven.length === 0
-  const next = a.stops[stopIndex + 1]
-  const isCurrent = stopIndex === (a.round?.currentStop ?? 0) || stop.done
+  const draft = useAnswerDraft(a._id, personId, active)
+  const feedbackRef = useRef<HTMLDivElement>(null)
+  const answered = active ? isAnswered(active) : false
+  const wasAnswered = useRef(answered)
+  useEffect(() => {
+    if (answered && !wasAnswered.current) {
+      requestAnimationFrame(() => feedbackRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }))
+    }
+    wasAnswered.current = answered
+  }, [answered])
 
-  let content: React.ReactNode
+  const needsEvidence = stop.evidence !== "none" && stop.evidenceGiven.length === 0
+  const last = stopIndex === a.stops.length - 1
+  const showsDone = !active && !needsEvidence
+  useEffect(() => {
+    onClueShown(showsDone ? stopIndex : null)
+  }, [showsDone, stopIndex, onClueShown])
+
+  const here = (
+    <div className="flex items-center gap-3 rounded-xl border bg-card p-3">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white">
+        <MapPin className="h-5 w-5" />
+      </span>
+      <div className="min-w-0">
+        <p className="text-[13px] font-medium text-muted-foreground">Stop {stopIndex + 1} · you are here</p>
+        <p className="truncate text-base font-semibold">
+          <span className="font-mono">{stop.code}</span> {stop.name}
+        </p>
+      </div>
+    </div>
+  )
+
   if (active) {
-    const others = qs.filter((q) => q.id !== active.id && q.answerIndex === null)
+    const others = qs.filter((q) => q.id !== active.id && !isAnswered(q))
     const nextLabel = others.length
       ? "Next question"
       : needsEvidence
@@ -518,204 +536,114 @@ function StopWork({
           ? "Next: take a photo"
           : "Next: add a note"
         : "Done here"
-    content = (
-      <RoundQuestion
-        key={active.id}
-        attemptId={a._id}
-        personId={personId}
-        question={active}
-        number={a.questions.findIndex((x) => x.id === active.id) + 1}
-        total={a.questions.length}
-        nextLabel={nextLabel}
-        onNext={() => setActiveId(others[0]?.id ?? "done")}
-      />
+    return (
+      <>
+        <div className="space-y-3 p-3">
+          {warn && <WarnNotice text={warn} />}
+          {here}
+          <RoundQuestion
+            key={active.id}
+            attemptId={a._id}
+            personId={personId}
+            question={active}
+            number={a.questions.findIndex((x) => x.id === active.id) + 1}
+            total={a.questions.length}
+            draft={draft}
+            feedbackRef={feedbackRef}
+          />
+        </div>
+        <StickyBar>
+          {!answered ? (
+            <Button
+              className="h-12 flex-1 gap-2 rounded-xl text-base"
+              disabled={!draft.canCheck}
+              onClick={() => void draft.check()}
+              data-check-answer
+            >
+              {draft.checking ? <Loader2 className="h-5 w-5 animate-spin" /> : <Check className="h-5 w-5" />}
+              Check answer
+            </Button>
+          ) : (
+            <Button className="h-12 flex-1 gap-2 rounded-xl text-base" onClick={() => setActiveId(others[0]?.id ?? "done")} data-next>
+              {nextLabel} <ArrowRight className="h-5 w-5" />
+            </Button>
+          )}
+        </StickyBar>
+      </>
     )
-  } else if (needsEvidence && (stop.evidence === "photo" || stop.evidence === "note")) {
-    content = (
-      <RoundEvidence
-        attemptId={a._id}
-        personId={personId}
-        stopIndex={stopIndex}
-        kind={stop.evidence}
-        assetId={stop.assetId}
-        assetCode={stop.code}
-      />
-    )
-  } else {
-    content = (
-      <div className="space-y-3 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-center dark:border-emerald-500/40 dark:bg-emerald-500/10">
-        <CheckCircle2 className="mx-auto h-7 w-7 text-emerald-600" />
-        <p className="text-sm font-semibold">Stop {stopIndex + 1} done</p>
-        {stop.evidenceGiven.length > 0 && (
-          <p className="text-[11px] text-muted-foreground">
-            {stop.evidence === "photo" ? "Photo" : "Note"} added to your record.
-          </p>
-        )}
-        {next && isCurrent ? (
-          <Button className="h-11 w-full gap-1.5 rounded-xl" onClick={onNextStop}>
-            Go to the next stop
-            <ArrowRight className="h-4 w-4" />
-          </Button>
-        ) : !next ? (
-          <Button className="h-11 w-full gap-1.5 rounded-xl" disabled={finishing} onClick={onFinish}>
-            {finishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Award className="h-4 w-4" />}
-            Finish the Round
-          </Button>
-        ) : (
-          <Button variant="outline" className="h-11 w-full rounded-xl" onClick={onNextStop}>
-            Back to the Round
-          </Button>
-        )}
+  }
+  if (needsEvidence && (stop.evidence === "photo" || stop.evidence === "note")) {
+    return (
+      <div className="space-y-3 p-3">
+        {here}
+        <RoundEvidence
+          attemptId={a._id}
+          personId={personId}
+          stopIndex={stopIndex}
+          kind={stop.evidence}
+          assetId={stop.assetId}
+          assetCode={stop.code}
+        />
       </div>
     )
   }
 
+  // Stop done: say so inline, and show the next clue right away.
+  const right = qs.filter((q) => isRight(q) === true).length
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2.5 rounded-2xl border bg-card p-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
-          <MapPin className="h-4 w-4" />
-        </span>
-        <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Stop {stopIndex + 1} · you are here
-          </p>
-          <p className="truncate text-[13px] font-semibold">
-            <span className="font-mono">{stop.code}</span> {stop.name}
-          </p>
+    <>
+      <div className="space-y-3 p-3">
+        <div
+          className="flex items-center gap-3 rounded-xl border border-emerald-300 bg-emerald-50 p-3 dark:border-emerald-500/40 dark:bg-emerald-500/10"
+          data-stop-done
+        >
+          <CheckCircle2 className="h-6 w-6 shrink-0 text-emerald-600" />
+          <div className="min-w-0">
+            <p className="text-base font-semibold">Stop {stopIndex + 1} done</p>
+            <p className="text-sm text-muted-foreground">
+              {qs.length > 0 ? `${right} of ${qs.length} right` : "No questions here"}
+              {stop.evidenceGiven.length > 0 && ` · ${stop.evidence === "photo" ? "photo" : "note"} added`}
+            </p>
+          </div>
         </div>
+        {!last && <ClueCard a={a} index={stopIndex + 1} embedded={embedded} wrong={null} />}
       </div>
-      {content}
-    </div>
+      <StickyBar>{last ? finishButton : scanButton}</StickyBar>
+    </>
   )
 }
 
 // ---- Finished ---------------------------------------------------------------------
 
-function RoundResult({ a, personId }: { a: AttemptView; personId: Id<"people"> }) {
-  const [, navigate] = useLocation()
-  const start = useMutation(api.attempts.start)
-  const [starting, setStarting] = useState(false)
-  const passed = a.status === "passed"
-  const { correct, total } = a.progress
-
-  async function again() {
-    setStarting(true)
-    try {
-      const next = await start({ trainingId: a.trainingId, personId })
-      navigate(`/m/round/${next}`)
-    } catch (err) {
-      toast.error(errorText(err))
-    } finally {
-      setStarting(false)
-    }
-  }
-
+function StopsSummary({ a }: { a: AttemptView }) {
   return (
-    <div className="flex flex-col gap-3 p-3 pb-6">
-      <div
-        className={cn(
-          "flex flex-col items-center gap-2 rounded-2xl border p-5 text-center",
-          passed
-            ? "border-emerald-300 bg-emerald-50 dark:border-emerald-500/40 dark:bg-emerald-500/10"
-            : "border-red-300 bg-red-50 dark:border-red-500/40 dark:bg-red-500/10",
-        )}
-      >
-        <span
-          className={cn(
-            "flex h-20 w-20 flex-col items-center justify-center rounded-full text-white shadow-sm",
-            passed ? "bg-emerald-500" : "bg-red-500",
-          )}
-        >
-          <span className="text-2xl font-bold tabular-nums leading-none">{a.score ?? 0}%</span>
-        </span>
-        <p className="text-base font-semibold">{passed ? "Round passed" : "Not passed this time"}</p>
-        <p className="text-[12px] text-muted-foreground">
-          {correct} of {total} correct · pass mark {a.passMark}%
-          {a.round ? ` · ${a.round.wrongScans} wrong ${a.round.wrongScans === 1 ? "scan" : "scans"}` : ""}
-        </p>
-      </div>
-
-      {passed ? (
-        <div className="space-y-2 rounded-2xl border bg-card p-3">
-          <p className="flex items-center gap-1.5 text-[13px] font-semibold">
-            <Award className="h-4 w-4 text-emerald-600" />
-            Training record written
-          </p>
-          <p className="text-[11px] leading-snug text-muted-foreground">
-            Proof that {a.personName} passed {a.training?.code} v{a.trainingVersion}: every question, every answer, the
-            photos and notes, and when.
-          </p>
-          {a.skillsRaised.length > 0 && (
-            <ul className="space-y-1">
-              {a.skillsRaised.map((s) => (
-                <li key={s.skillId} className="flex items-center gap-1.5 text-[12px]">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                  {s.renewed ? "Skill renewed" : "Skill raised"}: <span className="font-medium">{s.name}</span>
-                  {!s.renewed && <span className="text-muted-foreground">(level {s.toLevel})</span>}
-                </li>
-              ))}
-            </ul>
-          )}
-          <a
-            href={`/learn/attempts/${a._id}`}
-            className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border bg-background text-[13px] font-medium hover:bg-muted"
-          >
-            Open the Training record
-            <ArrowRight className="h-4 w-4" />
-          </a>
-        </div>
-      ) : (
-        <div className="space-y-2 rounded-2xl border bg-card p-3">
-          <p className="text-[12px] leading-snug text-muted-foreground">
-            The Attempt is kept as it is. A new Attempt gets new questions on the same things.
-          </p>
-          <Button className="h-10 w-full gap-1.5 rounded-xl" disabled={starting} onClick={() => void again()}>
-            {starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-            Walk the Round again
-          </Button>
-          <a
-            href={`/learn/attempts/${a._id}`}
-            className="block text-center text-[11px] text-muted-foreground hover:text-foreground"
-          >
-            See every answer
-          </a>
-        </div>
-      )}
-
-      <ul className="divide-y rounded-2xl border bg-card">
-        {a.stops.map((s) => {
-          const qs = a.questions.filter((q) => q.stopIndex === s.index)
-          const ok = qs.filter((q) => q.correct).length
-          return (
-            <li key={s.index} className="flex items-center gap-2.5 px-3 py-2">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold">
-                {s.index + 1}
+    <ul className="divide-y rounded-xl border bg-card">
+      {a.stops.map((s) => {
+        const qs = a.questions.filter((q) => q.stopIndex === s.index)
+        const ok = qs.filter((q) => isRight(q) === true).length
+        return (
+          <li key={s.index} className="flex min-h-12 items-center gap-3 px-3 py-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[13px] font-semibold">
+              {s.index + 1}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-base">
+                <span className="font-mono font-semibold">{s.code}</span> {s.name}
               </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[12px]">
-                  <span className="font-mono font-semibold">{s.code}</span> {s.name}
-                </span>
-                <span className="block text-[10px] text-muted-foreground">
-                  {qs.length ? `${ok} of ${qs.length} correct` : "No questions"}
-                  {s.evidenceGiven.length > 0 && ` · ${s.evidence === "photo" ? "photo" : "note"} added`}
-                </span>
+              <span className="block text-[13px] text-muted-foreground">
+                {qs.length ? `${ok} of ${qs.length} right` : "No questions"}
+                {s.evidenceGiven.length > 0 && ` · ${s.evidence === "photo" ? "photo" : "note"} added`}
               </span>
-              {qs.length > 0 && ok === qs.length ? (
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              ) : qs.length > 0 ? (
-                <XCircle className="h-4 w-4 text-red-500" />
-              ) : null}
-            </li>
-          )
-        })}
-      </ul>
-
-      <Button variant="outline" className="h-10 gap-1.5 rounded-xl" onClick={() => navigate("/m")}>
-        <Home className="h-4 w-4" />
-        Back to Home
-      </Button>
-    </div>
+            </span>
+            {qs.length > 0 && ok === qs.length ? (
+              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+            ) : qs.length > 0 ? (
+              <XCircle className="h-5 w-5 text-red-600" />
+            ) : null}
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
@@ -724,51 +652,26 @@ function RoundResult({ a, personId }: { a: AttemptView; personId: Id<"people"> }
 function NotYours({ a, checkedIn }: { a: AttemptView; checkedIn: boolean }) {
   const { openCheckIn } = useMobileShell()
   return (
-    <Centered icon={<UserRound className="h-6 w-6" />} tone="primary" title={`This is ${a.personName}'s Round`}>
+    <Centered icon={<UserRound className="h-6 w-6" />} title={`This is ${a.personName}'s Round`}>
       {checkedIn
         ? `A Round is proof for one person. Check in as ${a.personName} to continue it.`
         : `A Round is proof, so it needs to know who you are. Check in as ${a.personName} to continue.`}
-      <Button className="mt-2 h-10 gap-1.5 rounded-xl" onClick={openCheckIn}>
-        <UserRound className="h-4 w-4" />
+      <Button className="mt-3 h-12 gap-2 rounded-xl px-6 text-base" onClick={openCheckIn}>
+        <UserRound className="h-5 w-5" />
         Check in
       </Button>
     </Centered>
   )
 }
 
-function Centered({
-  icon,
-  tone,
-  title,
-  children,
-}: {
-  icon: React.ReactNode
-  tone: "warn" | "primary"
-  title: string
-  children: React.ReactNode
-}) {
+function Centered({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-      <div
-        className={cn(
-          "flex h-12 w-12 items-center justify-center rounded-full",
-          tone === "warn" ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-primary/10 text-primary",
-        )}
-      >
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300">
         {icon}
       </div>
-      <p className="text-sm font-semibold">{title}</p>
-      <div className="flex flex-col items-center gap-1 text-[12px] leading-relaxed text-muted-foreground">{children}</div>
+      <p className="text-base font-semibold">{title}</p>
+      <div className="flex flex-col items-center gap-1 text-sm leading-relaxed text-muted-foreground">{children}</div>
     </div>
-  )
-}
-
-function HomeButton() {
-  const [, navigate] = useLocation()
-  return (
-    <Button size="sm" className="mt-2 gap-1.5" onClick={() => navigate("/m")}>
-      <Home className="h-3.5 w-3.5" />
-      Back to Home
-    </Button>
   )
 }

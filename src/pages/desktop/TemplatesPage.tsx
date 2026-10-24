@@ -6,10 +6,19 @@ import { useState } from "react"
 import { useLocation } from "wouter"
 import { useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
-import { Copy, LayoutTemplate, Pencil, Plus, Trash2 } from "lucide-react"
+import { Copy, LayoutTemplate, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { Button } from "@/components/ui/button"
+import { formatDate } from "@/lib/time"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Card,
   CardContent,
@@ -59,10 +68,7 @@ export function TemplatesList() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
-          Starting points for new documents.
-        </p>
+      <div className="flex items-center justify-end gap-3">
         <Button size="sm" className="gap-1.5" onClick={() => navigate("/templates/new")}>
           <Plus className="h-3.5 w-3.5" />
           New template
@@ -71,7 +77,10 @@ export function TemplatesList() {
       <div className="space-y-3">
 
             {templates === undefined ? (
-              <p className="text-sm text-muted-foreground">Loading…</p>
+              <div className="space-y-3">
+                <Skeleton className="h-20 w-full" />
+                <Skeleton className="h-20 w-full" />
+              </div>
             ) : templates.length === 0 ? (
               <Card>
                 <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
@@ -113,30 +122,38 @@ export function TemplatesList() {
                           <Pencil className="h-3.5 w-3.5" />
                           Edit
                         </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          title="Duplicate"
-                          onClick={() => void onDuplicate(t._id)}
-                        >
-                          <Copy className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                          title="Delete"
-                          onClick={() => setDeleteTarget({ id: t._id, name: t.name })}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="w-9 px-0"
+                              aria-label={`More actions for ${t.name}`}
+                            >
+                              <MoreHorizontal aria-hidden />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onSelect={() => void onDuplicate(t._id)}>
+                              <Copy className="mr-2 h-4 w-4" aria-hidden />
+                              Duplicate
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                              onSelect={() => setDeleteTarget({ id: t._id, name: t.name })}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" aria-hidden />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
                   </CardHeader>
                   <CardContent className="pt-0">
-                    <p className="text-[11px] text-muted-foreground">
-                      Updated {new Date(t.updatedAt).toLocaleDateString()}
+                    <p className="text-xs text-muted-foreground">
+                      Updated {formatDate(t.updatedAt)}
                     </p>
                   </CardContent>
                 </Card>

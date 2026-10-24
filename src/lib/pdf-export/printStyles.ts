@@ -200,7 +200,7 @@ html, body {
   text-transform: uppercase;
   color: #6b7280;
 }
-/* Compact metadata band — title page must always fit one page. */
+/* Compact metadata band, title page must always fit one page. */
 .title-meta-grid {
   margin-top: 12pt;
   border-top: 1pt solid #e5e7eb;
@@ -226,7 +226,7 @@ html, body {
 }
 .title-meta-grid .v { color: #1f2937; }
 
-/* PPE row — mirrors the in-app PpeBlock: blue-tinted band, white chips with
+/* PPE row, mirrors the in-app PpeBlock: blue-tinted band, white chips with
    the ISO-7010-style pictogram. */
 .title-ppe {
   margin-top: 10pt;
@@ -262,7 +262,7 @@ html, body {
 }
 .ppe-chip img { display: inline-block; width: 13pt; height: 13pt; }
 
-/* Title-page document overview — compact tables in a two-column grid so the
+/* Title-page document overview, compact tables in a two-column grid so the
    cover stays on one page. Revision history spans the full width on top. */
 .title-overview {
   margin-top: 10pt;
@@ -322,7 +322,7 @@ html, body {
 }
 
 /* ---------- Front matter ("Document overview" page) ---------- */
-/* Plain section headings + clean tables. No pills — codes are plain monospace
+/* Plain section headings + clean tables. No pills, codes are plain monospace
    cells under explicit "Linked machine / Linked log / Reference" headers. */
 
 .fm-title {
@@ -417,7 +417,7 @@ html, body {
   margin: 12pt 0;
 }
 
-/* Tables — repeat thead on each new page */
+/* Tables, repeat thead on each new page */
 .doc-body table {
   width: 100%;
   border-collapse: collapse;
@@ -496,7 +496,7 @@ html, body {
   justify-content: center;
 }
 
-/* PPE row — mirrors the in-app PpeBlock: orange band, white bordered chips. */
+/* PPE row, mirrors the in-app PpeBlock: orange band, white bordered chips. */
 .doc-body [data-ppe-block] {
   border: 0.6pt solid #fdba74;
   background: #fff7ed;
@@ -559,7 +559,7 @@ html, body {
   font-style: italic;
 }
 
-/* Launch-log chip — matches the editor's sky-toned chip. */
+/* Launch-log chip, matches the editor's sky-toned chip. */
 .doc-body [data-launch-log] {
   display: inline-flex;
   align-items: center;
@@ -572,7 +572,7 @@ html, body {
   border: 0.5pt solid #7dd3fc;
 }
 .doc-body [data-launch-log]::before { content: "▶"; font-size: 7.5pt; color: #0284c7; }
-/* Machine chip — must match the emerald chip shown in the editor / read view. */
+/* Machine chip, must match the emerald chip shown in the editor / read view. */
 .doc-body [data-linked-asset] {
   display: inline-flex;
   align-items: center;
@@ -590,7 +590,7 @@ html, body {
   color: #059669;
 }
 
-/* Reference-document chip — must match the indigo chip in the editor. */
+/* Reference-document chip, must match the indigo chip in the editor. */
 .doc-body [data-reference-doc] {
   display: inline-flex;
   align-items: center;
@@ -639,7 +639,7 @@ html, body {
   color: #475569;
 }
 
-/* Watermark — repeats on every page via fixed positioning */
+/* Watermark, repeats on every page via fixed positioning */
 ${
   watermark
     ? `

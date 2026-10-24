@@ -75,7 +75,7 @@ export function AnalysisIndexPage() {
               className="h-8 pl-8 text-xs"
             />
           </div>
-          <div className="flex flex-wrap gap-1.5 text-[10px]">
+          <div className="flex flex-wrap gap-1.5 text-xs">
             <Badge className={cn(STATUS_CLASS.done)}>
               {counts.done} Done
             </Badge>
@@ -120,18 +120,18 @@ export function AnalysisIndexPage() {
                       {a.title}
                     </TableCell>
                     <TableCell className="align-top">
-                      <Badge variant="outline" className="text-[10px]">
+                      <Badge variant="outline" className="text-xs">
                         {a.area}
                       </Badge>
                     </TableCell>
                     <TableCell className="align-top text-xs text-muted-foreground">
                       {a.summary}
                     </TableCell>
-                    <TableCell className="align-top font-mono text-[11px] text-muted-foreground">
+                    <TableCell className="align-top font-mono text-xs text-muted-foreground">
                       {a.updatedAt}
                     </TableCell>
                     <TableCell className="align-top">
-                      <Badge className={cn("text-[10px]", STATUS_CLASS[a.status])}>
+                      <Badge className={cn("text-xs", STATUS_CLASS[a.status])}>
                         {STATUS_LABEL[a.status]}
                       </Badge>
                     </TableCell>

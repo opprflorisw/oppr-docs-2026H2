@@ -25,6 +25,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 import { PrepareRevisionButton } from "@/components/insights/PrepareRevisionDialog"
+import { DocumentsTabs } from "@/components/docs/DocumentsTabs"
+import { TrainingSignalsHealth } from "@/components/learn/training/TrainingSignalsHealth"
 
 type Health = NonNullable<ReturnType<typeof useHealth>>
 type Item = Health["neverUsed"][number]
@@ -54,13 +56,9 @@ export function KnowledgeHealthPage() {
       <PageHeader
         icon={HeartPulse}
         title="Knowledge health"
-        subtitle="Is the library lean and relevant? Published documents only, signals from the last 90 days."
-        actions={
-          <Button size="sm" variant="outline" asChild>
-            <Link href="/library/findings">Findings</Link>
-          </Button>
-        }
+        statusLine="Is the library lean and relevant? Published documents only, signals from the last 90 days."
       />
+      <DocumentsTabs />
       <div className="mx-auto w-full max-w-6xl space-y-8 p-6">
         {data === undefined ? (
           <div className="space-y-4">
@@ -141,6 +139,7 @@ function HealthBody({ data }: { data: Health }) {
         empty="No document stands out for unanswered questions or unclear marks."
       />
       <NotInLibrary data={data} />
+      <TrainingSignalsHealth />
       <Section
         id="contradictions"
         icon={Split}

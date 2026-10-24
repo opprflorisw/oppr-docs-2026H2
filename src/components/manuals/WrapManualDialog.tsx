@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/select"
 import { AssetMultiSelect } from "@/components/docs/AssetMultiSelect"
 import { PdfDropZone } from "./PdfDropZone"
+import { useCheckIn } from "@/lib/checkIn"
 import { titleFromFilename, useUploadPdf, type ReadPdf } from "./readPdf"
 
 type Step = "idle" | "uploading" | "creating"
@@ -41,6 +42,7 @@ export function WrapManualDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const [, navigate] = useLocation()
+  const { person } = useCheckIn()
   const vocab = useQuery(api.naming.listVocabulary, open ? {} : "skip")
   const createManual = useMutation(api.manuals.create)
   const upload = useUploadPdf()
@@ -48,6 +50,8 @@ export function WrapManualDialog({
   const [pdf, setPdf] = useState<ReadPdf | null>(null)
   const [title, setTitle] = useState("")
   const [supplier, setSupplier] = useState("")
+  const [supplierDocNo, setSupplierDocNo] = useState("")
+  const [supplierRevision, setSupplierRevision] = useState("")
   const [location, setLocation] = useState("")
   const [discipline, setDiscipline] = useState("")
   const [assetIds, setAssetIds] = useState<string[]>([])
@@ -109,12 +113,15 @@ export function WrapManualDialog({
         pageTexts: pdf.pageTexts,
         title: title.trim(),
         supplier: supplier.trim(),
+        ...(supplierDocNo.trim() ? { supplierDocNo: supplierDocNo.trim() } : {}),
+        ...(supplierRevision.trim() ? { supplierRevision: supplierRevision.trim() } : {}),
         location,
         discipline,
         assetIds: assetIds as Id<"assets">[],
+        ...(person ? { personId: person._id } : {}),
       })
       toast.success(`${res.namingCode} created as a draft`, {
-        description: "Oppr is stamping every page. Assign a reviewer to start the review.",
+        description: "Oppr is stamping every page. Submit it for review when it is ready.",
       })
       reset()
       onOpenChange(false)
@@ -168,6 +175,32 @@ export function WrapManualDialog({
                 disabled={busy}
                 onChange={(e) => setSupplier(e.target.value)}
                 placeholder="Krauss Extrusionstechnik GmbH"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="wrap-supplier-no" className="text-xs font-medium">
+                Supplier document no. (optional)
+              </Label>
+              <Input
+                id="wrap-supplier-no"
+                className="h-9"
+                value={supplierDocNo}
+                disabled={busy}
+                onChange={(e) => setSupplierDocNo(e.target.value)}
+                placeholder="BA-KX60-EN"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="wrap-supplier-rev" className="text-xs font-medium">
+                Supplier revision (optional)
+              </Label>
+              <Input
+                id="wrap-supplier-rev"
+                className="h-9"
+                value={supplierRevision}
+                disabled={busy}
+                onChange={(e) => setSupplierRevision(e.target.value)}
+                placeholder="Rev. C"
               />
             </div>
             <div className="space-y-1">

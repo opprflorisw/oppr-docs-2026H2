@@ -794,7 +794,7 @@ export function DiagramBuilder({
                   >
                     <option value="">Existing asset…</option>
                     {assetOptions.map((a) => (
-                      <option key={a.code} value={a.code}>{a.code} — {a.name}</option>
+                      <option key={a.code} value={a.code}>{a.code} · {a.name}</option>
                     ))}
                   </select>
                   <Input value={selectedNode.assetCode ?? ""} onChange={(e) => patchNode(selectedNode.id, { assetCode: e.target.value })} placeholder="Or hypothetical code" className="h-7 font-mono text-xs" />
@@ -845,7 +845,7 @@ export function DiagramBuilder({
               <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Background</div>
               <p className="text-muted-foreground">
                 {bg.locked
-                  ? "Locked — clicks pass through to the shapes on top. Unlock from the left rail to move or resize."
+                  ? "Locked: clicks pass through to the shapes on top. Unlock from the left rail to move or resize."
                   : "Drag to move; drag a corner to resize (keeps aspect ratio). Lock it from the left rail when placed."}
               </p>
               <Button type="button" size="sm" variant="outline" className="w-full gap-1.5" onClick={() => patchBg({ locked: !bg.locked })}>

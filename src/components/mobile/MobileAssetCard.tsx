@@ -1,90 +1,52 @@
-// Compact asset list-card for the mobile assets list and the Ask scope picker.
-// Shows the floor pin and the number of Published documents, each labelled,
-// at a tap-friendly density.
+// An Asset row on the floor: code, name, its spot on the floor plan and
+// how many Published documents it has. Save is its own button.
 
-import { ChevronRight, Files, MapPin, Star } from "lucide-react"
+import { ChevronRight, Files } from "lucide-react"
 import type { Asset } from "@/types"
-import { cn } from "@/lib/utils"
+import { SaveButton } from "./MobileDocCard"
 
 interface MobileAssetCardProps {
-  asset: Asset
+  asset: Pick<Asset, "id" | "code" | "name" | "location" | "pin_number">
   docCount?: number
   /** Not shown: asset logs are not used on the floor. */
   logCount?: number
   onClick: () => void
-  pinned?: boolean
-  onTogglePin?: () => void
+  saved?: boolean
+  onToggleSave?: () => void
 }
 
-export function MobileAssetCard({
-  asset,
-  docCount,
-  onClick,
-  pinned,
-  onTogglePin,
-}: MobileAssetCardProps) {
+/** "On the floor plan" when the Asset has a place on the plan. */
+export function spotLabel(pin: number | null | undefined): string | null {
+  return pin == null ? null : "On the floor plan"
+}
+
+export function MobileAssetCard({ asset, docCount, onClick, saved, onToggleSave }: MobileAssetCardProps) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-2xl border bg-card p-3.5 text-left shadow-sm transition active:scale-[0.99]"
-    >
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <div className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
-          {asset.code}
-        </div>
-        <div className="truncate text-sm font-semibold text-foreground">
-          {asset.name}
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {asset.pin_number != null && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary">
-              <MapPin className="h-2.5 w-2.5" />
-              Pin {String(asset.pin_number).padStart(2, "0")}
-            </span>
-          )}
+    <div className="flex items-stretch rounded-2xl border bg-card shadow-sm">
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex min-h-16 min-w-0 flex-1 flex-col gap-0.5 rounded-2xl py-3 pl-4 pr-1 text-left transition active:scale-[0.99]"
+      >
+        <span className="font-mono text-[13px] font-medium text-muted-foreground">{asset.code}</span>
+        <span className="line-clamp-2 text-base font-semibold leading-snug text-foreground">{asset.name}</span>
+        <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px] text-muted-foreground">
           {docCount != null && (
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-                docCount > 0
-                  ? "bg-primary/10 text-primary"
-                  : "border border-dashed border-muted-foreground/20 text-muted-foreground",
-              )}
-            >
-              <Files className="h-2.5 w-2.5" />
-              {docCount} {docCount === 1 ? "doc" : "docs"}
+            <span className="inline-flex items-center gap-1">
+              <Files className="h-3.5 w-3.5" />
+              {docCount} {docCount === 1 ? "document" : "documents"}
             </span>
           )}
-          {asset.location && (
-            <span className="truncate text-[10px] text-muted-foreground">
-              {asset.location}
-            </span>
-          )}
-        </div>
-      </div>
-      {onTogglePin && (
-        <span
-          role="button"
-          tabIndex={-1}
-          onClick={(e) => {
-            e.stopPropagation()
-            onTogglePin()
-          }}
-          aria-label={pinned ? "Unpin asset" : "Pin asset"}
-          className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition",
-            pinned
-              ? "text-amber-500 hover:bg-amber-500/10"
-              : "text-muted-foreground hover:bg-muted hover:text-foreground",
-          )}
-        >
-          <Star
-            className={cn("h-4 w-4", pinned ? "fill-amber-500" : "")}
-          />
+          {asset.location && <span className="truncate">{asset.location}</span>}
+        </span>
+      </button>
+      {onToggleSave ? (
+        <SaveButton saved={!!saved} onToggle={onToggleSave} what="Asset" />
+      ) : (
+        <span className="flex w-10 shrink-0 items-center justify-center text-muted-foreground">
+          <ChevronRight className="h-5 w-5" />
         </span>
       )}
-      <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
-    </button>
+    </div>
   )
 }

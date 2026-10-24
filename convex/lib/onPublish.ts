@@ -2,7 +2,7 @@ import { MutationCtx } from "../_generated/server"
 import { internal } from "../_generated/api"
 import { Id } from "../_generated/dataModel"
 import { findingsAfterPublish } from "../findings"
-import { trainingsAfterPublish } from "../trainings"
+import { markAffectedByPublish } from "../trainings"
 import { skillsAfterPublish } from "../skills"
 
 export interface PublishEvent {
@@ -37,9 +37,11 @@ export async function afterPublish(ctx: MutationCtx, event: PublishEvent) {
   // version is checked against the rest of the Published Knowledge.
   await findingsAfterPublish(ctx, event)
 
-  // A Significant change sends linked Trainings back to review ...
-  await trainingsAfterPublish(ctx, event)
+  // A Significant change, or a removed passage that an objective cites,
+  // sends linked Trainings back to review ...
+  const passageRemoved = await markAffectedByPublish(ctx, event)
 
-  // ... and flags the holders of linked Skills as "re-train needed".
-  await skillsAfterPublish(ctx, event)
+  // ... and flags the holders of linked Skills as "re-train needed". A
+  // removed cited passage counts as Significant, whatever the author chose.
+  await skillsAfterPublish(ctx, { ...event, significantChange: event.significantChange || (passageRemoved && event.previousVersion != null) })
 }

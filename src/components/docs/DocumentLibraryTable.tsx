@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react"
-import { format } from "date-fns"
 import { Link } from "wouter"
 import { useQuery } from "convex/react"
 import {
@@ -8,7 +7,6 @@ import {
   ArrowUp,
   ArrowUpDown,
   Copy,
-  CopyPlus,
   ExternalLink,
   FileText,
   GitBranch,
@@ -38,6 +36,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { formatDate } from "@/lib/time"
+import { useCheckIn } from "@/lib/checkIn"
 import type { Doc } from "@/types"
 import { api } from "../../../convex/_generated/api"
 import { STATUS_LABELS, StatusBadge } from "./StatusBadge"
@@ -49,17 +49,29 @@ export interface AssetPreview {
   name: string
 }
 
-export type DocumentRowAction =
-  | "open"
-  | "duplicate"
-  | "archive"
-  | "copy-id"
-  | "delete"
+/** Master-list details per document (documents.listWithAssetPreviews). */
+export interface DocMeta {
+  owner: string | null
+  approvedBy: string | null
+  effectiveAt: number | null
+  archiveReason?: string | null
+  archivedAt?: number | null
+}
+
+export type OptionalColumn = "owner" | "approvedBy" | "effective"
+
+export type DocumentRowAction = "open" | "archive" | "copy-id" | "delete"
 
 interface DocumentLibraryTableProps {
   docs: Doc[]
   /** Optional map of `documentId` -> linked asset rows, used to render the hover popover. */
   assetsByDoc?: Record<string, AssetPreview[]>
+  /** Master-list details for the optional columns. */
+  metaByDoc?: Record<string, DocMeta>
+  /** Optional columns to show (Owner, Approved by, Effective). */
+  columns?: OptionalColumn[]
+  /** Inside an Asset page the linked assets column says nothing new. */
+  hideAssets?: boolean
   onRowClick?: (doc: Doc) => void
   onAssetClick?: (assetId: string) => void
   onAction?: (action: DocumentRowAction, doc: Doc) => void
@@ -74,12 +86,14 @@ function hasWorkingDraft(doc: Doc): boolean {
   return doc.live_version != null && doc.current_version > doc.live_version
 }
 
-function formatUpdated(iso: string): string {
-  try {
-    return format(new Date(iso), "MMM d, yyyy")
-  } catch {
-    return iso
-  }
+/** A draft that was never Published: the only kind that may be deleted. */
+export function neverPublished(doc: Doc): boolean {
+  return doc.live_version == null && doc.status !== "published" && doc.status !== "archived"
+}
+
+function dateOf(iso: string): string {
+  const t = Date.parse(iso)
+  return Number.isNaN(t) ? iso : formatDate(t)
 }
 
 const DAY = 24 * 60 * 60 * 1000
@@ -100,7 +114,7 @@ function NextReviewCell({ at, now }: { at: number | null | undefined; now: numbe
       title={overdue ? "Periodic review overdue" : soon ? "Periodic review due soon" : undefined}
     >
       {overdue ? "Overdue, " : ""}
-      {formatUpdated(new Date(at).toISOString())}
+      {formatDate(at)}
     </span>
   )
 }
@@ -108,6 +122,9 @@ function NextReviewCell({ at, now }: { at: number | null | undefined; now: numbe
 export function DocumentLibraryTable({
   docs: unsortedDocs,
   assetsByDoc,
+  metaByDoc,
+  columns = [],
+  hideAssets = false,
   onRowClick,
   onAssetClick,
   onAction,
@@ -131,6 +148,7 @@ export function DocumentLibraryTable({
     })
   }, [unsortedDocs, nextReviews, reviewSort])
   const SortIcon = reviewSort === "asc" ? ArrowUp : reviewSort === "desc" ? ArrowDown : ArrowUpDown
+  const show = (c: OptionalColumn) => columns.includes(c)
 
   if (docs.length === 0) {
     return (
@@ -142,7 +160,7 @@ export function DocumentLibraryTable({
       >
         <FileText className="h-8 w-8 text-muted-foreground/50" />
         <p className="text-sm font-medium">No documents</p>
-        <p className="text-xs text-muted-foreground">{emptyMessage}</p>
+        <p className="text-sm text-muted-foreground">{emptyMessage}</p>
       </div>
     )
   }
@@ -152,12 +170,15 @@ export function DocumentLibraryTable({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Document ID</TableHead>
-            <TableHead className="w-[160px]">Type</TableHead>
-            <TableHead className="w-[120px]">Status</TableHead>
-            <TableHead className="w-[100px]">Version</TableHead>
-            <TableHead className="w-[140px]">Linked assets</TableHead>
-            <TableHead className="w-[150px]">
+            <TableHead className="min-w-[280px]">Document</TableHead>
+            <TableHead className="w-[150px]">Type</TableHead>
+            <TableHead className="w-[150px]">Status</TableHead>
+            <TableHead className="w-[80px]">Version</TableHead>
+            {show("owner") && <TableHead className="w-[150px]">Owner</TableHead>}
+            {show("approvedBy") && <TableHead className="w-[150px] whitespace-nowrap">Approved by</TableHead>}
+            {show("effective") && <TableHead className="w-[120px]">Effective</TableHead>}
+            {!hideAssets && <TableHead className="w-[120px] whitespace-nowrap">Linked assets</TableHead>}
+            <TableHead className="w-[140px]">
               <button
                 type="button"
                 onClick={() =>
@@ -170,48 +191,45 @@ export function DocumentLibraryTable({
                 <SortIcon className="h-3 w-3" />
               </button>
             </TableHead>
-            <TableHead className="w-[140px]">Updated</TableHead>
-            <TableHead className="w-[60px]" />
+            <TableHead className="w-[120px]">Updated</TableHead>
+            <TableHead className="w-[52px]" />
           </TableRow>
         </TableHeader>
         <TableBody>
           {docs.map((doc) => {
             const assets = assetsByDoc?.[doc.id] ?? []
+            const meta = metaByDoc?.[doc.id]
             return (
               <TableRow
                 key={doc.id}
                 onClick={onRowClick ? () => onRowClick(doc) : undefined}
-                className={cn(onRowClick && "cursor-pointer")}
+                className={cn("h-12", onRowClick && "cursor-pointer")}
               >
-                <TableCell>
-                  <div className="font-mono text-xs font-bold">
-                    {doc.naming_code || (
-                      <span className="text-muted-foreground">Pre-draft</span>
-                    )}
+                <TableCell className="py-2">
+                  <div className="whitespace-nowrap font-mono text-xs font-semibold">
+                    {doc.naming_code || <span className="text-muted-foreground">Pre-draft</span>}
                   </div>
-                  <div className="text-sm font-normal text-muted-foreground">
-                    {doc.title}
-                  </div>
+                  <div className="text-sm text-muted-foreground">{doc.title}</div>
+                  {doc.status === "archived" && meta?.archiveReason && (
+                    <div className="text-xs text-muted-foreground" title={meta.archiveReason}>
+                      Withdrawn: <span className="italic">{meta.archiveReason}</span>
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell>
                   <TypeBadge type={doc.type} />
                 </TableCell>
                 <TableCell>
-                  <div className="flex items-center gap-1.5">
-                    <StatusBadge
-                      status={
-                        hasWorkingDraft(doc) ? "published" : doc.status
-                      }
-                    />
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <StatusBadge status={hasWorkingDraft(doc) ? "published" : doc.status} />
                     {hasWorkingDraft(doc) && (
                       <Link
                         href={`/docs/${doc.id}?v=${doc.current_version}`}
                         onClick={(e: React.MouseEvent) => e.stopPropagation()}
                         title={`v${doc.current_version} is ${STATUS_LABELS[doc.status].toLowerCase()}: view it`}
-                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
+                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
                       >
-                        <GitBranch className="h-2.5 w-2.5" />
-                        v{doc.current_version} {STATUS_LABELS[doc.status]}
+                        <GitBranch className="h-3 w-3" />v{doc.current_version} {STATUS_LABELS[doc.status]}
                       </Link>
                     )}
                   </div>
@@ -221,22 +239,29 @@ export function DocumentLibraryTable({
                     v{doc.live_version ?? doc.current_version}
                   </span>
                 </TableCell>
-                <TableCell onClick={(e) => e.stopPropagation()}>
-                  <LinkedAssetsCell
-                    assets={assets}
-                    onAssetClick={onAssetClick}
-                  />
-                </TableCell>
-                <TableCell>
+                {show("owner") && (
+                  <TableCell className="text-sm">{meta?.owner ?? <span className="text-muted-foreground">Not set</span>}</TableCell>
+                )}
+                {show("approvedBy") && (
+                  <TableCell className="text-sm">
+                    {meta?.approvedBy ?? <span className="text-muted-foreground">Not yet</span>}
+                  </TableCell>
+                )}
+                {show("effective") && (
+                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                    {meta?.effectiveAt != null ? formatDate(meta.effectiveAt) : "Not published"}
+                  </TableCell>
+                )}
+                {!hideAssets && (
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <LinkedAssetsCell assets={assets} onAssetClick={onAssetClick} />
+                  </TableCell>
+                )}
+                <TableCell className="text-sm">
                   <NextReviewCell at={nextReviews?.[doc.id]} now={now} />
                 </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {formatUpdated(doc.updated_at)}
-                </TableCell>
-                <TableCell
-                  className="text-right"
-                  onClick={(e) => e.stopPropagation()}
-                >
+                <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{dateOf(doc.updated_at)}</TableCell>
+                <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                   <RowActionsMenu doc={doc} onAction={onAction} />
                 </TableCell>
               </TableRow>
@@ -278,9 +303,7 @@ function LinkedAssetsCell({
         </button>
       </HoverCardTrigger>
       <HoverCardContent align="start" sideOffset={8} className="w-80 p-2">
-        <div className="px-2 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Linked assets
-        </div>
+        <div className="px-2 pb-2 pt-1 text-xs font-semibold text-muted-foreground">Linked assets</div>
         <ul className="flex flex-col">
           {assets.map((a) => (
             <li key={a.id}>
@@ -292,12 +315,8 @@ function LinkedAssetsCell({
               >
                 <QrCode className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
-                  <div className="font-mono text-xs font-bold text-foreground">
-                    {a.code}
-                  </div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {a.name}
-                  </div>
+                  <div className="font-mono text-xs font-bold text-foreground">{a.code}</div>
+                  <div className="truncate text-xs text-muted-foreground">{a.name}</div>
                 </div>
               </button>
             </li>
@@ -315,6 +334,11 @@ function RowActionsMenu({
   doc: Doc
   onAction?: (action: DocumentRowAction, doc: Doc) => void
 }) {
+  // Withdrawing and deleting are Engineer sign-offs; the server checks again.
+  const { person } = useCheckIn()
+  const engineer = person?.kind === "engineer"
+  const canWithdraw = engineer && doc.status !== "archived"
+  const canDelete = engineer && neverPublished(doc)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -322,40 +346,37 @@ function RowActionsMenu({
           variant="ghost"
           size="icon"
           className="h-8 w-8"
-          aria-label="Document actions"
+          aria-label={`Actions for ${doc.naming_code || doc.title}`}
           onClick={(e) => e.stopPropagation()}
         >
           <MoreHorizontal className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48">
+      <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuItem onSelect={() => onAction?.("open", doc)}>
           <ExternalLink className="mr-2 h-4 w-4" />
           Open document
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onAction?.("copy-id", doc)}>
+        <DropdownMenuItem onSelect={() => onAction?.("copy-id", doc)} disabled={!doc.naming_code}>
           <Copy className="mr-2 h-4 w-4" />
-          Copy Document ID
+          Copy document ID
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onAction?.("duplicate", doc)}>
-          <CopyPlus className="mr-2 h-4 w-4" />
-          Duplicate
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onSelect={() => onAction?.("archive", doc)}
-          disabled={doc.status === "archived"}
-        >
-          <Archive className="mr-2 h-4 w-4" />
-          Archive
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => onAction?.("delete", doc)}
-          className="text-destructive focus:text-destructive"
-        >
-          <Trash2 className="mr-2 h-4 w-4" />
-          Delete permanently
-        </DropdownMenuItem>
+        {(canWithdraw || canDelete) && <DropdownMenuSeparator />}
+        {canWithdraw && (
+          <DropdownMenuItem onSelect={() => onAction?.("archive", doc)}>
+            <Archive className="mr-2 h-4 w-4" />
+            Withdraw
+          </DropdownMenuItem>
+        )}
+        {canDelete && (
+          <DropdownMenuItem
+            onSelect={() => onAction?.("delete", doc)}
+            className="text-destructive focus:text-destructive"
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Delete permanently
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

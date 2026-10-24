@@ -37,6 +37,13 @@ export const captureTables = {
     tags: v.optional(v.array(v.string())),
     error: v.optional(v.string()),
     seeded: v.optional(v.boolean()),
+    /** Set while the author has paused recording; pausedMs sums earlier pauses. */
+    pausedAt: v.optional(v.number()),
+    pausedMs: v.optional(v.number()),
+    /** The Asset of the last Scan; new Entries are tagged with it. */
+    currentAssetId: v.optional(v.id("assets")),
+    /** When the AI finished organizing the Moments. */
+    processedAt: v.optional(v.number()),
   })
     .index("by_authorId", ["authorId"])
     .index("by_status", ["status"]),
@@ -113,6 +120,8 @@ export const captureTables = {
             ),
             /** The Engineer's choice for a step with Variations. */
             decision: v.optional(v.string()),
+            /** The AI's suggestion for the standard, when Captures differ. */
+            suggestion: v.optional(v.string()),
             evidenceEntryIds: v.optional(v.array(v.id("captureEntries"))),
           }),
         ),
@@ -122,4 +131,19 @@ export const captureTables = {
     /** Drafts made from this set. */
     draftDocumentIds: v.optional(v.array(v.id("documents"))),
   }).index("by_createdAt", ["createdAt"]),
+
+  /** Which Captures or Capture set a Draft was made from (origin "capture"). */
+  captureDrafts: defineTable({
+    documentId: v.id("documents"),
+    captureId: v.optional(v.id("captures")),
+    setId: v.optional(v.id("captureSets")),
+    /** The Capture Ids the Draft was built from. */
+    captureIds: v.array(v.id("captures")),
+    typeCode: v.string(),
+    createdBy: v.id("people"),
+    createdAt: v.number(),
+  })
+    .index("by_documentId", ["documentId"])
+    .index("by_captureId", ["captureId"])
+    .index("by_setId", ["setId"]),
 }

@@ -17,7 +17,7 @@ export function HomeTrainingRows() {
       <div className="flex items-center gap-2">
         <ListChecks className="h-4 w-4 text-primary" />
         <h2 className="text-sm font-semibold">Trainings</h2>
-        <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+        <Badge variant="secondary" className="h-5 px-1.5 text-xs">
           {rows.length}
         </Badge>
       </div>

@@ -1,11 +1,11 @@
-// Hero block at the top of the read view — promotes everything an operator
+// Hero block at the top of the read view. Promotes everything an operator
 // or engineer needs at-a-glance: title, naming code, type/status badges,
 // version, owner, last update, asset chips, tags. PPE chips are pulled from
 // the document body's first PPE node so the operator can see required PPE
 // without scrolling.
 
-import { format } from "date-fns"
 import { useLocation } from "wouter"
+import { formatDate as fmt } from "@/lib/time"
 import { Factory, User as UserIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "./StatusBadge"
@@ -33,6 +33,8 @@ interface DocumentHeroProps {
     reviewer: string | null
     approver: string | null
   }
+  /** Shown instead of a missing author, e.g. "Made from Captures by Lotte Smit". */
+  authorLabel?: string
   /** Sign-offs of the version shown, resolved to the named Engineers. */
   signers?: Signer[]
   /** Which roles are assigned but not signed yet (shown as awaiting). */
@@ -41,8 +43,10 @@ interface DocumentHeroProps {
   effectiveAt?: number | null
   /** When the first version was started (ms). */
   createdAt?: number
-  /** Override the status badge — the reader shows the live edition's status. */
+  /** Override the status badge: the reader shows the live edition's status. */
   statusOverride?: Doc["status"]
+  /** A version that is no longer in use: shown as Superseded with its own range. */
+  superseded?: { by: number | null; from: number | null; to: number | null } | null
   className?: string
 }
 
@@ -53,11 +57,13 @@ export function DocumentHero({
   versionNumber,
   ppeItems = [],
   roles,
+  authorLabel,
   signers,
   assigned,
   effectiveAt,
   createdAt,
   statusOverride,
+  superseded,
   className,
 }: DocumentHeroProps) {
   const [, navigate] = useLocation()
@@ -78,25 +84,39 @@ export function DocumentHero({
               {doc.naming_code || "Pre-draft"}
             </code>
             <TypeBadge type={doc.type} />
-            <StatusBadge status={statusOverride ?? doc.status} />
+            {superseded ? (
+              <Badge
+                variant="outline"
+                data-testid="superseded-pill"
+                className="whitespace-nowrap border-status-archived/30 bg-status-archived-bg font-medium text-status-archived"
+              >
+                Superseded
+              </Badge>
+            ) : (
+              <StatusBadge status={statusOverride ?? doc.status} />
+            )}
             <Badge variant="outline" className="text-xs">
-              v{versionNumber}
+              {superseded?.by != null ? `v${versionNumber} · superseded by v${superseded.by}` : `v${versionNumber}`}
             </Badge>
           </div>
-          <h1 className="text-xl font-semibold leading-tight">{doc.title}</h1>
+          <h2 className="text-xl font-semibold leading-tight">{doc.title}</h2>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-muted-foreground">
             <div className="flex items-center gap-1">
               <UserIcon className="h-3.5 w-3.5" />
               <span>
                 {author
                   ? `${author.name}${author.title ? `, ${author.title}` : ""}`
-                  : (roles?.author ?? owner?.name ?? "Unknown author")}
+                  : (roles?.author ?? authorLabel ?? owner?.name ?? "Unknown author")}
               </span>
             </div>
             <span>
-              {effectiveAt != null
-                ? `Effective ${formatDate(new Date(effectiveAt).toISOString())}`
-                : "Not published yet"}
+              {superseded
+                ? superseded.from != null
+                  ? `Effective ${fmt(superseded.from)} to ${superseded.to != null ? fmt(superseded.to) : "withdrawal"}`
+                  : "Never in use"
+                : effectiveAt != null
+                  ? `Effective ${formatDate(new Date(effectiveAt).toISOString())}`
+                  : "Not published yet"}
             </span>
             <span>
               Created{" "}
@@ -119,7 +139,7 @@ export function DocumentHero({
                     key={a.id}
                     type="button"
                     onClick={() => navigate(`/assets/${a.id}`)}
-                    className="inline-flex items-center gap-1 rounded-full border bg-muted px-2 py-0.5 font-mono text-[11px] hover:border-primary/50 hover:bg-muted/70"
+                    className="inline-flex items-center gap-1 rounded-full border bg-muted px-2 py-0.5 font-mono text-xs hover:border-primary/50 hover:bg-muted/70"
                   >
                     <Factory className="h-3 w-3" />
                     {a.code}
@@ -128,8 +148,8 @@ export function DocumentHero({
               </div>
             )}
           </Section>
-          <Section label="Review & approval">
-            <div className="space-y-1.5 text-[11px]">
+          <Section label="Review and approval">
+            <div className="space-y-1.5 text-xs">
               <SignoffRow
                 label="Reviewer"
                 signer={signers ? signer("reviewer") : null}
@@ -198,7 +218,7 @@ function HeroPpeSection({ ppeItems }: { ppeItems: string[] }) {
               <span
                 key={slug}
                 title={meta.description ?? undefined}
-                className="inline-flex items-center gap-1 rounded-full border border-blue-300 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-900 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-100"
+                className="inline-flex items-center gap-1 rounded-full border border-blue-300 bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-900 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-100"
               >
                 <img
                   src={ppeImageSrc(meta)}
@@ -227,7 +247,7 @@ function Section({
 }) {
   return (
     <div>
-      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="mb-1 text-xs font-semibold text-muted-foreground">
         {label}
       </div>
       {children}
@@ -236,11 +256,8 @@ function Section({
 }
 
 function formatDate(iso: string): string {
-  try {
-    return format(new Date(iso), "MMM d, yyyy")
-  } catch {
-    return iso
-  }
+  const t = Date.parse(iso)
+  return Number.isNaN(t) ? iso : fmt(t)
 }
 
 /**

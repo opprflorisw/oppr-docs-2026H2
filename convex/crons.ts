@@ -21,4 +21,13 @@ crons.weekly(
   { trigger: "weekly" },
 )
 
+// Refresher assignments 30 days before a Skill level or a Training record
+// (refreshMonths) expires.
+crons.daily(
+  "training refreshers",
+  { hourUTC: 4, minuteUTC: 0 },
+  internal.assignments.createRefreshers,
+  {},
+)
+
 export default crons

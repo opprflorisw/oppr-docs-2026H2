@@ -82,7 +82,7 @@ export function FloorplanModal({
                     className="absolute -translate-x-1/2 -translate-y-1/2 transition-transform hover:scale-110 focus:outline-none"
                     style={{ left: `${a.pin_x}%`, top: `${a.pin_y}%` }}
                     aria-label={`${a.code} ${a.name}`}
-                    title={`${a.code} — ${a.name}`}
+                    title={`${a.code} · ${a.name}`}
                   >
                     <FloorplanPin n={a.pin_number ?? 0} />
                   </button>
@@ -137,7 +137,7 @@ export function FloorplanModal({
                             {String(a.pin_number).padStart(2, "0")}
                           </span>
                         ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
+                          <span className="text-xs text-muted-foreground">None</span>
                         )}
                       </TableCell>
                       <TableCell>

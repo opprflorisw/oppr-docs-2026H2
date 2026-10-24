@@ -200,7 +200,7 @@ export function TemplateEditPage() {
                 <Input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="SOP — Standard"
+                  placeholder="SOP, standard"
                 />
               </div>
               <div className="space-y-1.5">

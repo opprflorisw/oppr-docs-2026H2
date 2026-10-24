@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import { BatteryFull, Footprints, SignalHigh, Wifi } from "lucide-react"
 import { AssetQrSvg } from "@/components/docs/AssetQrSvg"
+import { formatTime } from "@/lib/time"
 
 // A phone of 390 x 844 logical pixels (an iPhone-sized screen), scaled down
 // to fit next to the plan. The app area is a containing block for
@@ -32,7 +33,7 @@ export function PhoneFrame({ children, overlay }: { children: ReactNode; overlay
       const top = Math.min(Math.max(el.getBoundingClientRect().top, 0), 140)
       const availH = window.innerHeight - top - 16
       const availW = el.clientWidth
-      setScale(Math.max(0.55, Math.min(1, availH / FRAME_H, availW / FRAME_W)))
+      setScale(Math.max(0.6, Math.min(1, availH / FRAME_H, availW / FRAME_W)))
     }
     fit()
     const ro = new ResizeObserver(fit)
@@ -60,7 +61,16 @@ export function PhoneFrame({ children, overlay }: { children: ReactNode; overlay
             <StatusBar />
             <div
               className="relative min-h-0 flex-1 overflow-hidden"
-              style={{ transform: "translateZ(0)", height: SCREEN_H - STATUS_H - HOME_H }}
+              // The frame draws its own status bar and home indicator, so the
+              // app inside needs no extra safe-area padding.
+              style={
+                {
+                  transform: "translateZ(0)",
+                  height: SCREEN_H - STATUS_H - HOME_H,
+                  "--sat": "0px",
+                  "--sab": "0px",
+                } as CSSProperties
+              }
             >
               {children}
               <ScanOverlay overlay={overlay} />
@@ -81,7 +91,7 @@ function StatusBar() {
     const t = window.setInterval(() => setNow(new Date()), 20_000)
     return () => window.clearInterval(t)
   }, [])
-  const time = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
+  const time = formatTime(now)
   return (
     <div className="relative flex shrink-0 items-center justify-between bg-background px-7 text-foreground" style={{ height: STATUS_H }}>
       <span className="text-[14px] font-semibold tabular-nums">{time}</span>

@@ -48,6 +48,8 @@ export type ToolName =
   | "oppr_get_document"
   | "oppr_find_similar"
   | "oppr_list_assets"
+  | "oppr_list_wikis"
+  | "oppr_get_wiki"
   | "oppr_skill_coverage"
   | "oppr_training_records"
   | "oppr_import_draft"
@@ -217,6 +219,33 @@ export const TOOLS: ToolDef[] = [
     inputSchema: {
       type: "object",
       properties: { area: areaProp },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "oppr_list_wikis",
+    title: "List Wikis",
+    scope: "read:published",
+    readOnly: true,
+    description:
+      "List the plant's Wikis: generated overviews (for example 'Line 2 changeovers') built only from Published documents, each fact citing its source passage and version. Returns id, title, purpose, section headings, how many facts it shows and the source documents with versions. Use it to find a ready-made overview of a topic, then read it with oppr_get_wiki. A Wiki is a reading aid, not a controlled document: cite the source documents, not the Wiki.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "oppr_get_wiki",
+    title: "Read a Wiki",
+    scope: "read:published",
+    readOnly: true,
+    description:
+      "Read one Wiki by id (from oppr_list_wikis) or by title. Returns its sections and facts, each fact with the Published source passages it cites (naming code and version), plus the list of source documents. Facts whose source has a newer, withdrawn or unpublished version are left out until the Wiki is rebuilt. Quote naming codes verbatim; for the controlled text, read the source with oppr_get_document.",
+    inputSchema: {
+      type: "object",
+      properties: { wiki: str("Wiki id from oppr_list_wikis, or the Wiki title (or part of it).", 200) },
+      required: ["wiki"],
       additionalProperties: false,
     },
   },

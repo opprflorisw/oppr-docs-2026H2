@@ -63,11 +63,15 @@ const COMPANY = "Pijpwerk Noord"
 // coverSettings, seedMedia.
 const WIPE_TABLES: TableNames[] = [
   "captureMoments",
+  "captureDrafts",
   "captureEntries",
   "captureSets",
   "captures",
   "coverageQuestions",
   "trainingSignals",
+  "trainingAssignments",
+  "tryOutRequests",
+  "wikiBuilds",
   "mcpCalls",
   "mcpKeys",
   "skillEvents",
@@ -339,11 +343,21 @@ export const writeDocumentRows = internalMutation({
     const user = await ctx.db.query("users").first()
     const userId = user?._id ?? null
     const out: { code: string; id: Id<"documents"> }[] = []
+    // Lifecycle roles as people (the seeded Engineers), the same names as the
+    // version sign-offs: Owner is the author, then the reviewer and approver.
+    // Drafts and documents in review show "Waiting for <name>" without a new submit.
+    const engineers = new Map(
+      (await ctx.db.query("people").take(200)).filter((x) => x.kind === "engineer").map((x) => [x.name, x._id]),
+    )
     for (const p of plans()) {
       const live = liveEdition(p)
       const liveAgo = live != null ? p.editions[live - 1].publishedDaysAgo : null
       const lastAgo = p.editions[p.editions.length - 1].publishedDaysAgo
+      const signers = SIGNERS[p.discipline] ?? SIGNERS.OPS
       const id = await ctx.db.insert("documents", {
+        ownerPersonId: engineers.get(signers.author) ?? null,
+        reviewerPersonId: engineers.get(signers.reviewer) ?? null,
+        approverPersonId: engineers.get(signers.approver) ?? null,
         namingCode: p.code,
         location: p.area,
         discipline: p.discipline,

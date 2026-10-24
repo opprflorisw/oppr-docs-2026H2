@@ -219,7 +219,7 @@ export function SkillDialog({
               placeholder="Pick Trainings"
               empty="No Trainings yet."
             />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Only published Trainings count. A Training built from a linked document counts too.
             </p>
           </div>
@@ -384,7 +384,7 @@ export function ProfileDialog({
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <Label className="text-xs">Target levels</Label>
-              <span className="text-[11px] text-muted-foreground">{count} Skills</span>
+              <span className="text-xs text-muted-foreground">{count} Skills</span>
             </div>
             {catalogue.skills.length === 0 ? (
               <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
@@ -407,7 +407,7 @@ export function ProfileDialog({
                             title={l === 0 ? "Not needed" : `Level ${l}: ${LEVEL_NAMES[l]}`}
                             onClick={() => setTargets((t) => ({ ...t, [s._id]: l }))}
                             className={cn(
-                              "h-6 w-8 border-l text-[11px] first:border-l-0",
+                              "h-6 w-8 border-l text-xs first:border-l-0",
                               level === l
                                 ? l === 0
                                   ? "bg-muted font-medium"
@@ -424,7 +424,7 @@ export function ProfileDialog({
                 })}
               </div>
             )}
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               1 trained, 2 qualified (practice signed off), 3 can train others.
             </p>
           </div>

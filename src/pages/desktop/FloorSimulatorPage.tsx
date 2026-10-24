@@ -3,10 +3,9 @@ import { useSearch } from "wouter"
 import { memoryLocation } from "wouter/memory-location"
 import { useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
-import { Footprints, Map as MapIcon, MapPin, MousePointerClick, ScanLine, Smartphone, X } from "lucide-react"
+import { Footprints, Map as MapIcon, MapPin, MousePointerClick, ScanLine, X } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TopBar } from "@/components/layout/TopBar"
@@ -44,7 +43,11 @@ export function FloorSimulatorPage() {
   const deepRound = useMemo(() => new URLSearchParams(search).get("round"), [search])
   const { person, people, checkIn } = useCheckIn()
   const assets = useQuery(api.floor.plan)
-  const rounds = useQuery(api.floor.rounds, { personId: person?._id ?? null })
+  const roundsData = useQuery(api.floor.rounds, { personId: person?._id ?? null })
+  const rounds = useMemo(
+    () => (roundsData ? [...roundsData.forYou, ...roundsData.other] : undefined),
+    [roundsData],
+  )
   const startAttempt = useMutation(api.attempts.start)
   const abandonAttempt = useMutation(api.attempts.abandon)
 
@@ -202,10 +205,6 @@ export function FloorSimulatorPage() {
     }
   }
 
-  function openFloorView() {
-    window.open(`${window.location.origin}/m`, "oppr-floor", "width=390,height=844,resizable=yes,scrollbars=yes")
-  }
-
   const hereAsset = here ? assetById.get(here) : null
 
   return (
@@ -216,12 +215,6 @@ export function FloorSimulatorPage() {
         icon={MapIcon}
         title="Floor simulator"
         subtitle="Walk the plant and see what an Operator sees on the phone after a Scan."
-        actions={
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={openFloorView}>
-            <Smartphone className="h-3.5 w-3.5" />
-            Open the phone app in a window
-          </Button>
-        }
       />
 
       <div className="grid gap-6 p-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,440px)]">

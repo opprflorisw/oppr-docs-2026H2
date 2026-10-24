@@ -188,10 +188,34 @@ export function PrepareRevisionDialog({
           <Button size="sm" variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
-          <Button size="sm" onClick={() => void submit()} disabled={busy || !chosen || chosen.wrapped}>
-            {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />}
-            Prepare revision{chosen ? ` of ${chosen.namingCode}` : ""}
-          </Button>
+          {chosen && !chosen.wrapped && chosen.revisionInProgress && chosen.workingVersion != null ? (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  onOpenChange(false)
+                  navigate(`/docs/${chosen.documentId}?v=${chosen.workingVersion}`)
+                }}
+              >
+                Open v{chosen.workingVersion}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  onOpenChange(false)
+                  navigate(`/docs/${chosen.documentId}/edit?finding=${finding._id}`)
+                }}
+              >
+                Open v{chosen.workingVersion} and add this fix
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" onClick={() => void submit()} disabled={busy || !chosen || chosen.wrapped}>
+              {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />}
+              Prepare revision{chosen ? ` of ${chosen.namingCode}` : ""}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -243,8 +267,8 @@ function SideOption({
           </span>
         )}
         {!side.wrapped && side.revisionInProgress && (
-          <span className="mt-1 block text-[11px] text-amber-700 dark:text-amber-400">
-            A revision of this document is already in progress.
+          <span className="mt-1 block text-xs text-amber-700 dark:text-amber-400">
+            A new version (v{side.workingVersion}) is already in progress. Add the fix there.
           </span>
         )}
       </span>

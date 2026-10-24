@@ -24,7 +24,7 @@ import { fmtDate, ProgressBar, ScoreBadge } from "@/components/learn/training/li
 import { initials, type Person } from "@/lib/checkIn"
 import { cn } from "@/lib/utils"
 
-export type FloorRound = FunctionReturnType<typeof api.floor.rounds>[number]
+export type FloorRound = FunctionReturnType<typeof api.floor.rounds>["forYou"][number]
 
 /**
  * Round mode, next to the plan: pick a published Round, check in, start.

@@ -9,8 +9,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import type { AttemptView } from "./AttemptReview"
-import { QuestionCard } from "./QuestionCard"
-import { errorText } from "./lib"
+import { isAnswered, QuestionCard } from "./QuestionCard"
+import { errorText, uploadBlob } from "./lib"
 
 type ScanResult =
   | { ok: true; stopIndex: number }
@@ -73,7 +73,7 @@ export function RoundRunner({ a, personId }: { a: AttemptView; personId: Id<"peo
             >
               <span
                 className={cn(
-                  "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
+                  "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
                   state === "done" ? "bg-emerald-500 text-white" : "bg-muted text-muted-foreground",
                   (state === "here" || state === "next") && "bg-primary text-primary-foreground",
                 )}
@@ -83,15 +83,12 @@ export function RoundRunner({ a, personId }: { a: AttemptView; personId: Id<"peo
               <span className="min-w-0">
                 <span className="block font-mono font-medium">{s.code}</span>
                 <span className="block text-muted-foreground">{s.name}</span>
-                {state === "next" && <span className="mt-0.5 block text-[11px] text-primary">Go here next</span>}
-                {state === "here" && <span className="mt-0.5 block text-[11px] text-primary">You are here</span>}
+                {state === "next" && <span className="mt-0.5 block text-xs text-primary">Go here next</span>}
+                {state === "here" && <span className="mt-0.5 block text-xs text-primary">You are here</span>}
               </span>
             </li>
           )
         })}
-        <li className="px-1 pt-1 text-[11px] text-muted-foreground">
-          {round.wrongScans} wrong {round.wrongScans === 1 ? "scan" : "scans"} so far
-        </li>
       </ol>
 
       <div className="min-w-0 space-y-4">
@@ -137,7 +134,7 @@ export function RoundRunner({ a, personId }: { a: AttemptView; personId: Id<"peo
                 Scan its QR code
               </Button>
             </div>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               On the floor you scan the QR code on the machine. Here you pick the Asset you are standing at.
             </p>
             {result && "expected" in result && result.expected && (
@@ -148,7 +145,7 @@ export function RoundRunner({ a, personId }: { a: AttemptView; personId: Id<"peo
                 <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
                 {result.reason === "finish_here_first"
                   ? `Finish this stop first: ${result.expected.code} ${result.expected.name}.`
-                  : `You're at the wrong machine. Go to ${result.expected.code} ${result.expected.name}.`}
+                  : `Wrong machine. Go to ${result.expected.code} ${result.expected.name}.`}
               </p>
             )}
           </div>
@@ -171,7 +168,7 @@ function StopWork({
 }) {
   const stop = a.stops[stopIndex]
   const questions = a.questions.filter((q) => q.stopIndex === stopIndex)
-  const allAnswered = questions.every((q) => q.answerIndex !== null)
+  const allAnswered = questions.every(isAnswered)
   const needsEvidence = stop.evidence !== "none" && stop.evidenceGiven.length === 0
   const next = a.stops[stopIndex + 1]
   return (
@@ -245,10 +242,7 @@ function EvidenceForm({
   async function sendPhoto(file: File) {
     setSaving(true)
     try {
-      const url = await uploadUrl()
-      const res = await fetch(url, { method: "POST", headers: { "Content-Type": file.type }, body: file })
-      if (!res.ok) throw new Error("The photo could not be uploaded. Try again.")
-      const { storageId } = (await res.json()) as { storageId: Id<"_storage"> }
+      const storageId = await uploadBlob(() => uploadUrl(), file)
       await addEvidence({ id: a._id, personId, stopIndex, kind: "photo", storageId })
     } catch (err) {
       toast.error(errorText(err))

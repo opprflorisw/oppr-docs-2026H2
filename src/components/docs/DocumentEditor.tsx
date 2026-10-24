@@ -293,7 +293,7 @@ function makeSlashItems(
     {
       key: "reference-doc",
       label: "Reference document…",
-      hint: "Cite another document — added to the References table on publish",
+      hint: "Cite another document. It is added to the References table on publish",
       icon: <BookMarked className="h-4 w-4 text-indigo-600" />,
       run: () => openReferenceDocPicker(),
     },

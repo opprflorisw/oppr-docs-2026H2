@@ -3,7 +3,9 @@ import { GoogleGenerativeAI } from "@google/generative-ai"
 import {
   ActionCtx,
   httpAction,
+  internalAction,
   internalQuery,
+  QueryCtx,
 } from "../_generated/server"
 import { internal } from "../_generated/api"
 import { Doc, Id } from "../_generated/dataModel"
@@ -36,12 +38,39 @@ const SYSTEM_INSTRUCTION = [
 export type AskScope =
   | { kind: "doc"; id: Id<"documents"> }
   | { kind: "asset"; id: Id<"assets"> }
+  | { kind: "wiki"; id: Id<"wikis"> }
   | { kind: "library" }
 
 export type ScopeArg =
   | { kind: "doc"; id: string }
   | { kind: "asset"; id: string }
+  | { kind: "wiki"; id: string }
   | { kind: "library" }
+
+const askScopeValidator = v.union(
+  v.object({ kind: v.literal("doc"), id: v.id("documents") }),
+  v.object({ kind: v.literal("asset"), id: v.id("assets") }),
+  v.object({ kind: v.literal("wiki"), id: v.id("wikis") }),
+  v.object({ kind: v.literal("library") }),
+)
+
+/**
+ * Ask this Wiki: the Wiki's source documents at the versions it was built
+ * from, and only while that version is still the Published one (a stale
+ * source is withheld, as on the Wiki page itself).
+ */
+async function wikiSourceVersions(
+  ctx: { db: QueryCtx["db"] },
+  wikiId: Id<"wikis">,
+): Promise<Map<string, number>> {
+  const wiki = await ctx.db.get(wikiId)
+  const out = new Map<string, number>()
+  for (const s of wiki?.sources ?? []) {
+    const d = await ctx.db.get(s.documentId)
+    if (d && publishedVersion(d) === s.version) out.set(String(s.documentId), s.version)
+  }
+  return out
+}
 
 export interface CitationOut {
   documentId: string
@@ -116,11 +145,7 @@ async function embedQuery(text: string, apiKey: string): Promise<number[]> {
 export const lookupAfterSearch = internalQuery({
   args: {
     chunkIds: v.array(v.id("chunks")),
-    scope: v.union(
-      v.object({ kind: v.literal("doc"), id: v.id("documents") }),
-      v.object({ kind: v.literal("asset"), id: v.id("assets") }),
-      v.object({ kind: v.literal("library") }),
-    ),
+    scope: askScopeValidator,
   },
   handler: async (ctx, args) => {
     const chunks = (
@@ -128,7 +153,10 @@ export const lookupAfterSearch = internalQuery({
     ).filter((c): c is Doc<"chunks"> => c !== null)
 
     let allowedDocIds: Set<string> | null = null
-    if (args.scope.kind === "doc") {
+    if (args.scope.kind === "wiki") {
+      const pinned = await wikiSourceVersions(ctx, args.scope.id)
+      allowedDocIds = new Set(pinned.keys())
+    } else if (args.scope.kind === "doc") {
       allowedDocIds = new Set([args.scope.id])
     } else if (args.scope.kind === "asset") {
       const assetId = args.scope.id
@@ -174,13 +202,23 @@ export const lookupAfterSearch = internalQuery({
 
 export const buildScopeOverview = internalQuery({
   args: {
-    scope: v.union(
-      v.object({ kind: v.literal("doc"), id: v.id("documents") }),
-      v.object({ kind: v.literal("asset"), id: v.id("assets") }),
-      v.object({ kind: v.literal("library") }),
-    ),
+    scope: askScopeValidator,
   },
   handler: async (ctx, args) => {
+    if (args.scope.kind === "wiki") {
+      const w = await ctx.db.get(args.scope.id)
+      if (!w) return "WIKI not found."
+      const pinned = await wikiSourceVersions(ctx, w._id)
+      const lines = [
+        `WIKI: ${w.title}. For: ${w.purpose}`,
+        `Answer only from the documents this Wiki is built from (${pinned.size}):`,
+        ...w.sources
+          .filter((s) => pinned.has(String(s.documentId)))
+          .map((s) => `- ${s.namingCode} · ${s.title} · v${s.version}`),
+        `Sections: ${(w.content?.sections ?? []).map((s) => s.heading).join("; ")}`,
+      ]
+      return lines.join("\n")
+    }
     if (args.scope.kind === "library") {
       const docs = (await ctx.db.query("documents").take(500)).filter(
         isPublished,
@@ -297,6 +335,12 @@ async function prepareAskContext(
       { assetId: args.scope.id },
     )
     linkedDocIds = linked.map((d) => d._id)
+  } else if (args.scope.kind === "wiki") {
+    const sources: { _id: Id<"documents"> }[] = await ctx.runQuery(
+      internal.ai.ask.lookupWikiDocs,
+      { wikiId: args.scope.id },
+    )
+    linkedDocIds = sources.map((d) => d._id)
   }
 
   let vectorResults: { _id: Id<"chunks">; _score: number }[] = []
@@ -500,6 +544,14 @@ async function prepareAskContext(
   return { contents, citations, conflicts }
 }
 
+export const lookupWikiDocs = internalQuery({
+  args: { wikiId: v.id("wikis") },
+  handler: async (ctx, args) => {
+    const pinned = await wikiSourceVersions(ctx, args.wikiId)
+    return [...pinned.keys()].map((id) => ({ _id: id as Id<"documents"> }))
+  },
+})
+
 export const lookupAssetDocs = internalQuery({
   args: { assetId: v.id("assets") },
   handler: async (ctx, args) => {
@@ -629,7 +681,9 @@ export const askStream = httpAction(async (ctx, req) => {
         // people cannot delete it with their chat history.
         try {
           await ctx.runMutation(internal.usage.logAsk, {
-            scope: payload.scope,
+            // The Ask log knows documents, Assets and the library; a Wiki
+            // question is logged by the documents it cited.
+            scope: payload.scope.kind === "wiki" ? { kind: "library" } : payload.scope,
             question: payload.question.slice(0, 1000),
             answerFound:
               prepared.citations.length > 0 && !NOT_FOUND_RE.test(fullText.slice(0, 600)),
@@ -659,4 +713,46 @@ export const askStream = httpAction(async (ctx, req) => {
       ...cors,
     },
   })
+})
+
+/**
+ * Dev check (wiki lane): Ask with scope "wiki" retrieves only from the Wiki's
+ * own source documents. Uses the real embedding call, no answer generation.
+ * Run: npx convex run ai/ask:testWikiScope '{"question":"How do I calibrate the UT-200?"}'
+ */
+export const testWikiScope = internalAction({
+  args: { question: v.string(), wikiId: v.optional(v.id("wikis")) },
+  handler: async (ctx, args) => {
+    const apiKey = process.env.GEMINI_API_KEY
+    if (!apiKey) return { ok: false, reason: "no GEMINI_API_KEY" }
+    const wikis: { _id: Id<"wikis">; title: string; sourceIds: string[] }[] = await ctx.runQuery(
+      internal.ai.ask.wikisForTest,
+      {},
+    )
+    const wiki = args.wikiId ? wikis.find((w) => w._id === args.wikiId) : wikis[0]
+    if (!wiki) return { ok: false, reason: "no Wiki" }
+    const prepared = await prepareAskContext(
+      ctx,
+      { scope: { kind: "wiki", id: wiki._id }, question: args.question, history: [] },
+      apiKey,
+    )
+    const allowed = new Set(wiki.sourceIds)
+    const cited = prepared.citations.map((c) => c.documentId)
+    return {
+      ok: cited.length > 0 && cited.every((id) => allowed.has(id)),
+      wiki: wiki.title,
+      citations: cited.length,
+      outside: cited.filter((id) => !allowed.has(id)),
+    }
+  },
+})
+
+export const wikisForTest = internalQuery({
+  args: {},
+  handler: async (ctx) =>
+    (await ctx.db.query("wikis").take(50)).map((w) => ({
+      _id: w._id,
+      title: w.title,
+      sourceIds: w.sources.map((s) => String(s.documentId)),
+    })),
 })

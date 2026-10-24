@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { formatDate } from "@/lib/time"
 import { useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
 import { CalendarClock, CheckCircle2, GitBranch } from "lucide-react"
@@ -29,7 +30,7 @@ const DAY = 24 * 60 * 60 * 1000
 const INTERVALS = [6, 12, 24, 36]
 
 function formatDay(at: number) {
-  return new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })
+  return formatDate(at)
 }
 
 // Periodic review (CONTEXT.md) for a Published Document: when it is due, and
@@ -95,7 +96,7 @@ export function PeriodicReviewCard({
         </p>
         {next != null && (
           <p className="text-[11px] text-muted-foreground">
-            {new Date(next).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}
+            {formatDate(next, true)}
           </p>
         )}
       </div>

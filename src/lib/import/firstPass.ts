@@ -111,7 +111,7 @@ export function buildFirstPass(opts: {
     doc.extractWarnings.push({
       kind: "scannedPdf",
       detail:
-        "Pages contained little text — likely a scanned PDF. Steps and section headings will be lossy.",
+        "Pages contained little text, likely a scanned PDF. Steps and section headings will be lossy.",
     })
   }
 

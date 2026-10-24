@@ -1,10 +1,13 @@
 // DocumentNewPage
 //
 // Entry point for "New document", reached from the chooser:
-//   • /docs/new/compose?blank=1        — empty editor
-//   • /docs/new/compose?template=<id>  — editor seeded from a DB template
-//   • /docs/new/import                 — PDF upload, embedded as an attachment
-//                                        node inside an otherwise normal doc
+//   /docs/new/compose?blank=1        empty editor
+//   /docs/new/compose?template=<id>  editor seeded from a DB template
+//   /docs/new/import                 PDF upload, embedded as an attachment
+//                                    node inside an otherwise normal doc
+//
+// Location and Discipline default from the last used values, then from the
+// checked-in person's area.
 //
 // The naming code is built server-side from Location + Discipline + Type +
 // auto sequence. Linked assets are derived from the body. All flows call
@@ -43,20 +46,36 @@ import { walkBodyAssetIds } from "@/lib/bodyAssets"
 import { walkBodyRefs } from "@/lib/bodyRefs"
 import { walkBodyLogs } from "@/lib/bodyLogs"
 import type { DocumentType } from "@/types"
+import { useCheckIn } from "@/lib/checkIn"
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 const EMPTY_DOC = { type: "doc", content: [{ type: "paragraph" }] }
+const LAST_FILING_KEY = "oppr-docs:last-filing"
+
+function readLastFiling(): { location: string; discipline: string } {
+  try {
+    const raw = window.localStorage.getItem(LAST_FILING_KEY)
+    const v = raw ? (JSON.parse(raw) as { location?: unknown; discipline?: unknown }) : null
+    return {
+      location: typeof v?.location === "string" ? v.location : "",
+      discipline: typeof v?.discipline === "string" ? v.discipline : "",
+    }
+  } catch {
+    return { location: "", discipline: "" }
+  }
+}
 
 function defaultMetadata(): MetadataValue {
+  const last = readLastFiling()
   return {
     title: "",
     type: "sop",
-    location: "",
-    discipline: "",
-    ownerId: "",
-    reviewerId: "",
-    approverId: "",
+    location: last.location,
+    discipline: last.discipline,
+    ownerPersonId: "",
+    reviewerPersonId: "",
+    approverPersonId: "",
   }
 }
 
@@ -77,7 +96,8 @@ export function DocumentNewPage() {
   const assetsRaw = useQuery(api.assets.list)
   const docsRaw = useQuery(api.documents.list, {})
   const logsRaw = useQuery(api.logs.list)
-  const me = useQuery(api.users.me)
+  const vocab = useQuery(api.naming.listVocabulary)
+  const { person } = useCheckIn()
 
   const [meta, setMeta] = useState<MetadataValue>(() => defaultMetadata())
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -99,14 +119,35 @@ export function DocumentNewPage() {
     setTemplateApplied(true)
   }, [kind, templateApplied, templateId, template])
 
-  // Default the owner to the author (creator), once the user loads. The user can
-  // still change it or clear it to leave a blank owner.
-  const ownerSeeded = useRef(false)
+  // Default the owner to the checked-in Engineer, and the location to the
+  // person's area when nothing was used before. Both stay editable.
+  const peopleSeeded = useRef(false)
   useEffect(() => {
-    if (ownerSeeded.current || !me) return
-    ownerSeeded.current = true
-    setMeta((m) => (m.ownerId ? m : { ...m, ownerId: me._id }))
-  }, [me])
+    if (peopleSeeded.current || !person || !vocab) return
+    peopleSeeded.current = true
+    const area = (person.area ?? "").trim().toLowerCase()
+    const areaLocation = area
+      ? vocab.locations.find((l) => l.code.toLowerCase() === area || l.label.toLowerCase() === area)?.code
+      : undefined
+    setMeta((m) => ({
+      ...m,
+      ownerPersonId: m.ownerPersonId || (person.kind === "engineer" ? person._id : ""),
+      location: m.location || areaLocation || "",
+    }))
+  }, [person, vocab])
+
+  // Why Create is not possible yet, said next to the button.
+  const createBlocker =
+    kind === "pdf" && !pdfPreviewReady()
+      ? "Choose a PDF first."
+      : !meta.title.trim()
+        ? "Give it a title."
+        : !meta.location || !meta.discipline
+          ? "Choose a location and a discipline."
+          : null
+  function pdfPreviewReady() {
+    return pdfPreview != null
+  }
 
   const derivedAssets = useMemo(() => {
     const ids = walkBodyAssetIds(body)
@@ -184,10 +225,24 @@ export function DocumentNewPage() {
     }
     if (!validation.ok) {
       setErrors(validation.errors)
-      toast.error("Please fix the metadata errors")
+      toast.error("Fix the details marked in the panel first")
       return
     }
     setErrors({})
+    try {
+      window.localStorage.setItem(
+        LAST_FILING_KEY,
+        JSON.stringify({ location: meta.location, discipline: meta.discipline }),
+      )
+    } catch {
+      // Storage blocked: the defaults are simply not remembered.
+    }
+    const roles = {
+      ownerPersonId: (meta.ownerPersonId || null) as Id<"people"> | null,
+      reviewerPersonId: (meta.reviewerPersonId || null) as Id<"people"> | null,
+      approverPersonId: (meta.approverPersonId || null) as Id<"people"> | null,
+      ...(person ? { personId: person._id } : {}),
+    }
     setSubmitting(true)
     try {
       if (kind === "pdf") {
@@ -229,9 +284,7 @@ export function DocumentNewPage() {
           discipline: meta.discipline,
           title: meta.title.trim(),
           type: meta.type,
-          ownerId: (meta.ownerId || null) as Id<"users"> | null,
-          reviewerId: (meta.reviewerId || null) as Id<"users"> | null,
-          approverId: (meta.approverId || null) as Id<"users"> | null,
+          ...roles,
           body: pdfBody,
           chunks: raw.map((r) => ({ text: r.text, section: r.section })),
           pdfStorageId: storageId,
@@ -247,17 +300,14 @@ export function DocumentNewPage() {
         discipline: meta.discipline,
         title: meta.title.trim(),
         type: meta.type,
-        ownerId: (meta.ownerId || null) as Id<"users"> | null,
-        reviewerId: (meta.reviewerId || null) as Id<"users"> | null,
-        approverId: (meta.approverId || null) as Id<"users"> | null,
+        ...roles,
         body,
         chunks: raw.map((r) => ({ text: r.text, section: r.section })),
       })
       toast.success("Document created")
       setLocation(`/docs/${docId}/edit`)
     } catch (err) {
-      console.error(err)
-      toast.error(err instanceof Error ? err.message : "Save failed")
+      toast.error(err instanceof Error ? err.message : "The document could not be created.")
     } finally {
       setSubmitting(false)
     }
@@ -274,19 +324,18 @@ export function DocumentNewPage() {
       />
       <PageHeader
         title={`New ${kind === "pdf" ? "PDF import" : "document"}`}
-        subtitle={
+        statusLine={
           kind === "pdf"
-            ? "Drop a PDF, set metadata, and create. The PDF embeds as an attachment you can author around."
-            : "Compose the body, set metadata, and create."
+            ? "Choose a PDF, fill in the details and create. The PDF is embedded so you can write around it."
+            : "Write the body, fill in the details and create."
         }
-        actions={
-          <Button onClick={submit} disabled={submitting} size="sm">
-            {submitting
-              ? "Saving…"
-              : kind === "pdf"
-                ? "Import PDF"
-                : "Create document"}
-          </Button>
+        primary={
+          <span className="flex items-center gap-2">
+            {createBlocker && <span className="text-xs text-muted-foreground">{createBlocker}</span>}
+            <Button onClick={() => void submit()} disabled={submitting || createBlocker != null} size="sm">
+              {submitting ? "Creating..." : kind === "pdf" ? "Import PDF" : "Create document"}
+            </Button>
+          </span>
         }
       />
 
@@ -300,8 +349,7 @@ export function DocumentNewPage() {
                   Source PDF
                 </CardTitle>
                 <CardDescription>
-                  Parsed locally for chunks, uploaded to Convex storage, and
-                  embedded as an attachment in the new document.
+                  Read in your browser, stored with the document and embedded as an attachment.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -342,9 +390,7 @@ export function DocumentNewPage() {
                     <span className="text-sm font-medium">
                       Drop a PDF or click to choose
                     </span>
-                    <span className="text-xs text-muted-foreground">
-                      application/pdf only
-                    </span>
+                    <span className="text-xs text-muted-foreground">PDF files only</span>
                   </label>
                 )}
                 <input
@@ -365,14 +411,14 @@ export function DocumentNewPage() {
               <CardHeader>
                 <CardTitle className="text-base">Body</CardTitle>
                 <CardDescription>
-                  Get started here — you can keep editing after creation.
+                  Get started here. You can keep editing after you create it.
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <DocumentEditor
                   content={body}
                   onChange={(json) => setBody(json)}
-                  placeholder="Write the first paragraph… type / for blocks"
+                  placeholder="Write the first paragraph. Type / for blocks"
                   toolbarTopOffset={104}
                 />
               </CardContent>

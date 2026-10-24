@@ -1,116 +1,70 @@
-import { useState } from "react"
-import { useLocation } from "wouter"
-import { useMutation, useQuery } from "convex/react"
-import { toast } from "sonner"
-import { BadgeCheck, ChevronRight, GraduationCap, Loader2, RotateCcw } from "lucide-react"
-import { api } from "../../../convex/_generated/api"
-import type { Id } from "../../../convex/_generated/dataModel"
-import { errorText } from "@/components/learn/training/lib"
-import { useCheckIn } from "@/lib/checkIn"
+import { Link } from "wouter"
+import { ChevronRight, ListTodo } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
+import { TodoRow, type TodoItem } from "./MobileTodo"
 
 /**
- * My learning on mobile Home, for a checked-in person: the top Next up item
- * with one button. A Round opens on the phone; a Training (questions at a
- * screen) opens its mobile Attempt page.
+ * "To do" on Home: the next 2 things to do, by due date, each with one
+ * action. A blocked Training is never offered; it waits in Me with its reason.
  */
-export function MobileLearningCard() {
-  const { person } = useCheckIn()
-  if (!person) return null
-  return <LearningCard personId={person._id} />
+export function MobileLearningCard({ items, loading }: { items: TodoItem[]; loading: boolean }) {
+  if (loading) {
+    return (
+      <section className="flex flex-col gap-2">
+        <Heading count={null} />
+        <Skeleton className="h-28 w-full rounded-2xl" />
+      </section>
+    )
+  }
+  const doable = items.filter((i) => !i.waiting)
+  const waiting = items.length - doable.length
+  if (items.length === 0) {
+    return (
+      <section className="flex flex-col gap-2">
+        <Heading count={0} />
+        <p className="rounded-2xl border bg-card px-4 py-3 text-base text-muted-foreground">
+          Nothing to do right now. Your Skills are up to date.
+        </p>
+      </section>
+    )
+  }
+  const shown = doable.slice(0, 2)
+  const more = doable.length - shown.length
+  return (
+    <section className="flex flex-col gap-2">
+      <Heading count={doable.length} />
+      {shown.length === 0 && (
+        <Link
+          href="/m/me"
+          className="flex min-h-14 items-center gap-2 rounded-2xl border bg-card px-4 py-3 text-base text-muted-foreground"
+        >
+          <span className="flex-1">
+            Nothing to do now. {waiting === 1 ? "One item is" : `${waiting} items are`} waiting for someone else.
+          </span>
+          <ChevronRight className="h-5 w-5 shrink-0" />
+        </Link>
+      )}
+      {shown.map((item) => (
+        <TodoRow key={item.key} item={item} busy={item.action?.label === "Starting"} />
+      ))}
+      {(more > 0 || (shown.length > 0 && waiting > 0)) && (
+        <Link
+          href="/m/me"
+          className="flex min-h-11 items-center justify-center gap-1 rounded-xl text-sm font-semibold text-[#6E59A5]"
+        >
+          {more > 0 ? `${more} more in Me` : `${waiting} waiting for someone, in Me`}
+          <ChevronRight className="h-4 w-4" />
+        </Link>
+      )}
+    </section>
+  )
 }
 
-function LearningCard({ personId }: { personId: Id<"people"> }) {
-  const [, navigate] = useLocation()
-  const data = useQuery(api.skills.myLearning, { personId })
-  const mine = useQuery(api.attempts.listMine, { personId })
-  const start = useMutation(api.attempts.start)
-  const [busy, setBusy] = useState(false)
-
-  if (!data || data.todo.length === 0) return null
-  const top = data.todo[0]
-  const row = top.row
-  const training = top.kind !== "signoff" ? (row.offered.find((t) => !t.passed) ?? row.offered[0] ?? null) : null
-  const open = training
-    ? mine?.find(
-        (a) =>
-          a.trainingId === training._id &&
-          (a.status === "in_progress" || a.status === "generating" || a.status === "error"),
-      )
-    : undefined
-  const note =
-    top.kind === "retrain"
-      ? "Re-train needed"
-      : top.kind === "expired"
-        ? `Level ${row.level} expired`
-        : top.kind === "expiring"
-          ? `Level ${row.level} runs out soon`
-          : top.kind === "signoff"
-            ? `Level ${row.effectiveLevel} of ${row.target}: ask an Engineer for a practice sign-off`
-            : `Needed: level ${row.target}`
-  const Icon = top.kind === "retrain" ? RotateCcw : top.kind === "signoff" ? BadgeCheck : GraduationCap
-
-  function openAttempt(id: Id<"trainingAttempts">, kind: "course" | "round") {
-    // Both open inside the phone: a Round walks the plant, a Training asks
-    // its questions one at a time.
-    navigate(kind === "round" ? `/m/round/${id}` : `/m/attempt/${id}`)
-  }
-
-  async function go() {
-    if (!training) return
-    if (open) {
-      openAttempt(open._id, training.kind)
-      return
-    }
-    setBusy(true)
-    try {
-      const id = await start({ trainingId: training._id, personId })
-      openAttempt(id, training.kind)
-    } catch (err) {
-      toast.error(errorText(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const label = open ? "Continue" : training?.kind === "round" ? "Walk the Round" : "Start Training"
-
+function Heading({ count }: { count: number | null }) {
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1 px-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        <GraduationCap className="h-2.5 w-2.5" />
-        My learning
-        {data.todo.length > 1 && (
-          <span className="ml-auto font-normal normal-case tracking-normal">{data.todo.length - 1} more after this</span>
-        )}
-      </div>
-      <div className="flex flex-col gap-1.5 rounded-md border bg-card px-2 py-2">
-        <div className="flex items-start gap-2">
-          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-primary/10 text-primary">
-            <Icon className="h-3 w-3" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[11px] font-medium leading-tight">{row.skill.name}</div>
-            <div className="text-[9px] leading-snug text-muted-foreground">{note}</div>
-          </div>
-        </div>
-        {training && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void go()}
-            // The brand's deep violet: white text on it passes contrast, unlike the light primary.
-            className="flex min-h-11 items-center gap-2 rounded-lg bg-[#6E59A5] px-3 py-2 text-left text-white shadow-sm transition hover:bg-[#5b4892] active:scale-[0.99] disabled:opacity-70"
-          >
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[12px] font-semibold leading-tight">
-                {label}: {training.title}
-              </div>
-              <div className="font-mono text-[9px] opacity-90">{training.code}</div>
-            </div>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronRight className="h-4 w-4" />}
-          </button>
-        )}
-      </div>
-    </div>
+    <h2 className="flex items-center gap-1.5 px-1 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <ListTodo className="h-4 w-4" />
+      To do{count ? ` · ${count}` : ""}
+    </h2>
   )
 }

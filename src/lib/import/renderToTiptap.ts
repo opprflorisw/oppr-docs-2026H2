@@ -78,7 +78,7 @@ export function renderToTiptap(
     out.push(
       bulletList(
         doc.linkedDocs.map((d) => {
-          const code = d.code ? `${d.code} — ` : ""
+          const code = d.code ? `${d.code}: ` : ""
           return `${code}${d.title ?? "(untitled)"}`
         }),
       ),

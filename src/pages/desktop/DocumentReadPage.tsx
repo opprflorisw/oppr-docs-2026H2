@@ -2,8 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useRoute, useSearch } from "wouter"
 import {
   AlertTriangle,
+  Archive,
   ArrowLeft,
   ArrowRight,
+  BookOpenText,
+  Camera,
   Edit,
   FileDown,
   GitBranch,
@@ -12,6 +15,7 @@ import {
   Pencil,
   Printer,
 } from "lucide-react"
+import { Link } from "wouter"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -27,6 +31,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
 import { useMutation, useQuery } from "convex/react"
+import type { FunctionReturnType } from "convex/server"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { toLegacyAsset, toLegacyDoc } from "@/lib/convex-adapters"
@@ -47,6 +52,9 @@ import { WrappedManualView } from "@/components/manuals/WrappedManualView"
 import { useRecordUsage } from "@/lib/usage"
 import { useCheckIn } from "@/lib/checkIn"
 import { STATUS_LABELS } from "@/components/docs/StatusBadge"
+import { SubmitForReviewDialog } from "@/components/docs/LifecycleDialogs"
+import { WithdrawDocumentDialog } from "@/components/docs/DocumentActions"
+import { formatDate } from "@/lib/time"
 
 export function DocumentReadPage() {
   const [, params] = useRoute<{ id: string }>("/docs/:id")
@@ -54,6 +62,7 @@ export function DocumentReadPage() {
   const search = useSearch()
   const [, navigate] = useLocation()
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [pdfOpen, setPdfOpen] = useState(false)
   const [overrideVersion, setOverrideVersion] = useState<number | null>(() => {
     const v = new URLSearchParams(
       typeof window !== "undefined" ? window.location.search : "",
@@ -66,12 +75,23 @@ export function DocumentReadPage() {
     const n = parseInt(new URLSearchParams(search).get("v") ?? "", 10)
     setOverrideVersion(Number.isFinite(n) && n > 0 ? n : null)
   }, [search])
+  // Viewing a version is part of the address (?v=1), so it can be shared and
+  // Back returns to the version in use.
+  function viewVersion(v: number | null) {
+    const p = new URLSearchParams(search)
+    p.delete("hl")
+    if (v == null) p.delete("v")
+    else p.set("v", String(v))
+    const q = p.toString()
+    setOverrideVersion(v)
+    navigate(`/docs/${id}${q ? `?${q}` : ""}`)
+  }
   const [forkOpen, setForkOpen] = useState(false)
   const [forking, setForking] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   const createNewVersion = useMutation(api.documents.createNewVersion)
-  const submitForReview = useMutation(api.documents.submitForReview)
-  const [submitting, setSubmitting] = useState(false)
+  const [submitOpen, setSubmitOpen] = useState(false)
+  const [withdrawOpen, setWithdrawOpen] = useState(false)
   // Authoring is an Engineer's job (CONTEXT.md): only a checked-in Engineer
   // sees New version, Edit and the editor entries.
   const { person } = useCheckIn()
@@ -149,6 +169,20 @@ export function DocumentReadPage() {
 
   const rawDoc = docResult?.doc
   const isWrapped = rawDoc?.origin === "wrapped"
+  // A Draft made from Captures: the Captures (and their authors) it came from.
+  const captureSources = useQuery(
+    api.captures.captures.sourcesForDocument,
+    rawDoc?.origin === "capture"
+      ? { documentId: rawDoc._id, ...(person ? { personId: person._id } : {}) }
+      : "skip",
+  )
+  const captureAuthors = [...new Set((captureSources?.captures ?? []).map((c) => c.authorName))]
+  const heroAuthorLabel =
+    rawDoc?.origin === "capture" && !docResult?.roles?.author
+      ? captureAuthors.length > 0
+        ? `Made from Captures by ${joinNames(captureAuthors)}`
+        : "Made from Captures"
+      : undefined
   const liveVer = rawDoc?.liveVersion ?? null
   const workingVer = rawDoc?.currentVersion ?? 1
   const workingStatus = rawDoc?.status
@@ -170,23 +204,11 @@ export function DocumentReadPage() {
     if (isPublished) setForkOpen(true)
     else goEdit()
   }
-  async function handleSubmitForReview() {
-    if (!rawDoc) return
-    setSubmitting(true)
-    try {
-      await submitForReview({ id: rawDoc._id })
-      toast.success("Submitted for review")
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't submit for review")
-    } finally {
-      setSubmitting(false)
-    }
-  }
   async function confirmFork() {
     if (!rawDoc) return
     setForking(true)
     try {
-      const res = await createNewVersion({ id: rawDoc._id })
+      const res = await createNewVersion({ id: rawDoc._id, ...(person ? { personId: person._id } : {}) })
       toast.success(`Started v${res.version} draft`)
       setForkOpen(false)
       navigate(`/docs/${rawDoc._id}/edit`)
@@ -262,24 +284,28 @@ export function DocumentReadPage() {
 
   if (!ready) {
     return (
-      <div className="space-y-4 p-6">
-        <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-96 w-full" />
+      <div className="flex flex-col">
+        <TopBar breadcrumb={[{ label: "Documents", href: "/library" }]} />
+        <div className="space-y-4 p-6">
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-96 w-full" />
+        </div>
       </div>
     )
   }
 
   if (!docWithAssets) {
     return (
-      <div className="space-y-3 p-6">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/library")} className="-ml-2">
-          <ArrowLeft className="mr-1 h-4 w-4" />
-          Back to documents
-        </Button>
-        <h1 className="text-xl font-semibold">Document not found</h1>
-        <p className="text-sm text-muted-foreground">
-          We couldn't find a document with id <code>{id}</code>.
-        </p>
+      <div className="flex flex-col">
+        <TopBar breadcrumb={[{ label: "Documents", href: "/library" }]} />
+        <PageHeader title="Document not found" />
+        <div className="space-y-3 p-6">
+          <p className="text-sm text-muted-foreground">There is no document with this link. It may have been deleted.</p>
+          <Button variant="outline" size="sm" onClick={() => navigate("/library")}>
+            <ArrowLeft />
+            Back to Documents
+          </Button>
+        </div>
       </div>
     )
   }
@@ -297,7 +323,38 @@ export function DocumentReadPage() {
   const onWorkingVersion =
     renderedVersionNumber === workingVer && (liveVer == null || workingVer > liveVer)
   const statusLabel = (s: typeof workingStatus) => (s ? STATUS_LABELS[s] : "")
-
+  // A version that was Published once and is no longer the one in use is
+  // Superseded: it keeps its own effective range, from its publication to the
+  // publication of the next version (or the withdrawal).
+  const archived = workingStatus === "archived"
+  const renderedPublishedOnce = liveVer != null && renderedVersionNumber <= liveVer
+  const isSuperseded =
+    renderedPublishedOnce && (renderedVersionNumber < liveVer! || (archived && overrideVersion != null))
+  const published = (versionList ?? []).filter((v) => liveVer != null && v.version <= liveVer)
+  const renderedRow = published.find((v) => v.version === renderedVersionNumber)
+  const nextRow = published
+    .filter((v) => v.version > renderedVersionNumber)
+    .sort((a, b) => a.version - b.version)[0]
+  const superseded = isSuperseded
+    ? {
+        by: nextRow?.version ?? null,
+        from: renderedRow?.publishedAt ?? null,
+        to: nextRow?.publishedAt ?? docResult?.withdrawal?.at ?? null,
+      }
+    : null
+  // Print and PDF of a version that is not in use are for Engineers only:
+  // an Operator must never carry a draft or an old version to the floor.
+  const inUse = !archived && liveVer != null && renderedVersionNumber === liveVer
+  const canExport = inUse || canRevise
+  const statusLine = superseded
+    ? `v${renderedVersionNumber} · superseded${superseded.by != null ? ` by v${superseded.by}` : ""}`
+    : archived
+      ? `v${renderedVersionNumber} · withdrawn`
+      : viewingDraft
+        ? `v${renderedVersionNumber} · draft in progress`
+        : hasWorkingDraft
+          ? `v${renderedVersionNumber} · Published, in use`
+          : `v${renderedVersionNumber} · ${statusLabel(docWithAssets.status).toLowerCase()}`
   return (
     <div className="flex h-full flex-col print:block">
       <div className="sticky top-0 z-30 print:hidden">
@@ -314,68 +371,50 @@ export function DocumentReadPage() {
         />
         <PageHeader
           title={`${docWithAssets.naming_code} · ${docWithAssets.title}`}
-          subtitle={
-            viewingDraft
-              ? `v${renderedVersionNumber} · draft in progress`
-              : hasWorkingDraft
-                ? `v${renderedVersionNumber} · published, in use`
-                : `v${renderedVersionNumber} · ${statusLabel(docWithAssets.status).toLowerCase()}`
+          documentTitle={docWithAssets.naming_code}
+          statusLine={statusLine}
+          secondary={[
+            { label: "History", icon: History, onClick: () => setHistoryOpen(true) },
+            // A Wrapped manual has its own controlled-copy download.
+            ...(!isWrapped && canExport
+              ? [
+                  { label: "PDF", icon: FileDown, onClick: () => setPdfOpen(true) },
+                  { label: "Print", icon: Printer, onClick: () => window.print() },
+                ]
+              : []),
+          ]}
+          menu={
+            canRevise && !archived
+              ? [{ label: "Withdraw", icon: Archive, destructive: true, onClick: () => setWithdrawOpen(true) }]
+              : []
           }
-          actions={
-            <>
-              {/* A Wrapped manual has its own controlled-copy download. */}
-              {!isWrapped && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => window.print()}
-                >
-                  <Printer className="mr-1 h-3.5 w-3.5" />
-                  Print
-                </Button>
-              )}
+          primary={
+            archived ? undefined : canRevise ? (
               <Button
                 size="sm"
-                variant="outline"
-                onClick={() => setHistoryOpen(true)}
+                // Arriving for a periodic review, the review card is the decision.
+                variant={new URLSearchParams(search).get("panel") === "review" ? "outline" : "default"}
+                onClick={handleEdit}
               >
-                <History className="mr-1 h-3.5 w-3.5" />
-                History
+                <Edit />
+                {isPublished ? "New version" : "Edit"}
               </Button>
-              {!isWrapped && <PublishToPdfDialog
-                documentId={docWithAssets.id}
-                version={renderedVersionNumber}
-                trigger={
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1.5"
-                    title={`Export v${renderedVersionNumber}, the version you are viewing, as a PDF`}
-                  >
-                    <FileDown className="h-3.5 w-3.5" />
-                    PDF
-                  </Button>
-                }
-              />}
-              {canRevise ? (
-                <Button
-                  size="sm"
-                  // Arriving for a periodic review, the review card is the decision.
-                  variant={new URLSearchParams(search).get("panel") === "review" ? "outline" : "default"}
-                  onClick={handleEdit}
-                >
-                  <Edit className="mr-1 h-3.5 w-3.5" />
-                  {isPublished ? "New version" : "Edit"}
-                </Button>
-              ) : (
-                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Lock className="h-3.5 w-3.5" />
-                  Check in as an Engineer to revise
-                </span>
-              )}
-            </>
+            ) : (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Lock className="h-3.5 w-3.5" />
+                Check in as an Engineer to revise
+              </span>
+            )
           }
         />
+        {!isWrapped && (
+          <PublishToPdfDialog
+            documentId={docWithAssets.id}
+            version={renderedVersionNumber}
+            open={pdfOpen}
+            onOpenChange={setPdfOpen}
+          />
+        )}
       </div>
 
       <div className="mx-auto grid w-full max-w-7xl flex-1 gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_240px] print:block print:max-w-none print:p-0">
@@ -394,7 +433,7 @@ export function DocumentReadPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => setOverrideVersion(workingVer)}
+                    onClick={() => viewVersion(workingVer)}
                   >
                     <GitBranch className="mr-1 h-3.5 w-3.5" />
                     View v{workingVer} draft
@@ -421,7 +460,7 @@ export function DocumentReadPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => setOverrideVersion(null)}
+                    onClick={() => viewVersion(null)}
                   >
                     View live v{liveVer}
                   </Button>
@@ -439,17 +478,17 @@ export function DocumentReadPage() {
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription className="flex items-center justify-between gap-3">
                 <span>
-                  {liveVer != null && renderedVersionNumber < liveVer
-                    ? `You are viewing v${renderedVersionNumber}, a superseded version kept for the record. Do not work from it. The version in use is v${liveVer}.`
+                  {superseded
+                    ? `You are viewing v${renderedVersionNumber}, a superseded version kept for the record. Do not work from it.${archived ? " This document is withdrawn." : ` The version in use is v${liveVer}.`}`
                     : `You are viewing v${renderedVersionNumber}, which is not the version in use.`}
                 </span>
                 <Button
                   size="sm"
                   variant="outline"
                   className="print:hidden"
-                  onClick={() => setOverrideVersion(null)}
+                  onClick={() => viewVersion(null)}
                 >
-                  Back to v{servingVer}
+                  {archived ? "Back to the latest version" : `Back to v${servingVer}`}
                 </Button>
               </AlertDescription>
             </Alert>
@@ -461,29 +500,39 @@ export function DocumentReadPage() {
               <AlertDescription className="space-y-2">
                 <p>
                   {workingStatus === "archived"
-                    ? "This document is archived. It is no longer valid and is not shown to Operators, Ask or Wikis."
-                    : "This document is not published yet. It does not count as knowledge: Operators, Ask and Wikis cannot see it."}
+                    ? "This document is withdrawn. It is no longer valid and is not shown to Operators, Ask or Wikis."
+                    : "This document is not Published yet. It does not count as Knowledge: Operators, Ask and Wikis cannot see it."}
                 </p>
+                {workingStatus === "archived" && docResult?.withdrawal && (
+                  <p className="text-sm">
+                    {docResult.withdrawal.reason ? <>Reason: {docResult.withdrawal.reason}. </> : null}
+                    {docResult.withdrawal.by ? `Withdrawn by ${docResult.withdrawal.by}` : "Withdrawn"}
+                    {docResult.withdrawal.at ? ` on ${formatDate(docResult.withdrawal.at)}` : ""}.
+                    {docResult.withdrawal.replacedBy && (
+                      <>
+                        {" "}Use{" "}
+                        <Link href={`/docs/${docResult.withdrawal.replacedBy._id}`} className="font-medium underline">
+                          {docResult.withdrawal.replacedBy.namingCode}
+                        </Link>{" "}
+                        instead.
+                      </>
+                    )}
+                  </p>
+                )}
                 {workingStatus !== "archived" && rawDoc && canRevise && (
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-amber-300/60 pt-2 print:hidden">
                     <span className="flex items-center gap-1.5 font-medium">
                       <ArrowRight className="h-3.5 w-3.5" />
-                      {nextStepText(workingStatus, Boolean(rawDoc.reviewerId), Boolean(rawDoc.approverId))}
+                      {nextStepText(workingStatus, docResult?.assigned.reviewer?.name ?? null, docResult?.assigned.approver?.name ?? null)}
                     </span>
                     <span className="flex shrink-0 gap-2">
-                      {workingStatus === "draft" && rawDoc.reviewerId && (
-                        <Button size="sm" onClick={() => void handleSubmitForReview()} disabled={submitting}>
-                          {submitting ? "Submitting…" : "Submit for review"}
+                      {workingStatus === "draft" && (
+                        <Button size="sm" onClick={() => setSubmitOpen(true)}>
+                          Submit for review
                         </Button>
                       )}
-                      <Button
-                        size="sm"
-                        variant={workingStatus === "draft" && rawDoc.reviewerId ? "outline" : "default"}
-                        onClick={goEdit}
-                      >
-                        {workingStatus === "draft" && !rawDoc.reviewerId
-                          ? "Assign reviewer"
-                          : "Open in editor"}
+                      <Button size="sm" variant={workingStatus === "draft" ? "outline" : "default"} onClick={goEdit}>
+                        Open in editor
                       </Button>
                     </span>
                   </div>
@@ -502,6 +551,7 @@ export function DocumentReadPage() {
             versionNumber={renderedVersionNumber}
             ppeItems={ppeItems}
             roles={docResult?.roles}
+            authorLabel={heroAuthorLabel}
             signers={renderedSigners}
             assigned={{
               reviewer: onWorkingVersion && Boolean(rawDoc?.reviewerId),
@@ -512,6 +562,7 @@ export function DocumentReadPage() {
             statusOverride={
               hasWorkingDraft && !isViewingHistorical ? "published" : undefined
             }
+            superseded={superseded}
           />
 
           {version == null ? (
@@ -541,7 +592,11 @@ export function DocumentReadPage() {
               onStartRevision={handleEdit}
             />
           )}
-          {rawDoc && <DocumentTrainingsCard documentId={rawDoc._id} />}
+          {rawDoc && rawDoc.origin === "capture" && captureSources !== undefined && (
+            <MadeFromCapturesCard sources={captureSources} />
+          )}
+          {rawDoc && <DocumentTrainingsCard documentId={rawDoc._id} published={inUse} />}
+          {rawDoc && <InWikisCard documentId={rawDoc._id} />}
           {rawDoc && <DocumentInsightsCard documentId={rawDoc._id} />}
           {version?.body_kind === "tiptap" && (
             <div className="sticky top-28">
@@ -616,7 +671,7 @@ export function DocumentReadPage() {
               }}
               disabled={forking}
             >
-              {forking ? "Creating…" : `Create v${workingVer + 1} draft`}
+              {forking ? "Creating..." : `Create v${workingVer + 1} draft`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -629,31 +684,118 @@ export function DocumentReadPage() {
         archived={workingStatus === "archived"}
         workingStatus={workingStatus}
         selectedVersion={overrideVersion ?? servingVer}
-        onSelect={(v) =>
-          setOverrideVersion(v === servingVer ? null : v)
-        }
+        onSelect={(v) => viewVersion(v === servingVer && !archived ? null : v)}
         open={historyOpen}
         onOpenChange={setHistoryOpen}
       />
+      {rawDoc && (
+        <SubmitForReviewDialog
+          open={submitOpen}
+          onOpenChange={setSubmitOpen}
+          documentId={rawDoc._id}
+          namingCode={rawDoc.namingCode}
+          isNewVersion={rawDoc.liveVersion != null}
+          initialReviewer={rawDoc.reviewerPersonId ?? null}
+          initialApprover={rawDoc.approverPersonId ?? null}
+          initialNote={docResult?.assigned.changeNote ?? null}
+          onSubmitted={() => toast.success(`${rawDoc.namingCode} is submitted for review`)}
+        />
+      )}
+      <WithdrawDocumentDialog doc={docWithAssets} open={withdrawOpen} onOpenChange={setWithdrawOpen} />
     </div>
   )
 }
 
-function nextStepText(
-  status: string | undefined,
-  hasReviewer: boolean,
-  hasApprover: boolean,
-): string {
-  if (status === "draft")
-    return hasReviewer
-      ? "Next step: submit it for review."
-      : "Next step: assign a reviewer in the editor, then submit it for review."
+function nextStepText(status: string | undefined, reviewer: string | null, approver: string | null): string {
+  if (status === "draft") return "Next step: submit it for review and choose who reviews and approves it."
   if (status === "in_review")
-    return hasApprover
-      ? "Next step: the reviewer approves it in the editor."
-      : "Next step: assign an approver in the editor, then the reviewer approves it."
-  if (status === "approved") return "Next step: publish it in the editor."
+    return reviewer ? `Next step: waiting for ${reviewer} to review and approve it.` : "Next step: the reviewer approves it in the editor."
+  if (status === "approved")
+    return approver ? `Next step: waiting for ${approver} to publish it.` : "Next step: the approver publishes it in the editor."
   return "Next step: finish the draft in the editor."
+}
+
+/** Rail card: the Wikis built on this document. */
+function InWikisCard({ documentId }: { documentId: Id<"documents"> }) {
+  const wikis = useQuery(api.documents.wikisForDocument, { id: documentId })
+  if (wikis === undefined) return null
+  return (
+    <div className="space-y-2 rounded-lg border p-3">
+      <div className="flex items-center gap-2">
+        <BookOpenText className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-sm font-semibold">In Wikis ({wikis.length})</h2>
+      </div>
+      {wikis.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No Wiki is built on this document yet.</p>
+      ) : (
+        <ul className="space-y-1">
+          {wikis.map((w) => (
+            <li key={w._id}>
+              <Link href={`/wiki/${w._id}`} className="block truncate text-sm hover:text-primary">
+                {w.title}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+      {wikis.length > 0 && (
+        <p className="text-xs text-muted-foreground">Publishing a new version rebuilds them.</p>
+      )}
+    </div>
+  )
+}
+
+type CaptureSources = FunctionReturnType<typeof api.captures.captures.sourcesForDocument>
+
+/** Rail card on a Draft made from Captures: where it came from. */
+function MadeFromCapturesCard({ sources }: { sources: CaptureSources }) {
+  const captures = sources?.captures ?? []
+  const lockedCount = captures.filter((c) => !c.canOpen).length
+  return (
+    <div className="space-y-2 rounded-lg border p-3" data-testid="made-from-captures">
+      <div className="flex items-center gap-2">
+        <Camera className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-sm font-semibold">Made from Captures</h2>
+      </div>
+      {sources?.set && (
+        <Link href={`/library/capture-sets/${sources.set._id}`} className="block text-sm font-medium hover:text-primary">
+          Capture set: {sources.set.title}
+        </Link>
+      )}
+      {captures.length > 0 ? (
+        <ul className="space-y-1">
+          {captures.map((c) => {
+            const meta = [c.authorName, c.handedInAt != null ? formatDate(c.handedInAt) : null].filter(Boolean).join(", ")
+            return (
+              <li key={c._id}>
+                {c.canOpen ? (
+                  <Link href={`/library/captures/${c._id}`} className="block text-sm hover:text-primary">
+                    <span className="block truncate">{c.title}</span>
+                    <span className="block text-xs text-muted-foreground">{meta}</span>
+                  </Link>
+                ) : (
+                  <div className="text-sm">
+                    <span className="block truncate">{c.title}</span>
+                    <span className="block text-xs text-muted-foreground">{meta}</span>
+                  </div>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      ) : (
+        <p className="text-xs text-muted-foreground">The Captures it came from are no longer available.</p>
+      )}
+      {lockedCount > 0 && (
+        <p className="text-xs text-muted-foreground">Check in as an Engineer to open the Captures.</p>
+      )}
+    </div>
+  )
+}
+
+function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? ""
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
 }
 
 type BodyNode = { type?: string; attrs?: Record<string, unknown>; content?: BodyNode[]; text?: string }

@@ -22,9 +22,9 @@
 // record on that date (after the Training was Published), sign-offs after
 // the level 1 date, and "previous training register" only for people who
 // were there before Oppr Knowledge (never for a new starter). A Training
-// covers a Skill as in convex/skills.ts covers(): the Skill links it, or its
-// live version cites one of the Skill's Documents. Every passed Training
-// gives level 1 on each Skill it covers, as onTrainingPassed would.
+// covers a Skill only through an explicit link (skills.trainingIds), as in
+// convex/skills.ts covers(). Every passed Training gives level 1 on each
+// Skill that links it, as onTrainingPassed would.
 import { internalMutation, MutationCtx } from "../_generated/server"
 import { Doc, Id } from "../_generated/dataModel"
 import { addMonths } from "../skills"
@@ -84,7 +84,8 @@ const SKILLS: SkillSeed[] = [
     description: "Dry PE granulate on DRY-102 to the right temperature, time and dew point.",
     area: "MIX",
     documents: ["MIX-OPS-SOP-0002"],
-    trainings: [],
+    // MIX-TRN-0001 tests the drying temperature and time.
+    trainings: ["MIX-TRN-0001"],
     validityMonths: null,
   },
   {
@@ -111,7 +112,8 @@ const SKILLS: SkillSeed[] = [
     description: "Set up VAC-203: vacuum, water temperature and sizing sleeve.",
     area: "EXT",
     documents: ["EXT-OPS-WI-0002"],
-    trainings: [],
+    // The safety round tests the vacuum at VAC-203.
+    trainings: ["EXT-TRN-0002"],
     validityMonths: null,
   },
   {
@@ -171,6 +173,7 @@ type LevelSeed = [string, string, 1 | 2 | 3, number, string | null]
 const SANNE = "Sanne Visser"
 const MARK = "Mark Jansen"
 const INGRID = "Ingrid Hoekstra"
+const SHIFT_LEAD = "Rob Smeets"
 const LEVELS: LevelSeed[] = [
   // Jan: senior night operator, trains others on the changeover.
   ["Jan de Vries", "operate", 3, 400, SANNE],
@@ -248,11 +251,9 @@ export const run = internalMutation({
         documentIds: new Set((ver?.objectives ?? []).map((o) => o.documentId)),
       })
     }
-    // Same rule as covers() in convex/skills.ts.
-    const covering = (trainingIds: Id<"trainings">[], documentIds: Id<"documents">[]) =>
-      published
-        .filter((t) => trainingIds.includes(t._id) || documentIds.some((d) => t.documentIds.has(d)))
-        .map((t) => t._id)
+    // Same rule as covers() in convex/skills.ts: explicit links only.
+    const covering = (trainingIds: Id<"trainings">[], _documentIds: Id<"documents">[]) =>
+      published.filter((t) => trainingIds.includes(t._id)).map((t) => t._id)
 
     // ---- Skills ----
     const skillIds = new Map<string, Id<"skills">>()
@@ -305,6 +306,29 @@ export const run = internalMutation({
         sortOrder: i,
       })
       profileIds.set(p.key, id)
+    }
+
+    // ---- Trainings: the Skills each proves and who must do it ----
+    // The builder's "People" tab: every version of a seeded Training names
+    // the Skills that link it and the Skill profiles that need those Skills.
+    let trainingsLinked = 0
+    for (const t of await ctx.db.query("trainings").take(500)) {
+      const proves = SKILLS.filter((x) => x.trainings.includes(t.code)).flatMap((x) => skillIds.get(x.key) ?? [])
+      if (proves.length === 0) continue
+      const needKeys = new Set(SKILLS.filter((x) => x.trainings.includes(t.code)).map((x) => x.key))
+      const audienceProfiles = PROFILES.filter((p) => p.targets.some(([key]) => needKeys.has(key))).flatMap(
+        (p) => profileIds.get(p.key) ?? [],
+      )
+      for (const row of await ctx.db
+        .query("trainingVersions")
+        .withIndex("by_trainingId_and_version", (q) => q.eq("trainingId", t._id))
+        .collect()) {
+        await ctx.db.patch(row._id, {
+          skillIds: proves,
+          audience: { profileIds: audienceProfiles, personIds: [], dueDays: 14 },
+        })
+      }
+      trainingsLinked++
     }
 
     // ---- People ----
@@ -516,7 +540,131 @@ export const run = internalMutation({
       }
     }
 
+    // ---- Shifts, the shift lead, and the TWI follow-up demo rows ----
+    const shiftByName: Record<string, "early" | "late" | "night" | "day"> = {
+      "Jan de Vries": "night",
+      "Fatima El Amrani": "early",
+      "Lotte Smit": "early",
+      "Ahmed Yilmaz": "late",
+      "Pieter Bakker": "early",
+      "Emma de Boer": "late",
+      "Kevin Mulder": "early",
+    }
+    for (const p of people) {
+      const shift = shiftByName[p.name] ?? (p.kind === "engineer" ? "day" : undefined)
+      if (shift) await ctx.db.patch(p._id, { shift, team: p.area ? `${p.area} ${shift}` : undefined })
+    }
+    let shiftLead = byName.get(SHIFT_LEAD)
+    if (!shiftLead) {
+      const last = people.reduce((m, p) => Math.max(m, p.sortOrder), 0)
+      const id = await ctx.db.insert("people", {
+        name: SHIFT_LEAD,
+        kind: "engineer",
+        role: "Shift lead, late shift",
+        area: "EXT",
+        sortOrder: last + 1,
+        shift: "late",
+        team: "EXT late",
+      })
+      shiftLead = (await ctx.db.get(id)) ?? undefined
+    }
+
+    const trainingByCode = async (code: string) =>
+      await ctx.db
+        .query("trainings")
+        .withIndex("by_code", (q) => q.eq("code", code))
+        .first()
+    const sanne = byName.get(SANNE)
+    const lotte = byName.get("Lotte Smit")
+    const ahmed = byName.get("Ahmed Yilmaz")
+    let requests = 0
+    let assignments = 0
+    for (const r of await ctx.db.query("tryOutRequests").take(2000)) await ctx.db.delete(r._id)
+    const lastAttempt = async (personId: Id<"people">, trainingId: Id<"trainings">, status: "passed" | "failed") =>
+      (
+        await ctx.db
+          .query("trainingAttempts")
+          .withIndex("by_personId", (q) => q.eq("personId", personId))
+          .take(200)
+      )
+        .filter((a) => a.trainingId === trainingId && a.status === status)
+        .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0))[0] ?? null
+    const linkedSkills = async (trainingId: Id<"trainings">) =>
+      (await ctx.db.query("skills").take(500)).filter((x) => x.trainingIds.includes(trainingId)).map((x) => x._id)
+    // Lotte passed the safety round 9 days ago and asked Sanne for the try-out 2 days ago.
+    const round = await trainingByCode("EXT-TRN-0002")
+    if (round && lotte && sanne && round.liveVersion != null) {
+      const a = await lastAttempt(lotte._id, round._id, "passed")
+      if (a) {
+        await ctx.db.insert("tryOutRequests", {
+          personId: lotte._id,
+          trainingId: round._id,
+          trainingVersion: round.liveVersion,
+          attemptId: a._id,
+          skillIds: await linkedSkills(round._id),
+          trainerId: sanne._id,
+          status: "open",
+          createdAt: now - 2 * DAY,
+          doneAt: null,
+          kind: "tryout",
+        })
+        requests++
+      }
+    }
+    // Lotte did not pass the changeover Training twice: a walk-through is asked for.
+    const changeover = await trainingByCode("EXT-TRN-0001")
+    if (changeover && lotte && changeover.liveVersion != null) {
+      const a = await lastAttempt(lotte._id, changeover._id, "failed")
+      if (a) {
+        await ctx.db.insert("tryOutRequests", {
+          personId: lotte._id,
+          trainingId: changeover._id,
+          trainingVersion: changeover.liveVersion,
+          attemptId: a._id,
+          skillIds: await linkedSkills(changeover._id),
+          trainerId: null,
+          status: "open",
+          createdAt: a.finishedAt ?? now - 4 * DAY,
+          doneAt: null,
+          kind: "walkthrough",
+        })
+        requests++
+      }
+      // ... and Sanne assigned it to her, due in 5 days.
+      await ctx.db.insert("trainingAssignments", {
+        trainingId: changeover._id,
+        personId: lotte._id,
+        dueAt: now + 5 * DAY,
+        assignedBy: sanne?._id ?? null,
+        reason: "New starter on line 2",
+        source: "manual",
+        status: "open",
+        createdAt: now - 10 * DAY,
+        doneAt: null,
+      })
+      assignments++
+    }
+    // Ahmed's lockout/tagout expired: the safety round is assigned again.
+    if (round && ahmed) {
+      await ctx.db.insert("trainingAssignments", {
+        trainingId: round._id,
+        personId: ahmed._id,
+        dueAt: now + 3 * DAY,
+        assignedBy: null,
+        reason: "Lockout/tagout line 2 expired",
+        source: "renew",
+        status: "open",
+        createdAt: now - 25 * DAY,
+        doneAt: null,
+      })
+      assignments++
+    }
+
     return {
+      shiftLead: shiftLead?.name ?? null,
+      trainingsLinked,
+      tryOutRequests: requests,
+      assignments,
       skills: skillIds.size,
       profiles: profileIds.size,
       peopleAssigned: assigned,

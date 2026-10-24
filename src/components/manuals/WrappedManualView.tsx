@@ -89,6 +89,13 @@ export function WrappedManualStrip({
           <p className="text-sm font-medium">
             Supplier document{data.supplier ? ` by ${data.supplier}` : ""}, wrapped unchanged
           </p>
+          {(data.supplierDocNo || data.supplierRevision) && (
+            <p className="text-xs text-muted-foreground">
+              {data.supplierDocNo && <>Supplier document no. <span className="font-mono">{data.supplierDocNo}</span></>}
+              {data.supplierDocNo && data.supplierRevision && " · "}
+              {data.supplierRevision && <>Supplier revision <span className="font-mono">{data.supplierRevision}</span></>}
+            </p>
+          )}
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             <span
               className={cn(

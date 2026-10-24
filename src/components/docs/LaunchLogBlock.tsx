@@ -72,7 +72,7 @@ function LaunchLogNodeView({ node, selected, editor }: NodeViewProps) {
       >
         <Play className="h-3 w-3 fill-sky-700 text-sky-700" />
         {code && <span className="font-mono">{code}</span>}
-        <span>{code ? `— ${label}` : label}</span>
+        <span>{code ? `· ${label}` : label}</span>
       </button>
       <LaunchLogModal
         open={open}
@@ -224,7 +224,7 @@ export function LaunchLogPicker({
         <DialogHeader>
           <DialogTitle>Insert launch-log block</DialogTitle>
           <DialogDescription>
-            Link an existing operational log — the pill hands the operator off
+            Link an existing operational log. The pill hands the operator off
             to it, and the log appears under Linked logs in the document
             details.
           </DialogDescription>

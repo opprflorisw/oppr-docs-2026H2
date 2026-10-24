@@ -9,29 +9,40 @@ interface StarterPromptsProps {
   scope: AskPanelScope
   onPick: (prompt: string) => void
   className?: string
+  /** Floor app: 16px prompts with 48px targets. */
+  floor?: boolean
 }
 
 export function StarterPrompts({
   scope,
   onPick,
   className,
+  floor = false,
 }: StarterPromptsProps) {
   const prompts = getStarters(scope)
   if (!prompts.length) return null
 
   return (
     <div className={cn("space-y-2", className)}>
-      <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-        <Sparkles className="h-3 w-3" />
+      <div
+        className={cn(
+          "flex items-center gap-1 font-semibold uppercase tracking-wide text-muted-foreground",
+          floor ? "text-[13px]" : "text-[10px]",
+        )}
+      >
+        <Sparkles className={floor ? "h-4 w-4" : "h-3 w-3"} />
         Try asking
       </div>
-      <div className="flex flex-col gap-1.5">
+      <div className={cn("flex flex-col", floor ? "gap-2" : "gap-1.5")}>
         {prompts.map((p) => (
           <button
             key={p}
             type="button"
             onClick={() => onPick(p)}
-            className="rounded-md border bg-background px-3 py-2 text-left text-xs text-foreground transition-colors hover:border-primary/40 hover:bg-primary/5"
+            className={cn(
+              "border bg-background text-left text-foreground transition-colors hover:border-primary/40 hover:bg-primary/5",
+              floor ? "min-h-12 rounded-2xl px-4 py-3 text-base" : "rounded-md px-3 py-2 text-xs",
+            )}
           >
             {p}
           </button>
@@ -51,13 +62,13 @@ function getStarters(scope: AskPanelScope): string[] {
   }
   if (scope.kind === "asset") {
     return [
-      "What documents apply to this asset?",
-      "What's the daily check on this asset?",
+      "Which documents apply to this Asset?",
+      "What is the daily check on this Asset?",
       "Are there any safety steps before startup?",
     ]
   }
   return [
-    "Summarise this document in 5 bullets.",
+    "Summarise this document in 5 points.",
     "What PPE or safety equipment is required?",
     "What are the critical steps and their order?",
   ]

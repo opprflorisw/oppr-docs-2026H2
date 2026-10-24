@@ -22,6 +22,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { FindingCard } from "@/components/findings/FindingCard"
 import { errorText, whenText } from "@/components/findings/findingUtils"
 import { useCheckIn } from "@/lib/checkIn"
+import { DocumentsTabs } from "@/components/docs/DocumentsTabs"
 
 type Tab = "open" | "resolved" | "dismissed"
 const TABS: { value: Tab; label: string }[] = [
@@ -119,18 +120,20 @@ export function FindingsPage() {
       <PageHeader
         icon={SearchCheck}
         title="Findings"
-        subtitle="Where Published documents contradict or repeat each other, found by the Consistency check."
-        actions={
-          <Button size="sm" onClick={() => void startRun()} disabled={starting || running != null}>
-            {starting || running ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Play className="mr-1.5 h-3.5 w-3.5" />
+        statusLine="Where Published documents contradict or repeat each other, found by the Consistency check."
+        primary={
+          <span className="flex items-center gap-2">
+            {!engineer && (
+              <span className="hidden text-xs text-muted-foreground xl:inline">Check in as an Engineer to run it.</span>
             )}
-            {running ? "Checking…" : "Run check now"}
-          </Button>
+            <Button size="sm" onClick={() => void startRun()} disabled={starting || running != null || !engineer}>
+              {starting || running ? <Loader2 className="animate-spin" /> : <Play />}
+              {running ? "Checking..." : "Run check now"}
+            </Button>
+          </span>
         }
       />
+      <DocumentsTabs />
 
       <div className="mx-auto grid w-full max-w-6xl gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_280px]">
         <section className="min-w-0 space-y-4">

@@ -32,7 +32,7 @@ export function UserMenu() {
           className="h-8 gap-2 px-2"
           aria-label="User menu"
         >
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-[11px] font-semibold text-primary">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
             {initial}
           </span>
         </Button>
@@ -42,16 +42,16 @@ export function UserMenu() {
           <UserIcon className="h-3.5 w-3.5 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-xs font-medium">{email || "Signed in"}</div>
-            <div className="text-[10px] text-muted-foreground">
-              Login account
+            <div className="text-xs text-muted-foreground">
+              Signed-in account (device)
             </div>
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link href="/settings">
+          <Link href="/settings?tab=account">
             <Settings className="mr-2 h-3.5 w-3.5" />
-            User settings
+            Account settings
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => void signOut()}>

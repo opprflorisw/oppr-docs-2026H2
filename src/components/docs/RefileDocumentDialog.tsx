@@ -96,7 +96,7 @@ export function RefileDocumentDialog({
         archiveOld,
       })
       toast.success(
-        `Created ${result.namingCode}${archiveOld ? " — old document archived" : ""}`,
+        `Created ${result.namingCode}${archiveOld ? ", old document withdrawn" : ""}`,
       )
       onOpenChange(false)
       setLocation(`/docs/${result.id}/edit`)
@@ -111,7 +111,7 @@ export function RefileDocumentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Change filing — new document</DialogTitle>
+          <DialogTitle>Change filing: new document</DialogTitle>
           <DialogDescription>
             Location, discipline, and type are part of the naming code, which is
             fixed. Changing them creates a new document with a new code; the
@@ -125,7 +125,7 @@ export function RefileDocumentDialog({
               <Label className="text-xs font-medium">Location</Label>
               <Select value={loc || undefined} onValueChange={setLoc}>
                 <SelectTrigger className="h-9 px-2 font-mono text-xs">
-                  {loc || "—"}
+                  {loc || "None"}
                 </SelectTrigger>
                 <SelectContent>
                   {locations.map((l) => (
@@ -140,7 +140,7 @@ export function RefileDocumentDialog({
               <Label className="text-xs font-medium">Discipline</Label>
               <Select value={disc || undefined} onValueChange={setDisc}>
                 <SelectTrigger className="h-9 px-2 font-mono text-xs">
-                  {disc || "—"}
+                  {disc || "None"}
                 </SelectTrigger>
                 <SelectContent>
                   {disciplines.map((d) => (
@@ -195,7 +195,7 @@ export function RefileDocumentDialog({
             <span>
               Archive {currentCode} after creating the new document
               <span className="block text-xs text-muted-foreground">
-                Recommended — avoids two live documents with the same content.
+                Recommended: avoids two live documents with the same content.
               </span>
             </span>
           </label>

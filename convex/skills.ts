@@ -23,10 +23,14 @@ import type { PublishEvent } from "./lib/onPublish"
 import { requireUser, requireUserId } from "./lib/auth"
 import { requireEngineer } from "./documents"
 import { isPublished } from "./lib/published"
+import { BLOCKED_REASON } from "./trainings"
+import { createAssignments } from "./assignments"
 
 const DAY = 24 * 60 * 60 * 1000
 /** A level that expires within this many days shows as "expiring". */
 export const EXPIRING_WINDOW_DAYS = 30
+/** Re-train after a Significant change is due this many days later. */
+export const RETRAIN_DAYS = 14
 
 export type CellStatus = "ok" | "gap" | "expired" | "expiring" | "retrain" | "none"
 
@@ -45,8 +49,10 @@ export function addMonths(at: number, months: number): number {
 export type Shift = "early" | "late" | "night"
 export const SHIFTS: Shift[] = ["early", "late", "night"]
 
-/** Shift, derived from the person's role text ("Line operator, night shift"). */
+/** The person's shift: the shift field, else derived from the role text ("Line operator, night shift"). */
 export function shiftOf(person: Doc<"people">): Shift | null {
+  if (person.shift === "early" || person.shift === "day") return "early"
+  if (person.shift === "late" || person.shift === "night") return person.shift
   if (/\bnight\b/i.test(person.role)) return "night"
   if (/\blate\b/i.test(person.role)) return "late"
   if (/\b(early|day)\b/i.test(person.role)) return "early"
@@ -98,6 +104,9 @@ interface PublishedTraining {
   kind: "course" | "round"
   liveVersion: number
   documentIds: Set<Id<"documents">>
+  needsReview: boolean
+  isPractice: boolean
+  tryOutRequired: boolean
 }
 
 async function publishedTrainings(ctx: Ctx): Promise<PublishedTraining[]> {
@@ -118,15 +127,22 @@ async function publishedTrainings(ctx: Ctx): Promise<PublishedTraining[]> {
       kind: t.kind,
       liveVersion: t.liveVersion,
       documentIds: new Set((ver?.objectives ?? []).map((o) => o.documentId)),
+      // Set at publish when a cited passage is gone (trainings.markAffectedByPublish).
+      needsReview: t.needsReview,
+      isPractice: t.isPractice ?? false,
+      tryOutRequired: ver?.tryOut?.required ?? false,
     })
   }
   return out.sort((a, b) => a.code.localeCompare(b.code))
 }
 
-/** A Published Training covers a Skill when the Skill links it, or when its objectives come from a linked Document. */
-function covers(t: PublishedTraining, skill: Doc<"skills">): boolean {
-  if (skill.trainingIds.includes(t._id)) return true
-  return skill.documentIds.some((d) => t.documentIds.has(d))
+/**
+ * A Published Training covers a Skill only when the Skill links it
+ * (skill.trainingIds). Overlap with the Skill's Documents is a suggestion
+ * (suggestedLinks), never a link.
+ */
+export function covers(t: { _id: Id<"trainings"> }, skill: Doc<"skills">): boolean {
+  return skill.trainingIds.includes(t._id)
 }
 
 async function allSkills(ctx: Ctx) {
@@ -219,14 +235,19 @@ export const matrix = query({
       const { mine, targets } = targetsFor(person, profiles)
       if (profile && !mine.some((p) => p._id === profile._id)) continue
       const levels = await levelsOf(ctx, person._id)
-      const cells: Record<string, Cell> = {}
+      const attempts = await ctx.db
+        .query("trainingAttempts")
+        .withIndex("by_personId", (q) => q.eq("personId", person._id))
+        .take(500)
+      const cells: Record<string, Cell & { failStreak: number }> = {}
       let relevant = false
       const summary = { targets: 0, atTarget: 0, gaps: 0, expired: 0, expiring: 0, retrain: 0 }
       for (const s of columns) {
         const target = targets.get(s._id) ?? null
         const row = levels.get(s._id)
         const c = cellOf(row, target, now)
-        cells[s._id] = c
+        const streak = Math.max(0, ...s.trainingIds.map((id) => failStreak(attempts.filter((a) => a.trainingId === id))))
+        cells[s._id] = { ...c, failStreak: streak }
         if ((target ?? 0) > 0 || c.level >= 1) relevant = true
         if (target != null && target > 0) {
           summary.targets++
@@ -282,6 +303,8 @@ export const coverage = query({
     profileId: v.optional(v.id("skillProfiles")),
     skillIds: v.optional(v.array(v.id("skills"))),
     minLevel: v.optional(v.number()),
+    /** Only people of this shift ("early", "late" or "night"). */
+    shift: v.optional(v.union(v.literal("early"), v.literal("late"), v.literal("night"), v.null())),
   },
   handler: async (ctx, args) => {
     await requireUser(ctx)
@@ -322,6 +345,7 @@ export const coverage = query({
     }[] = []
     if (requirements.length > 0) {
       for (const person of people) {
+        if (args.shift && shiftOf(person) !== args.shift) continue
         const levels = await levelsOf(ctx, person._id)
         const missing: { skillName: string; reason: string }[] = []
         const expiringSoon: string[] = []
@@ -349,7 +373,7 @@ export const coverage = query({
     // Every shift someone works, in the order of the day: early, late, night
     // ("tonight" is the night shift).
     const worked = new Set(people.map(shiftOf))
-    const shiftNames = SHIFTS.filter((s) => worked.has(s))
+    const shiftNames = SHIFTS.filter((s) => worked.has(s) && (!args.shift || s === args.shift))
     const groups: { shift: Shift | null; people: typeof qualified }[] = shiftNames.map((shift) => ({
       shift,
       people: qualified.filter((p) => p.shift === shift),
@@ -358,6 +382,8 @@ export const coverage = query({
     if (noShift.length > 0) groups.push({ shift: null, people: noShift })
     return {
       profile: profile ? { _id: profile._id, name: profile.name } : null,
+      shift: args.shift ?? null,
+      count: qualified.length,
       requirements: requirements.map((r) => ({
         skillId: r.skillId,
         skillName: skillById.get(r.skillId)?.name ?? "Skill",
@@ -393,19 +419,65 @@ async function buildPersonDetail(ctx: QueryCtx, personId: Id<"people">) {
       .take(200)
   ).sort((a, b) => b.passedAt - a.passedAt)
   const passedTrainingIds = new Set(records.map((r) => r.trainingId))
+  const attempts = await ctx.db
+    .query("trainingAttempts")
+    .withIndex("by_personId", (q) => q.eq("personId", person._id))
+    .take(500)
+  const requests = (
+    await ctx.db
+      .query("tryOutRequests")
+      .withIndex("by_personId", (q) => q.eq("personId", person._id))
+      .take(200)
+  ).filter((r) => r.status === "open")
+  const assignments = (
+    await ctx.db
+      .query("trainingAssignments")
+      .withIndex("by_personId", (q) => q.eq("personId", person._id))
+      .take(500)
+  ).filter((a) => a.status === "open")
+
+  /** Where the person stands on one live Training: can it start, is it blocked, is a try-out next. */
+  const stateOf = (t: PublishedTraining) => {
+    const mine = attempts.filter((a) => a.trainingId === t._id)
+    const passedLive = mine.find((a) => a.status === "passed" && a.trainingVersion === t.liveVersion)
+    const tryOutDone = mine.some((a) => a.tryOut?.result === "passed")
+    const req = requests.find((r) => r.trainingId === t._id && (r.kind ?? "tryout") === "tryout")
+    let status: TodoStatus = "startable"
+    if (t.needsReview) status = "blocked"
+    else if (req) status = "tryout_requested"
+    else if (passedLive && t.tryOutRequired && !tryOutDone) status = "waiting_tryout"
+    const open = mine.find((a) => a.trainingVersion === t.liveVersion && (a.status === "in_progress" || a.status === "generating"))
+    return {
+      status,
+      blockedReason: status === "blocked" ? BLOCKED_REASON : null,
+      failStreak: failStreak(mine),
+      openAttemptId: open?._id ?? null,
+      passedAttemptId: passedLive?._id ?? null,
+      tryOutRequest: req
+        ? { _id: req._id, trainerId: req.trainerId, trainerName: req.trainerId ? nameOf.get(req.trainerId) ?? null : null, since: req.createdAt }
+        : null,
+    }
+  }
+  const dueOf = (trainingId: Id<"trainings">) => {
+    const due = assignments.filter((a) => a.trainingId === trainingId).map((a) => a.dueAt)
+    return due.length > 0 ? Math.min(...due) : null
+  }
 
   const allRows = skills.map((s) => {
     const row = levels.get(s._id)
     const target = targets.get(s._id) ?? null
     const c = cellOf(row, target, now)
     const offered = trainings
-      .filter((t) => covers(t, s))
+      .filter((t) => covers(t, s) && !t.isPractice)
       .map((t) => ({
         _id: t._id,
         code: t.code,
         title: t.title,
         kind: t.kind,
         passed: passedTrainingIds.has(t._id),
+        tryOutRequired: t.tryOutRequired,
+        dueAt: dueOf(t._id),
+        ...stateOf(t),
       }))
     // What gets this person further: a Training for level 1 (or to re-train
     // or renew), an Engineer's practice sign-off for levels 2 and 3.
@@ -413,6 +485,8 @@ async function buildPersonDetail(ctx: QueryCtx, personId: Id<"people">) {
     if (c.status === "retrain" || c.status === "expired" || (target != null && c.effectiveLevel < 1))
       nextStep = offered.length > 0 ? "training" : "signoff"
     else if (target != null && c.effectiveLevel < target) nextStep = "signoff"
+    // Re-train at level 2 or 3: passing the quiz is not enough, a try-out or sign-off is.
+    if (c.status === "retrain" && (row?.level ?? 0) >= 2 && offered.some((t) => t.passedAttemptId)) nextStep = "signoff"
     return {
       skill: {
         _id: s._id,
@@ -424,6 +498,8 @@ async function buildPersonDetail(ctx: QueryCtx, personId: Id<"people">) {
       ...c,
       signedOffBy: row?.signedOffBy ? nameOf.get(row.signedOffBy) ?? null : null,
       recordId: row?.recordId ?? null,
+      retrainDueAt: row?.retrainNeeded ? row.retrainDueAt ?? null : null,
+      failStreak: Math.max(0, ...offered.map((t) => t.failStreak)),
       offered,
       nextStep,
     }
@@ -472,6 +548,25 @@ async function buildPersonDetail(ctx: QueryCtx, personId: Id<"people">) {
     expired: skillRows.filter((r) => r.status === "expired"),
     expiring: skillRows.filter((r) => r.status === "expiring"),
     events,
+    // Assigned Trainings, at any level: what the person was asked to do, by when.
+    assignments: (
+      await Promise.all(
+        assignments.map(async (a) => {
+          const t = trainings.find((x) => x._id === a.trainingId)
+          if (!t) return null
+          return {
+            _id: a._id,
+            dueAt: a.dueAt,
+            overdue: a.dueAt < now,
+            source: a.source,
+            reason: a.reason,
+            training: { _id: t._id, code: t.code, title: t.title, kind: t.kind, tryOutRequired: t.tryOutRequired, ...stateOf(t) },
+          }
+        }),
+      )
+    )
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .sort((a, b) => a.dueAt - b.dueAt),
     records: records.map((r) => ({
       _id: r._id,
       trainingId: r.trainingId,
@@ -508,13 +603,143 @@ export const myLearning = query({
     const detail = await buildPersonDetail(ctx, args.personId)
     if (!detail) return null
     type Row = (typeof detail.skills)[number]
-    const todo: { kind: "retrain" | "expired" | "train" | "signoff" | "expiring"; row: Row }[] = []
-    for (const row of detail.retrain) todo.push({ kind: "retrain", row })
-    for (const row of detail.expired) todo.push({ kind: "expired", row })
-    for (const row of detail.gaps.filter((r) => r.nextStep === "training")) todo.push({ kind: "train", row })
-    for (const row of detail.gaps.filter((r) => r.nextStep === "signoff")) todo.push({ kind: "signoff", row })
-    for (const row of detail.expiring) todo.push({ kind: "expiring", row })
+    type Offered = Row["offered"][number]
+    type Kind = "retrain" | "expired" | "train" | "signoff" | "expiring" | "assigned"
+    const todo: {
+      kind: Kind
+      row: Row | null
+      /** The Training to do next for this item, or null for a sign-off without a Training. */
+      training: Offered | null
+      status: TodoStatus
+      blockedReason: string | null
+      dueAt: number | null
+      overdue: boolean
+      failStreak: number
+    }[] = []
+    const now = Date.now()
+    const pick = (row: Row): Offered | null => {
+      const list = row.offered
+      return (
+        list.find((t) => t.status === "waiting_tryout" || t.status === "tryout_requested") ??
+        list.find((t) => t.status === "startable" && !t.passed) ??
+        list.find((t) => t.status === "startable") ??
+        list[0] ??
+        null
+      )
+    }
+    const push = (kind: Kind, row: Row) => {
+      const training = pick(row)
+      let status: TodoStatus = training?.status ?? "startable"
+      // A sign-off item has no Training to start unless a try-out is the way there.
+      if (kind === "signoff" && status === "startable") status = "startable"
+      const dueAt =
+        [training?.dueAt ?? null, row.retrainDueAt ?? null].filter((x): x is number => x != null).sort((a, b) => a - b)[0] ?? null
+      todo.push({
+        kind,
+        row,
+        training: kind === "signoff" && training && status === "startable" ? null : training,
+        status,
+        blockedReason: status === "blocked" ? BLOCKED_REASON : null,
+        dueAt,
+        overdue: dueAt != null && dueAt < now,
+        failStreak: training?.failStreak ?? 0,
+      })
+    }
+    for (const row of detail.retrain) push("retrain", row)
+    for (const row of detail.expired) push("expired", row)
+    for (const row of detail.gaps.filter((r) => r.nextStep === "training")) push("train", row)
+    for (const row of detail.gaps.filter((r) => r.nextStep === "signoff")) push("signoff", row)
+    for (const row of detail.expiring) push("expiring", row)
+    // Assigned Trainings not already on the list, at any level.
+    for (const a of detail.assignments) {
+      if (todo.some((x) => x.training?._id === a.training._id)) continue
+      todo.push({
+        kind: "assigned",
+        row: null,
+        training: {
+          _id: a.training._id,
+          code: a.training.code,
+          title: a.training.title,
+          kind: a.training.kind,
+          passed: false,
+          tryOutRequired: a.training.tryOutRequired,
+          dueAt: a.dueAt,
+          status: a.training.status,
+          blockedReason: a.training.blockedReason,
+          failStreak: a.training.failStreak,
+          openAttemptId: a.training.openAttemptId,
+          passedAttemptId: a.training.passedAttemptId,
+          tryOutRequest: a.training.tryOutRequest,
+        },
+        status: a.training.status,
+        blockedReason: a.training.blockedReason,
+        dueAt: a.dueAt,
+        overdue: a.overdue,
+        failStreak: a.training.failStreak,
+      })
+    }
+    // Order: what can be done now first (a blocked item is never first), by due date, then by kind.
+    const rank: Record<Kind, number> = { retrain: 0, expired: 1, assigned: 2, train: 3, signoff: 4, expiring: 5 }
+    todo.sort(
+      (a, b) =>
+        Number(a.status === "blocked") - Number(b.status === "blocked") ||
+        (a.dueAt ?? Number.POSITIVE_INFINITY) - (b.dueAt ?? Number.POSITIVE_INFINITY) ||
+        rank[a.kind] - rank[b.kind],
+    )
     return { ...detail, todo }
+  },
+})
+
+/** What a to-do item allows now. */
+export type TodoStatus = "startable" | "blocked" | "waiting_tryout" | "tryout_requested"
+
+/** Consecutive not-passed Attempts of one Training, counting back from the latest finished one. */
+export function failStreak(attempts: Doc<"trainingAttempts">[]) {
+  const done = attempts
+    .filter((a) => a.status === "passed" || a.status === "failed")
+    .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0))
+  let n = 0
+  for (const a of done) {
+    if (a.status !== "failed") break
+    n++
+  }
+  return n
+}
+
+/**
+ * Trainings that look like they prove this Skill (their live version cites
+ * one of the Skill's Documents) but are not linked. Shown as suggestions in
+ * Skill setup and in the Training builder; linking is an explicit choice.
+ */
+export const suggestedLinks = query({
+  args: { skillId: v.id("skills") },
+  handler: async (ctx, args) => {
+    await requireUser(ctx)
+    const skill = await ctx.db.get(args.skillId)
+    if (!skill) return []
+    const out = []
+    for (const t of await publishedTrainings(ctx)) {
+      if (skill.trainingIds.includes(t._id) || t.isPractice) continue
+      const docs = skill.documentIds.filter((d) => t.documentIds.has(d))
+      if (docs.length === 0) continue
+      const codes = []
+      for (const d of docs) codes.push((await ctx.db.get(d))?.namingCode ?? "?")
+      out.push({ _id: t._id, code: t.code, title: t.title, kind: t.kind, sharedDocuments: codes })
+    }
+    return out
+  },
+})
+
+/** Links (or unlinks) a Training to a Skill: the Training then proves the Skill. */
+export const setTrainingLink = mutation({
+  args: { skillId: v.id("skills"), trainingId: v.id("trainings"), linked: v.boolean(), engineerPersonId: v.id("people") },
+  handler: async (ctx, args) => {
+    await requireUserId(ctx)
+    await requireEngineer(ctx, args.engineerPersonId)
+    const skill = await ctx.db.get(args.skillId)
+    if (!skill) throw new Error("This Skill no longer exists.")
+    const ids = skill.trainingIds.filter((x) => x !== args.trainingId)
+    await ctx.db.patch(skill._id, { trainingIds: args.linked ? [...ids, args.trainingId] : ids })
   },
 })
 
@@ -688,23 +913,62 @@ async function getLevelRow(ctx: MutationCtx, personId: Id<"people">, skillId: Id
  * needs a current level of at least 1 (a passed Training); level 3 needs at
  * least 2. Renews the validity and clears "re-train needed".
  */
+/** What a sign-off rests on: the document and version observed, where (Asset), and what was seen. */
+const signOffEvidence = v.object({
+  documentId: v.optional(v.id("documents")),
+  /** The document version observed; the Published one when left out. */
+  version: v.optional(v.number()),
+  assetId: v.optional(v.id("assets")),
+  note: v.optional(v.string()),
+})
+
+/** The skillEvents evidence for a sign-off, with the document's code and version resolved. */
+async function evidenceFor(
+  ctx: MutationCtx,
+  e: { documentId?: Id<"documents">; version?: number; assetId?: Id<"assets"> } | undefined,
+  note: string,
+) {
+  const doc = e?.documentId ? await ctx.db.get(e.documentId) : null
+  const version = e?.version ?? (doc?.liveVersion != null ? doc.liveVersion : undefined)
+  const asset = e?.assetId ? await ctx.db.get(e.assetId) : null
+  return {
+    ...(doc ? { documentId: doc._id, namingCode: doc.namingCode } : {}),
+    ...(doc && version != null ? { documentVersion: version } : {}),
+    ...(asset ? { assetId: asset._id } : {}),
+    note,
+  }
+}
+
 export const signOff = mutation({
   args: {
     personId: v.id("people"),
     skillId: v.id("skills"),
     level: v.union(v.literal(2), v.literal(3)),
+    /** The checked-in signer: an Engineer, or for level 2 someone at level 3 on this Skill. */
     engineerPersonId: v.id("people"),
+    /** Older callers: what you saw. New callers put it in evidence.note. */
     note: v.optional(v.string()),
+    /** Observed doing (document and version), where (Asset) and what you saw (at least 20 characters). */
+    evidence: v.optional(signOffEvidence),
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
-    const engineer = await requireEngineer(ctx, args.engineerPersonId)
+    const engineer = await ctx.db.get(args.engineerPersonId)
+    if (!engineer) throw new Error("Check in first: a sign-off is given by a named person.")
     const person = await ctx.db.get(args.personId)
     if (!person) throw new Error("This person no longer exists.")
-    if (person._id === engineer._id) throw new Error("Another Engineer must sign off your own Skill.")
+    if (person._id === engineer._id) throw new Error("Someone else must sign off your own Skill.")
     const skill = await ctx.db.get(args.skillId)
     if (!skill) throw new Error("This Skill no longer exists.")
     const now = Date.now()
+    if (engineer.kind !== "engineer") {
+      const own = await getLevelRow(ctx, engineer._id, skill._id)
+      if (args.level === 3) throw new Error("Only an Engineer signs off level 3 (Can teach it).")
+      if (effectiveLevel(own, now) < 3)
+        throw new Error(`Only someone at level 3 in ${skill.name}, or an Engineer, can sign this off.`)
+    }
+    const noteText = (args.evidence?.note ?? args.note ?? "").trim()
+    if (noteText.length < 20) throw new Error("Write what you saw, in at least 20 characters.")
     const row = await getLevelRow(ctx, args.personId, args.skillId)
     const current = effectiveLevel(row, now)
     // Level 1 comes from a passed Training. When no Published Training covers
@@ -721,7 +985,7 @@ export const signOff = mutation({
       )
     }
     if (row && current > args.level) throw new Error(`${person.name} already holds level ${row.level}.`)
-    const note = args.note?.trim()
+    const note = noteText
     const expiresAt = skill.validityMonths ? addMonths(now, skill.validityMonths) : null
     const patch = {
       level: args.level,
@@ -731,7 +995,9 @@ export const signOff = mutation({
       expiresAt,
       retrainNeeded: false,
       retrainReason: null,
+      retrainDueAt: undefined,
     }
+    const evidence = await evidenceFor(ctx, args.evidence, note)
     if (row) await ctx.db.patch(row._id, patch)
     else
       await ctx.db.insert("skillLevels", {
@@ -754,6 +1020,7 @@ export const signOff = mutation({
       reason: `${what} by ${engineer.name}${note ? `: ${note}` : ""}`,
       byPersonId: engineer._id,
       at: now,
+      evidence,
     })
     return { level: args.level, expiresAt }
   },
@@ -768,13 +1035,15 @@ export const clearRetrain = mutation({
     personId: v.id("people"),
     skillId: v.id("skills"),
     engineerPersonId: v.id("people"),
-    note: v.string(),
+    /** Older callers: how the person was re-trained. New callers put it in evidence.note. */
+    note: v.optional(v.string()),
+    evidence: v.optional(signOffEvidence),
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
     const engineer = await requireEngineer(ctx, args.engineerPersonId)
     if (engineer._id === args.personId) throw new Error("Another Engineer must confirm your own re-training.")
-    const note = args.note.trim()
+    const note = (args.evidence?.note ?? args.note ?? "").trim()
     if (!note) throw new Error("Say how the person was re-trained.")
     const row = await getLevelRow(ctx, args.personId, args.skillId)
     if (!row || !row.retrainNeeded) throw new Error("No re-training is needed here.")
@@ -787,6 +1056,7 @@ export const clearRetrain = mutation({
       reason: `Re-training confirmed by ${engineer.name}: ${note}`,
       byPersonId: engineer._id,
       at: Date.now(),
+      evidence: await evidenceFor(ctx, args.evidence, note),
     })
   },
 })
@@ -849,10 +1119,14 @@ export const onTrainingPassed = internalMutation({
           at,
         })
       } else if (row) {
+        // A quiz pass clears "re-train needed" only at level 1. At level 2 or
+        // 3 the practice must be shown again: a try-out or a sign-off.
+        const keepRetrain = row.retrainNeeded && row.level >= 2
         await ctx.db.patch(row._id, {
           expiresAt: expiresAt ?? row.expiresAt,
-          retrainNeeded: false,
-          retrainReason: null,
+          retrainNeeded: keepRetrain,
+          retrainReason: keepRetrain ? row.retrainReason : null,
+          ...(keepRetrain ? {} : { retrainDueAt: undefined }),
           ...(row.level === 1 ? { recordId: args.recordId, achievedAt: at } : {}),
         })
         await ctx.db.insert("skillEvents", {
@@ -860,11 +1134,13 @@ export const onTrainingPassed = internalMutation({
           skillId: skill._id,
           fromLevel: row.level,
           toLevel: row.level,
-          reason: row.retrainNeeded
-            ? `Re-trained: passed ${label}`
-            : expiresAt
-              ? `Validity renewed: passed ${label}`
-              : `Passed ${label} again`,
+          reason: keepRetrain
+            ? `Passed ${label}. A try-out or sign-off at level ${row.level} still clears the re-train.`
+            : row.retrainNeeded
+              ? `Re-trained: passed ${label}`
+              : expiresAt
+                ? `Validity renewed: passed ${label}`
+                : `Passed ${label} again`,
           byPersonId: null,
           at,
         })
@@ -886,16 +1162,30 @@ export async function skillsAfterPublish(ctx: MutationCtx, event: PublishEvent) 
   if (!doc) return { flagged: 0 }
   const reason = `${doc.namingCode} v${event.version} was published with a Significant change`
   const now = Date.now()
+  const dueAt = now + RETRAIN_DAYS * DAY
   let flagged = 0
+  const live = new Set((await publishedTrainings(ctx)).filter((t) => !t.isPractice).map((t) => String(t._id)))
   for (const skill of await allSkills(ctx)) {
     if (!skill.documentIds.includes(event.documentId)) continue
     const rows = await ctx.db
       .query("skillLevels")
       .withIndex("by_skillId", (q) => q.eq("skillId", skill._id))
       .take(1000)
+    // Holders get the Skill's Training (its new version once reviewed) as a re-train assignment.
+    const training = skill.trainingIds.find((id) => live.has(String(id)))
+    const holders = rows.filter((r) => r.level >= 1).map((r) => r.personId)
+    if (training && holders.length > 0)
+      await createAssignments(ctx, {
+        trainingId: training,
+        personIds: holders,
+        dueAt,
+        source: "retrain",
+        reason,
+        assignedBy: null,
+      })
     for (const row of rows) {
       if (row.level < 1) continue
-      await ctx.db.patch(row._id, { retrainNeeded: true, retrainReason: reason })
+      await ctx.db.patch(row._id, { retrainNeeded: true, retrainReason: reason, retrainDueAt: dueAt })
       await ctx.db.insert("skillEvents", {
         personId: row.personId,
         skillId: skill._id,
@@ -1092,5 +1382,93 @@ export const removeProfile = mutation({
         await ctx.db.patch(p._id, { profileIds: (p.profileIds ?? []).filter((x) => x !== id) })
     }
     if (await ctx.db.get(id)) await ctx.db.delete(id)
+  },
+})
+
+/**
+ * Re-train needed, grouped by the change that caused it: one row per source
+ * Document version ("MIX-OPS-SOP-0002 v2 changed how the work is done · 2
+ * people"), with the change note, the people, the Skills and the Training
+ * version that is waiting for review because of it.
+ */
+export const retrainGroups = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx)
+    const skills = await allSkills(ctx)
+    const skillName = new Map(skills.map((s) => [s._id, s.name]))
+    const groups = new Map<
+      string,
+      { namingCode: string; version: number; personIds: Set<Id<"people">>; skillIds: Set<Id<"skills">>; dueAt: number | null }
+    >()
+    for (const s of skills) {
+      const rows = await ctx.db
+        .query("skillLevels")
+        .withIndex("by_skillId", (q) => q.eq("skillId", s._id))
+        .take(1000)
+      for (const r of rows) {
+        if (!r.retrainNeeded || r.level < 1) continue
+        const m = r.retrainReason?.match(/^(\S+)\s+v(\d+)/)
+        const key = m ? `${m[1]}|${m[2]}` : `?|0`
+        const g = groups.get(key) ?? {
+          namingCode: m?.[1] ?? "A linked document",
+          version: Number(m?.[2] ?? 0),
+          personIds: new Set(),
+          skillIds: new Set(),
+          dueAt: null,
+        }
+        g.personIds.add(r.personId)
+        g.skillIds.add(s._id)
+        if (r.retrainDueAt != null) g.dueAt = g.dueAt == null ? r.retrainDueAt : Math.min(g.dueAt, r.retrainDueAt)
+        groups.set(key, g)
+      }
+    }
+    const out = []
+    for (const g of groups.values()) {
+      const doc = await ctx.db
+        .query("documents")
+        .withIndex("by_namingCode", (q) => q.eq("namingCode", g.namingCode))
+        .first()
+      const dv = doc
+        ? await ctx.db
+            .query("documentVersions")
+            .withIndex("by_documentId_and_version", (q) => q.eq("documentId", doc._id).eq("version", g.version))
+            .unique()
+        : null
+      // A Training citing this Document that waits for review or has a newer working version.
+      let pendingTrainingVersion: { trainingId: Id<"trainings">; code: string; version: number; status: string; needsReview: boolean } | null = null
+      if (doc) {
+        for (const t of await ctx.db.query("trainings").take(500)) {
+          if (t.status === "archived") continue
+          const row = await ctx.db
+            .query("trainingVersions")
+            .withIndex("by_trainingId_and_version", (q) => q.eq("trainingId", t._id).eq("version", t.currentVersion))
+            .unique()
+          if (!row?.objectives.some((o) => o.documentId === doc._id)) continue
+          if (t.needsReview || t.currentVersion !== t.liveVersion) {
+            pendingTrainingVersion = { trainingId: t._id, code: t.code, version: t.currentVersion, status: t.status, needsReview: t.needsReview }
+            break
+          }
+        }
+      }
+      const people = []
+      for (const id of g.personIds) {
+        const p = await ctx.db.get(id)
+        if (p) people.push({ _id: p._id, name: p.name })
+      }
+      out.push({
+        documentId: doc?._id ?? null,
+        namingCode: g.namingCode,
+        version: g.version,
+        changeNote: dv?.changeNote ?? null,
+        publishedAt: dv?.publishedAt ?? null,
+        personIds: [...g.personIds],
+        people,
+        skills: [...g.skillIds].map((id) => ({ _id: id, name: skillName.get(id) ?? "Skill" })),
+        dueAt: g.dueAt,
+        pendingTrainingVersion,
+      })
+    }
+    return out.sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0))
   },
 })

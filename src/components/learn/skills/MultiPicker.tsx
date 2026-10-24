@@ -58,7 +58,7 @@ export function MultiPicker({
                   <Check className={cn("h-3.5 w-3.5", value.includes(o.id) ? "opacity-100" : "opacity-0")} />
                   <span className="font-mono">{o.code}</span>
                   <span className="min-w-0 flex-1 truncate">{o.label}</span>
-                  {o.hint && <span className="text-[10px] text-muted-foreground">{o.hint}</span>}
+                  {o.hint && <span className="text-xs text-muted-foreground">{o.hint}</span>}
                 </CommandItem>
               ))}
             </CommandList>
@@ -73,7 +73,7 @@ export function MultiPicker({
               <span
                 key={id}
                 title={o?.label}
-                className="inline-flex items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 font-mono text-[11px]"
+                className="inline-flex items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 font-mono text-xs"
               >
                 {o?.code ?? "Removed"}
                 <button

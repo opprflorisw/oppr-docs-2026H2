@@ -204,7 +204,7 @@ function PpeView({
           selected && "ring-2 ring-blue-300 ring-offset-1",
         )}
       >
-        Required PPE: none yet — use the
+        Required PPE: none yet. Use the
         <span className="font-medium"> + PPE</span> button to add.
         {controls}
       </NodeViewWrapper>

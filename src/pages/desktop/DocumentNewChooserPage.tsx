@@ -7,7 +7,7 @@ import { useState } from "react"
 import { Redirect, useLocation } from "wouter"
 import { WrapManualDialog } from "@/components/manuals/WrapManualDialog"
 import { useQuery } from "convex/react"
-import { BookLock, Cable, FileText, LayoutTemplate, PlusCircle, Sparkles, Upload } from "lucide-react"
+import { BookLock, Cable, FileText, LayoutTemplate, PlusCircle, Sparkles } from "lucide-react"
 import {
   Card,
   CardContent,
@@ -54,40 +54,48 @@ export function NewDocumentChooserDialog({
             New document
           </DialogTitle>
           <DialogDescription className="text-xs">
-            Start blank, from a template, or from a PDF. You set the title,
-            area, discipline and reviewers in the editor.
+            Write it yourself, or start from a PDF. You set the title, location, discipline and
+            reviewers next.
           </DialogDescription>
         </div>
       <div className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-2">
-          <ChooserCard
-            icon={FileText}
-            title="Blank document"
-            description="Open the editor on an empty page and build the document from scratch."
-            onClick={() => navigate("/docs/new/compose?blank=1")}
-          />
-          <ChooserCard
-            icon={Upload}
-            title="Attach a PDF"
-            description="Embed a PDF as a scrollable attachment inside a normal document you author around."
-            onClick={() => navigate("/docs/new/import")}
-          />
-          <ChooserCard
-            icon={Sparkles}
-            title="Import & convert"
-            description="Extract a PDF's text and images into an editable pre-draft. Shape it, then fit it to a template."
-            onClick={() => navigate("/import")}
-          />
-          <ChooserCard
-            icon={BookLock}
-            title="Wrap a supplier manual"
-            description="Keep a manufacturer's PDF unchanged. Oppr stamps its naming code, version and status on every page and controls it like any document."
-            onClick={() => {
-              onOpenChange(false)
-              setWrapOpen(true)
-            }}
-          />
-        </div>
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold">Write</h2>
+          <div className="grid gap-3 md:grid-cols-2">
+            <ChooserCard
+              icon={FileText}
+              title="Blank"
+              description="Open the editor on an empty page and write the document from scratch."
+              onClick={() => navigate("/docs/new/compose?blank=1")}
+            />
+            <ChooserCard
+              icon={LayoutTemplate}
+              title="From template"
+              description="Start from one of your templates below, with the sections already in place."
+              onClick={() => document.getElementById("chooser-templates")?.scrollIntoView({ behavior: "smooth" })}
+            />
+          </div>
+        </section>
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold">From a PDF</h2>
+          <div className="grid gap-3 md:grid-cols-2">
+            <ChooserCard
+              icon={Sparkles}
+              title="Convert to an editable document"
+              description="Take the text and images out of a PDF into an editable draft. Shape it, then fit it to a template."
+              onClick={() => navigate("/import")}
+            />
+            <ChooserCard
+              icon={BookLock}
+              title="Wrap a supplier manual (kept unchanged)"
+              description="Keep a manufacturer PDF as it is. Oppr stamps its document ID, version and status on every page and controls it like any document."
+              onClick={() => {
+                onOpenChange(false)
+                setWrapOpen(true)
+              }}
+            />
+          </div>
+        </section>
 
         <button
           type="button"
@@ -102,12 +110,12 @@ export function NewDocumentChooserDialog({
         </button>
 
         <div className="space-y-3">
-          <div className="flex items-center gap-2">
+          <div id="chooser-templates" className="flex items-center gap-2">
             <LayoutTemplate className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold">Or start from a template</h2>
+            <h2 className="text-sm font-semibold">Templates</h2>
           </div>
           {templates === undefined ? (
-            <p className="text-xs text-muted-foreground">Loading templates…</p>
+            <p className="text-sm text-muted-foreground">Loading templates...</p>
           ) : templates.length === 0 ? (
             <p className="text-xs text-muted-foreground">
               No templates yet. Create them under{" "}
@@ -184,13 +192,13 @@ function ChooserCard({
       }}
       className="cursor-pointer transition-colors hover:border-primary"
     >
-      <CardHeader className="pb-3">
-        <Icon className="h-10 w-10 text-primary" />
-        <CardTitle className="text-base">{title}</CardTitle>
+      <CardHeader className="flex-row items-start gap-3 space-y-0 p-4">
+        <Icon className="mt-0.5 h-6 w-6 shrink-0 text-primary" />
+        <div className="space-y-1">
+          <CardTitle className="text-sm">{title}</CardTitle>
+          <CardDescription className="text-sm">{description}</CardDescription>
+        </div>
       </CardHeader>
-      <CardContent>
-        <CardDescription className="text-xs">{description}</CardDescription>
-      </CardContent>
     </Card>
   )
 }

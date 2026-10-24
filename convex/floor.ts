@@ -21,7 +21,7 @@ async function liveRounds(ctx: Ctx) {
   const trainings = await ctx.db.query("trainings").take(500)
   const rounds = []
   for (const t of trainings) {
-    if (t.kind !== "round" || !isTrainingLive(t)) continue
+    if (t.kind !== "round" || !isTrainingLive(t) || t.isPractice) continue
     const row = await getVersion(ctx, t._id, t.liveVersion!)
     if (!row) continue
     const stops = []
@@ -91,22 +91,35 @@ export const plan = query({
 })
 
 /**
- * The live Rounds, and for a checked-in person where they stand on each:
- * an open Attempt to continue, and when they last passed it.
+ * The live Rounds (practice Trainings left out), and for a checked-in person
+ * where they stand on each: an open Attempt to continue, and when they last
+ * passed it. Split into forYou (a Round that proves a Skill of the person's
+ * profiles, or one in their area) and other. Without a person every Round
+ * is forYou.
  */
 export const rounds = query({
   args: { personId: v.optional(v.union(v.id("people"), v.null())) },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
     const list = await liveRounds(ctx)
-    const mine = args.personId
+    const person = args.personId ? await ctx.db.get(args.personId) : null
+    const mine = person
       ? await ctx.db
           .query("trainingAttempts")
-          .withIndex("by_personId", (q) => q.eq("personId", args.personId!))
+          .withIndex("by_personId", (q) => q.eq("personId", person._id))
           .order("desc")
           .take(300)
       : []
-    return list.map((r) => {
+    // Skills the person is measured against, through their profiles.
+    const targetSkills = new Set<string>()
+    if (person) {
+      for (const id of person.profileIds ?? []) {
+        const p = await ctx.db.get(id)
+        for (const t of p?.targets ?? []) targetSkills.add(String(t.skillId))
+      }
+    }
+    const skills = await ctx.db.query("skills").take(500)
+    const rows = list.map((r) => {
       const open = mine.find(
         (a) =>
           a.trainingId === r._id &&
@@ -114,19 +127,29 @@ export const rounds = query({
           (a.status === "in_progress" || a.status === "generating" || a.status === "error"),
       )
       const passed = mine.find((a) => a.trainingId === r._id && a.status === "passed")
+      const last = mine.find((a) => a.trainingId === r._id && (a.status === "passed" || a.status === "failed"))
+      const proves = skills.filter((s) => s.trainingIds.includes(r._id))
+      const forYou =
+        !person ||
+        proves.some((s) => targetSkills.has(String(s._id))) ||
+        (person.area != null && r.area != null && person.area === r.area)
       return {
         ...r,
+        forYou,
+        proves: proves.map((s) => ({ _id: s._id, name: s.name })),
         open: open
           ? {
               _id: open._id,
               status: open.status,
-              answered: open.questions.filter((q) => q.answerIndex !== null).length,
+              answered: open.questions.filter((q) => q.answerIndex !== null || q.answeredAt !== null).length,
               total: open.questions.length,
               currentStop: open.round?.currentStop ?? 0,
             }
           : null,
         lastPassedAt: passed?.finishedAt ?? null,
+        last: last ? { status: last.status, score: last.score, at: last.finishedAt ?? last.startedAt } : null,
       }
     })
+    return { forYou: rows.filter((r) => r.forYou), other: rows.filter((r) => !r.forYou) }
   },
 })

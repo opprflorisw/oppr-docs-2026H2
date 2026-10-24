@@ -471,6 +471,74 @@ const HANDLERS: Record<ToolName, (ctx: ActionCtx, key: Key, args: Args) => Promi
     }
   },
 
+  async oppr_list_wikis(ctx, key) {
+    const wikis = await ctx.runQuery(internal.wikis.mcpList, { areas: key.areaCodes })
+    const lines = [
+      wikis.length
+        ? `${wikis.length} Wiki${wikis.length === 1 ? "" : "s"}${key.areaCodes.length ? ` within ${areaLimitText(key)}` : ""}. Built only from Published documents; cite the sources, not the Wiki.`
+        : `No Wikis are ready${key.areaCodes.length ? ` within ${areaLimitText(key)}` : ""}.`,
+      ...wikis.map(
+        (w) =>
+          `- ${w.title} (id ${w.id}): ${w.purpose} ${w.pointCount} facts in ${w.sections.length} sections (${w.sections.join("; ")}). Sources: ${w.sources.map((s) => `${s.code} v${s.version}`).join(", ") || "none"}. Built ${isoDate(w.builtAt) ?? "?"}. Link: ${appUrl()}/wiki/${w.id}`,
+      ),
+    ]
+    return {
+      text: lines.join("\n"),
+      structured: {
+        wikis: wikis.map((w) => ({ ...w, builtAt: isoDate(w.builtAt), link: `${appUrl()}/wiki/${w.id}` })),
+      },
+      summary: `${wikis.length} wikis`,
+    }
+  },
+
+  async oppr_get_wiki(ctx, key, args) {
+    const wanted = String(args.wiki).trim()
+    const r = await ctx.runQuery(internal.wikis.mcpGet, { wiki: wanted, areas: key.areaCodes })
+    if (r.status === "not_found")
+      return refuse(`There is no Wiki "${wanted}". Use oppr_list_wikis to see the Wikis and their ids.`, `not found: wiki ${wanted}`)
+    if (r.status === "out_of_area")
+      return refuse(
+        `The Wiki "${r.title}" is built from documents outside this key's limit (${areaLimitText(key)}), so it cannot be read.`,
+        `refused: wiki outside key areas`,
+      )
+    if (r.status === "not_ready")
+      return refuse(
+        `The Wiki "${r.title}" is not ready (${r.wikiStatus}). Read its source documents with oppr_get_document instead.`,
+        `refused: wiki not ready`,
+      )
+    const link = `${appUrl()}/wiki/${r.id}`
+    const body: string[] = [
+      `# ${r.title}`,
+      r.purpose,
+      `Generated overview, not a controlled document. Built ${isoDate(r.builtAt) ?? "?"} from ${r.sources.map((s) => `${s.code} v${s.version}`).join(", ")}. Link: ${link}`,
+      ...(r.withheldPoints > 0
+        ? [`${r.withheldPoints} fact${r.withheldPoints === 1 ? " is" : "s are"} left out because a source changed since the last build.`]
+        : []),
+      r.intro,
+    ]
+    for (const s of r.sections) {
+      body.push(`## ${s.heading}${s.safety ? " (safety)" : ""}`)
+      if (s.kind === "table" && s.columns) body.push(`| ${s.columns.join(" | ")} |`)
+      s.points.forEach((p, i) => {
+        const cite = p.cites.length ? ` [${p.cites.join("; ")}]` : ""
+        if (s.kind === "table" && p.cells) body.push(`| ${p.cells.join(" | ")} |${cite}`)
+        else if (s.kind === "steps") body.push(`${i + 1}. ${p.text}${cite}`)
+        else body.push(`- ${p.text}${cite}`)
+      })
+    }
+    body.push("## Sources", ...r.sources.map((s) => `- ${s.code} v${s.version}: ${s.title}. ${docLink(s.documentId)}`))
+    return {
+      text: body.join("\n\n"),
+      structured: {
+        ...r,
+        builtAt: isoDate(r.builtAt),
+        link,
+        sources: r.sources.map(({ documentId, ...s }) => ({ ...s, link: docLink(documentId) })),
+      },
+      summary: `read wiki ${r.title}`,
+    }
+  },
+
   async oppr_skill_coverage(ctx, key, args) {
     const r = await ctx.runQuery(internal.mcp.data.skillCoverage, {
       skill: typeof args.skill === "string" ? args.skill : undefined,

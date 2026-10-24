@@ -3,11 +3,17 @@ import { AlertTriangle, RotateCcw } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 // Shared look for Skill levels (CONTEXT.md: Skill, Skill matrix).
-// Levels: 0 not trained, 1 trained, 2 qualified, 3 can train others.
+// Levels in plain words: 0 Not trained, 1 Knows it, 2 Can do it, 3 Can teach it.
 
 export type SkillStatus = "ok" | "gap" | "expired" | "expiring" | "retrain" | "none"
 
-export const LEVEL_NAMES = ["Not trained", "Trained", "Qualified", "Can train others"] as const
+export const LEVEL_NAMES = ["Not trained", "Knows it", "Can do it", "Can teach it"] as const
+
+/** "2 Can do it". */
+export function levelWords(level: number) {
+  const l = Math.max(0, Math.min(3, level))
+  return `${l} ${LEVEL_NAMES[l]}`
+}
 
 export function levelName(level: number) {
   return LEVEL_NAMES[Math.max(0, Math.min(3, level))]
@@ -100,7 +106,7 @@ export function StatusChip({ status, className }: { status: SkillStatus; classNa
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium",
         meta.chip,
         className,
       )}
@@ -112,29 +118,33 @@ export function StatusChip({ status, className }: { status: SkillStatus; classNa
   )
 }
 
-export function SkillLegend() {
+/** The fill of a matrix cell per status, so the legend and the cells match. */
+export const CELL_FILL: Record<SkillStatus, string> = {
+  ok: "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300",
+  gap: "bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
+  expiring: "bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-amber-400 dark:bg-emerald-950/40 dark:text-emerald-300",
+  expired: "bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300",
+  retrain: "bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300",
+  none: "text-muted-foreground",
+}
+
+/** One line: what a cell's dots mean and what each fill says. */
+export function SkillLegend({ className }: { className?: string }) {
+  const swatch = (s: SkillStatus) => <span className={cn("inline-block h-3 w-4 rounded-sm border border-black/10", CELL_FILL[s])} />
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground">
+    <p className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground", className)}>
       <span className="flex items-center gap-1.5">
-        <LevelDots level={2} target={2} status="ok" size="sm" />
-        Level 0 to 3, target ringed
+        <LevelDots level={1} target={2} status="gap" />
+        <span>
+          = level 1 of target 2 (filled dots: the level, the ringed dot: the target). Levels: 1 Knows it, 2 Can do it, 3 Can
+          teach it.
+        </span>
       </span>
-      <span className="flex items-center gap-1.5">
-        <span className="h-2 w-2 rounded-full bg-emerald-500" /> At target
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="h-2 w-2 rounded-full bg-amber-500" /> Below target
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="h-3 w-4 rounded-sm border border-amber-400" /> Expires within 30 days
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="h-2 w-2 rounded-full bg-red-500" /> Expired
-      </span>
-      <span className="flex items-center gap-1.5">
-        <RotateCcw className="h-3 w-3 text-red-600" /> Re-train needed
-      </span>
-    </div>
+      <span className="flex items-center gap-1">{swatch("ok")} At target</span>
+      <span className="flex items-center gap-1">{swatch("gap")} Below target</span>
+      <span className="flex items-center gap-1">{swatch("expiring")} Expires within 30 days</span>
+      <span className="flex items-center gap-1">{swatch("expired")} Expired (counts as 0) or re-train</span>
+    </p>
   )
 }
 
@@ -162,6 +172,44 @@ export function sourceText(source: "training" | "signoff" | "seed" | null, signe
   if (source === "signoff") return signedOffBy ? `Signed off by ${signedOffBy}` : "Engineer sign-off"
   if (source === "seed") return "Previous training register"
   return "–"
+}
+
+// ---- Shifts ------------------------------------------------------------------
+
+export type ShiftKey = "early" | "late" | "night"
+export const SHIFT_ORDER: ShiftKey[] = ["early", "late", "night"]
+export const SHIFT_META: Record<ShiftKey, { label: string; short: string; hours: string; start: number }> = {
+  early: { label: "Early shift", short: "Early", hours: "06-14", start: 6 },
+  late: { label: "Late shift", short: "Late", hours: "14-22", start: 14 },
+  night: { label: "Night shift", short: "Night", hours: "22-06", start: 22 },
+}
+
+/** The shift as early, late or night, whatever form it comes in ("day" counts as early). */
+export function shiftKey(shift: string | null | undefined): ShiftKey | null {
+  if (!shift) return null
+  const s = shift.toLowerCase()
+  if (s.includes("night")) return "night"
+  if (s.includes("late")) return "late"
+  if (s.includes("early") || s.includes("day")) return "early"
+  return null
+}
+
+/** The next shift to start, by the clock: before 06:00 early, before 14:00 late, before 22:00 night. */
+export function nextShift(now = new Date()): ShiftKey {
+  const h = now.getHours()
+  if (h < 6) return "early"
+  if (h < 14) return "late"
+  if (h < 22) return "night"
+  return "early"
+}
+
+/** Red for nobody, amber for one person, green for two or more. */
+export function coverTone(count: number) {
+  return count === 0
+    ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400"
+    : count === 1
+      ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-400"
+      : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-400"
 }
 
 /** The readable part of a Convex error ("Uncaught Error: ... at handler"). */

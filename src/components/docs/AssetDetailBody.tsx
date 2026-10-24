@@ -1,4 +1,4 @@
-// Shared asset detail body — rendered both by the full-page AssetDetailPage
+// Shared asset detail body, rendered both by the full-page AssetDetailPage
 // and by the AssetDetailModal launched from the assets list. Keep the visual
 // content here so the two surfaces don't drift.
 //
@@ -257,6 +257,7 @@ export function AssetDetailBody({
           <DocumentLibraryTable
             docs={docs}
             assetsByDoc={assetsByDoc}
+            hideAssets
             onRowClick={(d) => onOpenDoc(d.id)}
             onAssetClick={onOpenAsset}
             onAction={onDocAction}

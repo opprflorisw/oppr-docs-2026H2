@@ -1,24 +1,23 @@
 // Assets: the equipment in the plant, one row per Asset.
 //
-// Each row shows a row number, the Asset, its pin on the floor plan, its
-// documents (count + hover list), its location and the created date. A row
-// opens the Asset page; the pencil opens the edit dialog in place, the QR
-// button the QR preview. The plant plan itself lives on /floor.
+// Each row shows the Asset, its pin on the floor plan, its documents (count +
+// hover list) and its location. A row opens the Asset page. Engineers get a
+// '...' menu with Edit, QR code and Delete. The plant plan lives on /floor.
 
 import { useMemo, useState } from "react"
 import { useLocation } from "wouter"
-import {
-  Factory,
-  Map as MapIcon,
-  MapPin,
-  Pencil,
-  Plus,
-  QrCode,
-  Trash2,
-} from "lucide-react"
+import { Factory, Map as MapIcon, MapPin, MoreHorizontal, Pencil, Plus, QrCode, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Table,
   TableBody,
@@ -31,30 +30,27 @@ import { useMutation, useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { toLegacyAsset } from "@/lib/convex-adapters"
-import type { Asset, AssetLog, Doc } from "@/types"
-import type { DocumentRowAction } from "@/components/docs/DocumentLibraryTable"
+import type { Asset, AssetLog } from "@/types"
 import { cn } from "@/lib/utils"
+import { useCheckIn } from "@/lib/checkIn"
 import { AssetPreviewModal } from "@/components/docs/AssetPreviewModal"
 import { AssetDetailModal } from "@/components/docs/AssetDetailModal"
 import { AddAssetModal } from "@/components/docs/AddAssetModal"
 import { LogReferenceModal } from "@/components/docs/LogReferenceModal"
-import { DeleteDocumentDialog } from "@/components/docs/DeleteDocumentDialog"
+import { useDocumentRowActions } from "@/components/docs/DocumentActions"
 import { DocsHoverPill, type DocPreview } from "@/components/docs/FloorplanModal"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
-import { formatDate } from "@/lib/time"
 import { toast } from "sonner"
-
-function formatCreated(iso: string): string {
-  const t = Date.parse(iso)
-  return Number.isFinite(t) ? formatDate(t) : iso
-}
 
 export function AssetsPage() {
   const [, navigate] = useLocation()
+  const { person } = useCheckIn()
+  const engineer = person?.kind === "engineer"
 
   const [tab, setTab] = useState<"list" | "hierarchy">("list")
   const [addOpen, setAddOpen] = useState(false)
+  const [search, setSearch] = useState("")
 
   const [detailAssetId, setDetailAssetId] = useState<Id<"assets"> | null>(null)
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null)
@@ -62,23 +58,25 @@ export function AssetsPage() {
 
   const result = useQuery(api.assets.listForAssetsPage, {})
   const updateAssetMut = useMutation(api.assets.update)
-  const archive = useMutation(api.documents.archive)
-  const remove = useMutation(api.documents.remove)
-  const [docToDelete, setDocToDelete] = useState<Doc | null>(null)
-  const [deleting, setDeleting] = useState(false)
+  const { handleAction: handleDocAction, dialogs } = useDocumentRowActions()
   const ready = result !== undefined
 
-  const assets = useMemo(
-    () => (result ? result.assets.map(toLegacyAsset) : []),
-    [result],
-  )
+  const allAssets = useMemo(() => (result ? result.assets.map(toLegacyAsset) : []), [result])
+  const assets = useMemo(() => {
+    const needle = search.trim().toLowerCase()
+    if (!needle) return allAssets
+    return allAssets.filter(
+      (a) =>
+        a.name.toLowerCase().includes(needle) ||
+        a.code.toLowerCase().includes(needle) ||
+        (a.location ?? "").toLowerCase().includes(needle),
+    )
+  }, [allAssets, search])
 
   const docsByAsset = useMemo(() => {
     const map = new Map<string, DocPreview[]>()
     if (!result) return map
-    for (const [k, v] of Object.entries(result.docsByAsset)) {
-      map.set(k, v)
-    }
+    for (const [k, v] of Object.entries(result.docsByAsset)) map.set(k, v)
     return map
   }, [result])
 
@@ -96,62 +94,7 @@ export function AssetsPage() {
       })
       toast.success("Asset updated")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update asset")
-    }
-  }
-
-  function handleDocAction(action: DocumentRowAction, doc: Doc) {
-    if (action === "open") {
-      navigate(`/docs/${doc.id}`)
-      return
-    }
-    if (action === "copy-id") {
-      navigator.clipboard
-        .writeText(doc.naming_code)
-        .then(() => toast.success(`Copied ${doc.naming_code}`))
-        .catch(() => toast.error("Failed to copy"))
-      return
-    }
-    if (action === "duplicate") {
-      toast.info("Duplicate isn't wired up yet.")
-      return
-    }
-    if (action === "archive") {
-      archive({ id: doc.id as Id<"documents"> })
-        .then(() => toast.success(`Archived ${doc.naming_code}`))
-        .catch((err) =>
-          toast.error(err instanceof Error ? err.message : "Failed to archive"),
-        )
-      return
-    }
-    if (action === "delete") {
-      setDocToDelete(doc)
-    }
-  }
-
-  async function handleArchiveFromDialog() {
-    if (!docToDelete) return
-    try {
-      await archive({ id: docToDelete.id as Id<"documents"> })
-      toast.success(`Archived ${docToDelete.naming_code}`)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to archive")
-    } finally {
-      setDocToDelete(null)
-    }
-  }
-
-  async function handleDeleteConfirm() {
-    if (!docToDelete) return
-    setDeleting(true)
-    try {
-      await remove({ id: docToDelete.id as Id<"documents"> })
-      toast.success(`Deleted ${docToDelete.naming_code}`)
-      setDocToDelete(null)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete")
-    } finally {
-      setDeleting(false)
+      toast.error(err instanceof Error ? err.message : "The Asset could not be updated.")
     }
   }
 
@@ -161,41 +104,51 @@ export function AssetsPage() {
       <PageHeader
         icon={Factory}
         title="Assets"
-        subtitle="The equipment in the plant. Each Asset's QR code leads to its documents."
-        actions={
-          <>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => navigate("/floor")}>
-            <MapIcon className="h-3.5 w-3.5" />
-            Floor simulator
-          </Button>
-          <Button size="sm" className="gap-1.5" onClick={() => setAddOpen(true)}>
-            <Plus className="h-3.5 w-3.5" />
-            Add asset
-          </Button>
-          </>
+        statusLine="The equipment in the plant. Each Asset's QR code leads to its documents."
+        secondary={[{ label: "Floor simulator", icon: MapIcon, href: "/floor" }]}
+        primary={
+          engineer
+            ? { label: "Add asset", icon: Plus, onClick: () => setAddOpen(true) }
+            : undefined
         }
       />
 
       <div className="space-y-4 p-6">
-        <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
-          <TabsList>
-            <TabsTrigger value="list">Asset List</TabsTrigger>
-            <TabsTrigger value="hierarchy">Asset Hierarchy</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="flex flex-wrap items-center gap-3">
+          <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+            <TabsList>
+              <TabsTrigger value="list">Asset list</TabsTrigger>
+              <TabsTrigger value="hierarchy">Asset hierarchy</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name, code or location"
+            aria-label="Search assets"
+            className="h-9 max-w-xs"
+          />
+          <span className="ml-auto text-sm text-muted-foreground">
+            {assets.length} asset{assets.length === 1 ? "" : "s"}
+          </span>
+        </div>
 
         {!ready ? (
           <div className="space-y-2">
             <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
           </div>
         ) : assets.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed p-12 text-center">
             <Factory className="h-8 w-8 text-muted-foreground/50" />
-            <p className="text-sm font-medium">No assets yet</p>
-            <p className="text-xs text-muted-foreground">
-              Reset the demo from Settings to seed sample data.
+            <p className="text-sm font-medium">{search ? "No assets match" : "No assets yet"}</p>
+            <p className="text-sm text-muted-foreground">
+              {search
+                ? "Try another name or code."
+                : engineer
+                  ? "Choose Add asset to put the first machine on the list."
+                  : "An Engineer adds the plant's machines here."}
             </p>
           </div>
         ) : tab === "hierarchy" ? (
@@ -204,116 +157,78 @@ export function AssetsPage() {
           <div className="rounded-md border bg-card">
             <Table>
               <TableHeader>
-                <TableRow className="bg-muted/40 hover:bg-muted/40">
-                  <TableHead className="w-12 text-xs uppercase tracking-wide">#</TableHead>
-                  <TableHead className="text-xs uppercase tracking-wide">Asset</TableHead>
-                  <TableHead className="w-24 text-xs uppercase tracking-wide">Pin No.</TableHead>
-                  <TableHead className="w-24 text-xs uppercase tracking-wide">Docs</TableHead>
-                  <TableHead className="text-xs uppercase tracking-wide">Location</TableHead>
-                  <TableHead className="text-xs uppercase tracking-wide">Created</TableHead>
-                  <TableHead className="w-32 text-right text-xs uppercase tracking-wide">
-                    Actions
-                  </TableHead>
+                <TableRow>
+                  <TableHead>Asset</TableHead>
+                  <TableHead className="w-36">Floor plan pin</TableHead>
+                  <TableHead className="w-28">Documents</TableHead>
+                  <TableHead>Location</TableHead>
+                  {engineer && <TableHead className="w-14" />}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {assets.map((asset, idx) => (
+                {assets.map((asset) => (
                   <TableRow
                     key={asset.id}
-                    className="cursor-pointer"
+                    className="h-12 cursor-pointer"
                     onClick={() => navigate(`/assets/${asset.id}`)}
                   >
-                    {/* # */}
-                    <TableCell className="align-middle text-sm font-medium tabular-nums">
-                      {String(idx + 1).padStart(2, "0")}
-                    </TableCell>
-
-                    {/* Asset name + id */}
-                    <TableCell>
+                    <TableCell className="py-2">
                       <div className="flex items-center gap-3">
                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
                           <QrCode className="h-4 w-4" />
                         </div>
                         <div className="min-w-0">
-                          <div className="truncate text-sm font-medium">
-                            {asset.name}
-                          </div>
-                          <div className="font-mono text-xs text-muted-foreground">
-                            {asset.code}
-                          </div>
+                          <div className="truncate text-sm font-medium">{asset.name}</div>
+                          <div className="font-mono text-xs text-muted-foreground">{asset.code}</div>
                         </div>
                       </div>
                     </TableCell>
-
-                    {/* Pin No. */}
                     <TableCell>
                       {asset.pin_number != null ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-primary">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-xs font-semibold text-primary">
                           <MapPin className="h-3 w-3" />
                           {String(asset.pin_number).padStart(2, "0")}
                         </span>
                       ) : (
-                        <span className="text-xs text-muted-foreground">Not placed</span>
+                        <span className="text-sm text-muted-foreground">Not placed</span>
                       )}
                     </TableCell>
-
-                    {/* Linked documents: count + hover list */}
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <DocsHoverPill
                         docs={docsByAsset.get(asset.id) ?? []}
                         onDocClick={(docId) => navigate(`/docs/${docId}`)}
                       />
                     </TableCell>
-
-                    {/* Location */}
-                    <TableCell className="text-sm text-muted-foreground">
-                      {asset.location ?? "Not set"}
-                    </TableCell>
-
-                    {/* Created */}
-                    <TableCell className="text-sm text-muted-foreground">
-                      {formatCreated(asset.created_at)}
-                    </TableCell>
-
-                    {/* Actions */}
-                    <TableCell
-                      className="text-right"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          aria-label="Show QR code"
-                          onClick={() => setPreviewAsset(asset)}
-                        >
-                          <QrCode className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          aria-label="Edit asset"
-                          onClick={() => setDetailAssetId(asset.id as Id<"assets">)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                          aria-label="Delete asset"
-                          onClick={() =>
-                            toast.info(
-                              "Asset deletion is disabled in the showcase build.",
-                            )
-                          }
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{asset.location ?? "Not set"}</TableCell>
+                    {engineer && (
+                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Actions for ${asset.code}`}>
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuItem onSelect={() => setDetailAssetId(asset.id as Id<"assets">)}>
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => setPreviewAsset(asset)}>
+                              <QrCode className="mr-2 h-4 w-4" />
+                              QR code
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() => toast.info("Deleting Assets is switched off in this demo.")}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
@@ -340,20 +255,9 @@ export function AssetsPage() {
         open={!!previewAsset}
         onOpenChange={(o) => !o && setPreviewAsset(null)}
       />
-      <LogReferenceModal
-        log={activeLog}
-        open={!!activeLog}
-        onOpenChange={(o) => !o && setActiveLog(null)}
-      />
+      <LogReferenceModal log={activeLog} open={!!activeLog} onOpenChange={(o) => !o && setActiveLog(null)} />
       <AddAssetModal open={addOpen} onOpenChange={setAddOpen} />
-      <DeleteDocumentDialog
-        doc={docToDelete}
-        open={!!docToDelete}
-        onOpenChange={(o) => !o && !deleting && setDocToDelete(null)}
-        onArchive={() => void handleArchiveFromDialog()}
-        onConfirmDelete={() => void handleDeleteConfirm()}
-        busy={deleting}
-      />
+      {dialogs}
     </div>
   )
 }
@@ -370,8 +274,8 @@ function AssetHierarchyView({ assets }: { assets: Asset[] }) {
       </div>
       {roots.length > 0 && (
         <div className="mb-4">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Root assets (Level 0)
+          <div className="mb-2 text-xs font-semibold text-muted-foreground">
+            Root assets (level 0)
           </div>
           <ul className="space-y-1">
             {roots.map((r) => (
@@ -384,8 +288,8 @@ function AssetHierarchyView({ assets }: { assets: Asset[] }) {
         </div>
       )}
       <div>
-        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Loggable stations (Level 1)
+        <div className="mb-2 text-xs font-semibold text-muted-foreground">
+          Loggable stations (level 1)
         </div>
         <ul className="space-y-1">
           {stations.map((s) => (

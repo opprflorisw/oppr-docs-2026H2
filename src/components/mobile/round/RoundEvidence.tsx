@@ -94,8 +94,8 @@ export function RoundEvidence({
           {kind === "photo" ? <Camera className="h-4 w-4" /> : <StickyNote className="h-4 w-4" />}
         </span>
         <div className="min-w-0">
-          <p className="text-[13px] font-semibold">{kind === "photo" ? "Take a photo here" : "Add a short note"}</p>
-          <p className="text-[11px] leading-snug text-muted-foreground">
+          <p className="text-base font-semibold">{kind === "photo" ? "Take a photo here" : "Add a short note"}</p>
+          <p className="text-sm leading-snug text-muted-foreground">
             {kind === "photo"
               ? `Proof that you checked ${assetCode}. It is kept with your Training record.`
               : "What do you see? For example the reading on the gauge. It is kept with your Training record."}
@@ -110,9 +110,9 @@ export function RoundEvidence({
             onChange={(e) => setText(e.target.value)}
             rows={3}
             placeholder="For example: vacuum gauge reads -0.3 bar, water 17 °C."
-            className="resize-none bg-background text-[13px]"
+            className="resize-none bg-background text-base"
           />
-          <Button className="h-10 w-full rounded-xl" disabled={saving !== null || !text.trim()} onClick={() => void sendNote()}>
+          <Button className="h-12 w-full rounded-xl text-base" disabled={saving !== null || !text.trim()} onClick={() => void sendNote()}>
             {saving === "note" && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
             Add note
           </Button>
@@ -139,7 +139,7 @@ export function RoundEvidence({
               className="group relative block w-full overflow-hidden rounded-xl border bg-background text-left disabled:opacity-60"
             >
               <img src={assetPhoto} alt={`Photo of ${assetCode}`} className="h-28 w-full object-cover" />
-              <span className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-black/60 px-2.5 py-1.5 text-[11px] font-medium text-white">
+              <span className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-black/60 px-2.5 py-1.5 text-[13px] font-medium text-white">
                 {saving === "stand-in" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
                 Take this photo (stands in for the camera)
               </span>
@@ -147,7 +147,7 @@ export function RoundEvidence({
           )}
           <Button
             variant={assetPhoto ? "outline" : "default"}
-            className="h-10 w-full gap-1.5 rounded-xl"
+            className="h-12 w-full gap-1.5 rounded-xl text-base"
             disabled={saving !== null}
             onClick={() => fileRef.current?.click()}
           >

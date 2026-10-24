@@ -53,6 +53,7 @@ import { PageHeader } from "@/components/layout/PageHeader"
 import { ImageDetailModal } from "@/components/docs/ImageDetailModal"
 import { StatusBadge } from "@/components/docs/StatusBadge"
 import { cn } from "@/lib/utils"
+import { formatDate as formatDateShared } from "@/lib/time"
 import type { DocumentStatus } from "@/types"
 
 type SourceFilter = "all" | "upload" | "url"
@@ -302,7 +303,7 @@ export function ImageLibraryPage({ embedded = false }: { embedded?: boolean }) {
         {selectedRows.length > 0 && (
           <div className="flex items-center justify-between rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
             <div className="flex items-center gap-2">
-              <Badge className="bg-primary text-primary-foreground text-[10px]">
+              <Badge className="bg-primary text-primary-foreground text-xs">
                 {selectedRows.length} selected
               </Badge>
               <span className="text-muted-foreground">
@@ -539,7 +540,7 @@ function ImageTableRow({
         <Badge
           variant="outline"
           className={cn(
-            "text-[10px]",
+            "text-xs",
             img.source === "url" &&
               "border-amber-400/50 text-amber-700 dark:text-amber-300",
           )}
@@ -548,13 +549,13 @@ function ImageTableRow({
         </Badge>
       </TableCell>
       <TableCell className="text-xs text-muted-foreground">
-        {img.byteSize ? `${(img.byteSize / 1024).toFixed(0)} KB` : "—"}
+        {img.byteSize ? `${(img.byteSize / 1024).toFixed(0)} KB` : "None"}
       </TableCell>
       <TableCell>
         {img.usageCount === 0 ? (
           <Badge
             variant="outline"
-            className="text-[10px] text-muted-foreground"
+            className="text-xs text-muted-foreground"
           >
             orphan
           </Badge>
@@ -565,10 +566,10 @@ function ImageTableRow({
                 key={ref.documentId}
                 className="flex items-center gap-1.5"
               >
-                <span className="font-mono text-[11px]">{ref.namingCode}</span>
+                <span className="font-mono text-xs">{ref.namingCode}</span>
                 <StatusBadge
                   status={ref.status}
-                  className="px-1.5 py-0 text-[9px]"
+                  className="px-1.5 py-0 text-xs"
                 />
               </span>
             ))}
@@ -742,14 +743,14 @@ function GroupedList({
                     </span>
                     <StatusBadge
                       status={g.ref.status}
-                      className="shrink-0 px-1.5 py-0 text-[9px]"
+                      className="shrink-0 px-1.5 py-0 text-xs"
                     />
                   </>
                 ) : (
                   <>
                     <Badge
                       variant="outline"
-                      className="border-amber-500/40 text-[10px] text-amber-700 dark:text-amber-300"
+                      className="border-amber-500/40 text-xs text-amber-700 dark:text-amber-300"
                     >
                       Not used in any document
                     </Badge>
@@ -830,10 +831,10 @@ function GroupedImageRow({
         <Checkbox checked={isSelected} />
       </span>
       <ImageThumb id={img._id} small />
-      <span className="font-mono text-[11px]">{img.filename}</span>
-      <span className="ml-auto text-[10px] text-muted-foreground">
+      <span className="font-mono text-xs">{img.filename}</span>
+      <span className="ml-auto text-xs text-muted-foreground">
         {img.usageCount === 0
-          ? "—"
+          ? "None"
           : img.documentRefs.length === 1
             ? img.documentRefs[0].namingCode
             : `${img.usageCount} docs`}
@@ -960,14 +961,14 @@ function DiagramsTab() {
               <div className="mt-auto flex items-center gap-1.5">
                 <Link
                   href={`/docs/${d.documentId}`}
-                  className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+                  className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
                 >
                   <span className="shrink-0 font-mono">{d.namingCode}</span>
                   <span className="truncate">{d.title}</span>
                 </Link>
                 <StatusBadge
                   status={d.status}
-                  className="ml-auto shrink-0 px-1.5 py-0 text-[9px]"
+                  className="ml-auto shrink-0 px-1.5 py-0 text-xs"
                 />
               </div>
             </div>
@@ -1024,9 +1025,5 @@ function ImageThumb({
 }
 
 function formatDate(ms: number): string {
-  return new Date(ms).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  })
+  return formatDateShared(ms)
 }

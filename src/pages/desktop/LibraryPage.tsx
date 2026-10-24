@@ -1,9 +1,12 @@
 import { useMemo, useState } from "react"
 import { useLocation, useSearch } from "wouter"
-import { HeartPulse, LayoutList, Layers, Library as LibraryIcon, PlusCircle, SearchCheck } from "lucide-react"
+import { Columns3, Download, LayoutList, Layers, Library as LibraryIcon, PlusCircle, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   Select,
   SelectContent,
@@ -11,21 +14,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useMutation, useQuery } from "convex/react"
+import { useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
-import type { Id } from "../../../convex/_generated/dataModel"
 import type { Doc, DocumentStatus, DocumentType } from "@/types"
 import { toLegacyDoc } from "@/lib/convex-adapters"
 import { useDocTypes } from "@/lib/typeMeta"
+import { formatDate } from "@/lib/time"
+import { cn } from "@/lib/utils"
 import {
   DocumentLibraryTable,
   type AssetPreview,
+  type DocMeta,
   type DocumentRowAction,
+  type OptionalColumn,
 } from "@/components/docs/DocumentLibraryTable"
-import { DeleteDocumentDialog } from "@/components/docs/DeleteDocumentDialog"
+import { useDocumentRowActions } from "@/components/docs/DocumentActions"
+import { DocumentsTabs } from "@/components/docs/DocumentsTabs"
+import { STATUS_LABELS } from "@/components/docs/StatusBadge"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
-import { toast } from "sonner"
 import { NewDocumentChooserDialog } from "./DocumentNewChooserPage"
 
 type StatusFilter = DocumentStatus | "all"
@@ -38,18 +45,90 @@ const STATUS_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
   { value: "in_review", label: "In review" },
   { value: "approved", label: "Approved" },
   { value: "published", label: "Published" },
-  { value: "archived", label: "Archived" },
+  { value: "archived", label: "Withdrawn and superseded" },
 ]
+
+const OPTIONAL_COLUMNS: { value: OptionalColumn; label: string }[] = [
+  { value: "owner", label: "Owner" },
+  { value: "approvedBy", label: "Approved by" },
+  { value: "effective", label: "Effective" },
+]
+const COLUMNS_KEY = "oppr-docs:library-columns"
+const DAY = 24 * 60 * 60 * 1000
+
+function readColumns(): OptionalColumn[] {
+  try {
+    const raw = window.localStorage.getItem(COLUMNS_KEY)
+    const parsed = raw ? (JSON.parse(raw) as unknown) : null
+    if (Array.isArray(parsed)) return parsed.filter((c): c is OptionalColumn => OPTIONAL_COLUMNS.some((o) => o.value === c))
+  } catch {
+    // Storage blocked: fall back to no optional columns.
+  }
+  return []
+}
 
 function LoadingState() {
   return (
     <div className="space-y-3">
-      <Skeleton className="h-10 w-full" />
-      <Skeleton className="h-10 w-full" />
-      <Skeleton className="h-10 w-full" />
-      <Skeleton className="h-10 w-full" />
+      {[0, 1, 2, 3].map((i) => (
+        <Skeleton key={i} className="h-12 w-full" />
+      ))}
     </div>
   )
+}
+
+function csvCell(value: string): string {
+  return /[",\n;]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
+}
+
+/** The master list of controlled documents as a CSV file (ISO 9001 7.5.3). */
+function downloadMasterList(
+  docs: Doc[],
+  meta: Record<string, DocMeta>,
+  nextReviews: Record<string, number | null> | undefined,
+  typeLabel: (slug: string) => string,
+) {
+  const header = [
+    "Document ID",
+    "Title",
+    "Type",
+    "Status",
+    "Version in use",
+    "Owner",
+    "Approved by",
+    "Effective",
+    "Next review",
+    "Withdrawal reason",
+    "Updated",
+  ]
+  const rows = docs.map((d) => {
+    const m = meta[d.id]
+    const status = d.live_version != null && d.status !== "archived" ? "published" : d.status
+    const next = nextReviews?.[d.id] ?? null
+    return [
+      d.naming_code,
+      d.title,
+      typeLabel(d.type),
+      d.status === "archived" ? "Withdrawn" : STATUS_LABELS[status],
+      d.live_version != null ? `v${d.live_version}` : "",
+      m?.owner ?? "",
+      m?.approvedBy ?? "",
+      m?.effectiveAt != null ? formatDate(m.effectiveAt) : "",
+      next != null ? formatDate(next) : "",
+      m?.archiveReason ?? "",
+      formatDate(Date.parse(d.updated_at)),
+    ]
+  })
+  const csv = [header, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n")
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `master-list-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }
 
 export function LibraryPage() {
@@ -62,8 +141,26 @@ export function LibraryPage() {
     () => (new URLSearchParams(urlSearch).get("status") as StatusFilter | null) ?? "all",
   )
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all")
+  const [recent, setRecent] = useState(false)
   const [groupByType, setGroupByType] = useState(false)
-  const { types: docTypes } = useDocTypes()
+  const [columns, setColumns] = useState<OptionalColumn[]>(readColumns)
+  const { types: docTypes, resolve: resolveType } = useDocTypes()
+  const { handleAction, dialogs } = useDocumentRowActions()
+  const nextReviews = useQuery(api.documents.nextReviews, {})
+  const [now] = useState(() => Date.now())
+
+  function toggleColumn(c: OptionalColumn, on: boolean) {
+    setColumns((prev) => {
+      const next = on ? [...prev.filter((x) => x !== c), c] : prev.filter((x) => x !== c)
+      const ordered = OPTIONAL_COLUMNS.map((o) => o.value).filter((v) => next.includes(v))
+      try {
+        window.localStorage.setItem(COLUMNS_KEY, JSON.stringify(ordered))
+      } catch {
+        // Storage blocked: the choice lasts for this visit only.
+      }
+      return ordered
+    })
+  }
 
   const typeOptions = useMemo<Array<{ value: TypeFilter; label: string }>>(
     () => [
@@ -83,74 +180,21 @@ export function LibraryPage() {
   )
 
   const result = useQuery(api.documents.listWithAssetPreviews, queryArgs)
-  const archive = useMutation(api.documents.archive)
-  const remove = useMutation(api.documents.remove)
-  const [docToDelete, setDocToDelete] = useState<Doc | null>(null)
-  const [deleting, setDeleting] = useState(false)
   const ready = result !== undefined
-  const docs = useMemo(
-    () => (result ? result.docs.map(toLegacyDoc) : []),
-    [result],
-  )
+  const metaByDoc = useMemo<Record<string, DocMeta>>(() => result?.metaByDoc ?? {}, [result])
+  const docs = useMemo(() => {
+    const all = result ? result.docs.map(toLegacyDoc) : []
+    if (!recent) return all
+    return all.filter((d) => {
+      const at = metaByDoc[d.id]?.effectiveAt
+      return d.status !== "archived" && at != null && now - at <= 7 * DAY
+    })
+  }, [result, recent, metaByDoc, now])
   const assetsByDoc = useMemo<Record<string, AssetPreview[]>>(
     () => result?.assetsByDoc ?? {},
     [result],
   )
-
-  function handleAction(action: DocumentRowAction, doc: Doc) {
-    if (action === "open") {
-      navigate(`/docs/${doc.id}`)
-      return
-    }
-    if (action === "copy-id") {
-      navigator.clipboard
-        .writeText(doc.naming_code)
-        .then(() => toast.success(`Copied ${doc.naming_code}`))
-        .catch(() => toast.error("Failed to copy"))
-      return
-    }
-    if (action === "duplicate") {
-      toast.info("Duplicate isn't wired up yet.")
-      return
-    }
-    if (action === "archive") {
-      archive({ id: doc.id as Id<"documents"> })
-        .then(() => toast.success(`Archived ${doc.naming_code}`))
-        .catch((err) =>
-          toast.error(err instanceof Error ? err.message : "Failed to archive"),
-        )
-      return
-    }
-    if (action === "delete") {
-      setDocToDelete(doc)
-    }
-  }
-
-  async function handleArchiveFromDialog() {
-    if (!docToDelete) return
-    try {
-      await archive({ id: docToDelete.id as Id<"documents"> })
-      toast.success(`Archived ${docToDelete.naming_code}`)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to archive")
-    } finally {
-      setDocToDelete(null)
-    }
-  }
-
-  async function handleDeleteConfirm() {
-    if (!docToDelete) return
-    setDeleting(true)
-    try {
-      await remove({ id: docToDelete.id as Id<"documents"> })
-      toast.success(`Deleted ${docToDelete.naming_code}`)
-      setDocToDelete(null)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete")
-    } finally {
-      setDeleting(false)
-    }
-  }
+  const filtered = statusFilter !== "all" || typeFilter !== "all" || recent || search.trim() !== ""
 
   return (
     <div className="flex flex-col">
@@ -158,37 +202,30 @@ export function LibraryPage() {
       <PageHeader
         icon={LibraryIcon}
         title="Documents"
-        subtitle="Every controlled document. Only the published version of each counts as knowledge."
-        actions={
-          <>
-            <Button size="sm" variant="outline" onClick={() => navigate("/library/findings")}>
-              <SearchCheck className="mr-1.5 h-3.5 w-3.5" />
-              Findings
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => navigate("/library/health")}>
-              <HeartPulse className="mr-1.5 h-3.5 w-3.5" />
-              Knowledge health
-            </Button>
-            <Button size="sm" onClick={() => setNewOpen(true)}>
-              <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
-              New document
-            </Button>
-          </>
-        }
+        statusLine="Every controlled document. Only the Published version of each counts as Knowledge."
+        primary={{ label: "New document", icon: PlusCircle, onClick: () => setNewOpen(true) }}
+        secondary={[
+          {
+            label: "Master list",
+            icon: Download,
+            disabled: !ready || docs.length === 0,
+            disabledReason: "No documents to export.",
+            onClick: () => downloadMasterList(docs, metaByDoc, nextReviews, (s) => resolveType(s).label),
+          },
+        ]}
       />
+      <DocumentsTabs />
       <div className="space-y-4 p-6">
         <div className="flex flex-wrap items-center gap-2">
           <Input
-            placeholder="Search by title or naming code…"
+            placeholder="Search by title or document ID"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="min-w-[300px] max-w-sm flex-1 text-sm"
+            className="h-9 min-w-[260px] max-w-sm flex-1"
+            aria-label="Search documents"
           />
-          <Select
-            value={statusFilter}
-            onValueChange={(v) => setStatusFilter(v as StatusFilter)}
-          >
-            <SelectTrigger className="w-[160px]">
+          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
+            <SelectTrigger className="h-9 w-[210px]" aria-label="Status">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -199,11 +236,8 @@ export function LibraryPage() {
               ))}
             </SelectContent>
           </Select>
-          <Select
-            value={typeFilter}
-            onValueChange={(v) => setTypeFilter(v as TypeFilter)}
-          >
-            <SelectTrigger className="w-[180px]">
+          <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as TypeFilter)}>
+            <SelectTrigger className="h-9 w-[190px]" aria-label="Type">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -214,14 +248,52 @@ export function LibraryPage() {
               ))}
             </SelectContent>
           </Select>
+          <button
+            type="button"
+            aria-pressed={recent}
+            onClick={() => setRecent((r) => !r)}
+            className={cn(
+              "inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors",
+              recent
+                ? "border-primary bg-primary/10 font-medium text-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            )}
+          >
+            Published in last 7 days
+            {recent && <X className="h-3.5 w-3.5" aria-hidden />}
+          </button>
           <div className="ml-auto flex items-center gap-2">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-9">
+                  <Columns3 />
+                  Columns
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-56 space-y-2 p-3">
+                <p className="text-xs font-medium text-muted-foreground">Extra columns</p>
+                {OPTIONAL_COLUMNS.map((c) => (
+                  <div key={c.value} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`col-${c.value}`}
+                      checked={columns.includes(c.value)}
+                      onCheckedChange={(v) => toggleColumn(c.value, v === true)}
+                    />
+                    <Label htmlFor={`col-${c.value}`} className="text-sm font-normal">
+                      {c.label}
+                    </Label>
+                  </div>
+                ))}
+              </PopoverContent>
+            </Popover>
             <div className="flex items-center gap-1 rounded-md border bg-background p-0.5">
               <Button
                 type="button"
                 variant={groupByType ? "ghost" : "secondary"}
                 size="icon"
-                className="h-7 w-7"
+                className="h-8 w-8"
                 onClick={() => setGroupByType(false)}
+                aria-label="Flat list"
                 title="Flat list"
               >
                 <LayoutList className="h-4 w-4" />
@@ -230,14 +302,15 @@ export function LibraryPage() {
                 type="button"
                 variant={groupByType ? "secondary" : "ghost"}
                 size="icon"
-                className="h-7 w-7"
+                className="h-8 w-8"
                 onClick={() => setGroupByType(true)}
+                aria-label="Group by type"
                 title="Group by type"
               >
                 <Layers className="h-4 w-4" />
               </Button>
             </div>
-            <div className="text-xs text-muted-foreground">
+            <div className="text-sm text-muted-foreground">
               {docs.length} document{docs.length === 1 ? "" : "s"}
             </div>
           </div>
@@ -249,6 +322,8 @@ export function LibraryPage() {
           <GroupedByType
             docs={docs}
             assetsByDoc={assetsByDoc}
+            metaByDoc={metaByDoc}
+            columns={columns}
             typeOrder={docTypes.map((t) => t.slug)}
             typeLabels={Object.fromEntries(docTypes.map((t) => [t.slug, t.label]))}
             onRowClick={(d) => navigate(`/docs/${d.id}`)}
@@ -259,21 +334,21 @@ export function LibraryPage() {
           <DocumentLibraryTable
             docs={docs}
             assetsByDoc={assetsByDoc}
+            metaByDoc={metaByDoc}
+            columns={columns}
             onRowClick={(d) => navigate(`/docs/${d.id}`)}
             onAssetClick={(id) => navigate(`/assets/${id}`)}
             onAction={handleAction}
+            emptyMessage={
+              filtered
+                ? "No documents match these filters. Clear a filter to see more."
+                : "No documents yet. Choose New document to write the first one."
+            }
           />
         )}
       </div>
 
-      <DeleteDocumentDialog
-        doc={docToDelete}
-        open={!!docToDelete}
-        onOpenChange={(o) => !o && !deleting && setDocToDelete(null)}
-        onArchive={() => void handleArchiveFromDialog()}
-        onConfirmDelete={() => void handleDeleteConfirm()}
-        busy={deleting}
-      />
+      {dialogs}
       <NewDocumentChooserDialog open={newOpen} onOpenChange={setNewOpen} />
     </div>
   )
@@ -282,6 +357,8 @@ export function LibraryPage() {
 interface GroupedByTypeProps {
   docs: Doc[]
   assetsByDoc: Record<string, AssetPreview[]>
+  metaByDoc: Record<string, DocMeta>
+  columns: OptionalColumn[]
   typeOrder: DocumentType[]
   typeLabels: Record<string, string>
   onRowClick: (d: Doc) => void
@@ -292,6 +369,8 @@ interface GroupedByTypeProps {
 function GroupedByType({
   docs,
   assetsByDoc,
+  metaByDoc,
+  columns,
   typeOrder,
   typeLabels,
   onRowClick,
@@ -312,12 +391,14 @@ function GroupedByType({
     const result = typeOrder
       .filter((t) => (map.get(t) ?? []).length > 0)
       .map((t) => ({ type: t, label: typeLabels[t] ?? t, docs: map.get(t) ?? [] }))
-    if (orphans.length > 0)
-      result.push({ type: "__other__", label: "Other", docs: orphans })
+    if (orphans.length > 0) result.push({ type: "__other__", label: "Other", docs: orphans })
     return result
   }, [docs, typeOrder, typeLabels])
 
-  if (groups.length === 0) return null
+  if (groups.length === 0)
+    return (
+      <DocumentLibraryTable docs={[]} emptyMessage="No documents match these filters. Clear a filter to see more." />
+    )
 
   return (
     <div className="space-y-6">
@@ -325,13 +406,15 @@ function GroupedByType({
         <section key={g.type}>
           <div className="mb-2 flex items-baseline justify-between">
             <h2 className="text-sm font-semibold">{g.label}</h2>
-            <span className="text-xs text-muted-foreground">
+            <span className="text-sm text-muted-foreground">
               {g.docs.length} document{g.docs.length === 1 ? "" : "s"}
             </span>
           </div>
           <DocumentLibraryTable
             docs={g.docs}
             assetsByDoc={assetsByDoc}
+            metaByDoc={metaByDoc}
+            columns={columns}
             onRowClick={onRowClick}
             onAssetClick={onAssetClick}
             onAction={onAction}

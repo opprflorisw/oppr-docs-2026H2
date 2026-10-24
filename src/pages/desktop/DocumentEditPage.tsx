@@ -5,16 +5,16 @@
 // Lifecycle is gated server-side. The action bar exposes only the transitions
 // valid for the current status; each one persists the current content first
 // (a new version) and then advances the state:
-//   draft      → Save · Submit for review (needs reviewer)
-//   in_review  → Save · Approve (needs approver) · Revert to draft
-//   approved   → Save · Publish · Revert to draft
-//   published  → read-only; this page redirects to the reader. Editing a
+//   draft      -> Save, Submit for review (dialog: reviewer, approver, change note)
+//   in_review  -> Save, Approve (named reviewer only), Send back to draft
+//   approved   -> Save, Publish (named approver only, change kind + impact)
+//   published  -> read-only; this page redirects to the reader. Editing a
 //                published doc forks a new draft via documents.createNewVersion.
 
 import { useEffect, useLayoutEffect, useMemo, useState } from "react"
-import { useLocation, useRoute } from "wouter"
+import { useLocation, useRoute, useSearch } from "wouter"
 import { toast } from "sonner"
-import { Eye, EyeOff, FileDown, LayoutTemplate, RotateCcw, X } from "lucide-react"
+import { Eye, EyeOff, FileDown, LayoutTemplate, Lightbulb, RotateCcw, X } from "lucide-react"
 import { useMutation, useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
@@ -50,6 +50,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import type { DocumentType } from "@/types"
 import { WrappedManualEditor } from "@/components/manuals/WrappedManualEditor"
+import { PublishDocumentDialog, SubmitForReviewDialog, serverMessage } from "@/components/docs/LifecycleDialogs"
+import { formatDateTime } from "@/lib/time"
 
 const EMPTY_DOC = { type: "doc", content: [{ type: "paragraph" }] }
 const META_VISIBLE_KEY = "oppr-docs:edit-metadata-visible"
@@ -85,12 +87,18 @@ export function DocumentEditPage() {
 
   const docId = params?.id ?? ""
   const saveContent = useMutation(api.documents.saveContent)
-  const submitForReview = useMutation(api.documents.submitForReview)
   const approveDoc = useMutation(api.documents.approve)
-  const publishDoc = useMutation(api.documents.publish)
   const { person } = useCheckIn()
   const engineer = person?.kind === "engineer" ? person : null
-  const [signOff, setSignOff] = useState<"approve" | "publish" | null>(null)
+  const [signOff, setSignOff] = useState<"approve" | null>(null)
+  const [submitOpen, setSubmitOpen] = useState(false)
+  const [publishOpen, setPublishOpen] = useState(false)
+  // "Open v2 and add this fix" from a Finding: show what to fix while editing.
+  const search = useSearch()
+  const fixFindingId = new URLSearchParams(search).get("finding")
+  const findings = useQuery(api.findings.list, fixFindingId ? { status: "open" } : "skip")
+  const fixFinding = findings?.find((f) => f._id === fixFindingId) ?? null
+  const [fixDismissed, setFixDismissed] = useState(false)
   const revertToDraft = useMutation(api.documents.revertToDraft)
   const createTemplate = useMutation(api.templates.create)
 
@@ -165,9 +173,9 @@ export function DocumentEditPage() {
       type: d.type as DocumentType,
       location: d.location ?? parsed?.location ?? "",
       discipline: d.discipline ?? parsed?.discipline ?? "",
-      ownerId: d.ownerId ?? "",
-      reviewerId: d.reviewerId ?? "",
-      approverId: d.approverId ?? "",
+      ownerPersonId: d.ownerPersonId ?? "",
+      reviewerPersonId: d.reviewerPersonId ?? "",
+      approverPersonId: d.approverPersonId ?? "",
     })
   }, [docResult, meta])
 
@@ -273,25 +281,28 @@ export function DocumentEditPage() {
 
   // Persist current content + roles as a new version. Returns false if the
   // metadata is invalid.
-  async function persist(): Promise<boolean> {
+  async function persist(roles?: { reviewerPersonId: string; approverPersonId: string }): Promise<boolean> {
     if (!meta || !docResult) return false
-    const validation = validateMetadata(meta)
+    const m = roles ? { ...meta, ...roles } : meta
+    const validation = validateMetadata(m)
     if (!validation.ok) {
       setErrors(validation.errors)
-      toast.error("Please fix the metadata errors")
+      toast.error("Fix the details marked in the panel first")
       return false
     }
     setErrors({})
+    if (roles) setMeta(m)
     const raw = chunksFromTipTap(body)
     await saveContent({
       id: docResult.doc._id,
-      title: meta.title.trim(),
-      type: meta.type,
-      location: meta.location,
-      discipline: meta.discipline,
-      ownerId: (meta.ownerId || null) as Id<"users"> | null,
-      reviewerId: (meta.reviewerId || null) as Id<"users"> | null,
-      approverId: (meta.approverId || null) as Id<"users"> | null,
+      title: m.title.trim(),
+      type: m.type,
+      location: m.location,
+      discipline: m.discipline,
+      ownerPersonId: (m.ownerPersonId || null) as Id<"people"> | null,
+      reviewerPersonId: (m.reviewerPersonId || null) as Id<"people"> | null,
+      approverPersonId: (m.approverPersonId || null) as Id<"people"> | null,
+      ...(person ? { personId: person._id } : {}),
       body,
       chunks: raw.map((r) => ({ text: r.text, section: r.section })),
     })
@@ -304,12 +315,12 @@ export function DocumentEditPage() {
     setSavingTemplate(true)
     try {
       const id = await createTemplate({
-        name: `${meta.title?.trim() || "Untitled"} — template`,
+        name: `${meta.title?.trim() || "Untitled"} (template)`,
         type: meta.type,
         description: "Created from a document. Trim the specifics.",
         bodyJson: body,
       })
-      toast.success("Template created — trim the specifics and save")
+      toast.success("Template created. Trim the specifics and save.")
       setLocation(`/templates/${id}/edit`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't create template")
@@ -326,7 +337,7 @@ export function DocumentEditPage() {
     try {
       const ok = await persist()
       if (ok) {
-        toast.success("Draft saved — exporting the version on screen")
+        toast.success("Draft saved. Exporting the version on screen.")
         setPdfOpen(true)
       }
     } catch (err) {
@@ -340,61 +351,43 @@ export function DocumentEditPage() {
     if (!meta || !docResult) return
     const id = docResult.doc._id
 
-    // Client-side guard rails so the user gets a friendly message before the
-    // server rejects the transition.
-    if (action === "submit" && !meta.reviewerId) {
-      setErrors({})
-      toast.error("Assign a reviewer before submitting for review.")
-      setMetaVisible(true)
+    // Submitting and publishing are decisions with their own dialog.
+    if (action === "submit") {
+      setSubmitOpen(true)
       return
     }
-    if (action === "approve" && !meta.approverId) {
-      toast.error("Assign an approver before approving.")
-      setMetaVisible(true)
+    if (action === "publish") {
+      setPublishOpen(true)
       return
     }
-
-    // Approving and publishing are sign-offs: a checked-in Engineer confirms
-    // them explicitly, and they apply to the saved version as it is.
-    if ((action === "approve" || action === "publish") && signOff !== action) {
+    // Approving is a sign-off: a checked-in Engineer confirms it explicitly,
+    // and it applies to the saved version as it is.
+    if (action === "approve" && signOff !== action) {
       if (!engineer) {
         toast.error("Check in as an Engineer (top right) to sign this off.")
         return
       }
-      setSignOff(action)
+      setSignOff("approve")
       return
     }
 
     setRunning(action)
     try {
       if (action === "revert") {
-        await revertToDraft({ id })
-        toast.success("Reverted to draft")
+        await revertToDraft({ id, ...(person ? { personId: person._id } : {}) })
+        toast.success("Sent back to draft")
         return
       }
-      if (action === "approve" || action === "publish") {
+      if (action === "approve") {
         if (!engineer) return
-        if (action === "approve") {
-          await approveDoc({ id, personId: engineer._id })
-          toast.success(`Approved by ${engineer.name}`)
-        } else {
-          await publishDoc({ id, personId: engineer._id })
-          toast.success(`Published by ${engineer.name}`)
-          setLocation(`/docs/${id}`)
-        }
+        await approveDoc({ id, personId: engineer._id })
+        toast.success(`Approved by ${engineer.name}`)
         return
       }
       const ok = await persist()
-      if (!ok) return
-      if (action === "save") {
-        toast.success("Draft saved")
-      } else if (action === "submit") {
-        await submitForReview({ id })
-        toast.success("Submitted for review")
-      }
+      if (ok) toast.success("Draft saved")
     } catch (err) {
-      console.error(err)
-      toast.error(err instanceof Error ? err.message : "Action failed")
+      toast.error(serverMessage(err, "That did not work. Try again."))
     } finally {
       setRunning(null)
     }
@@ -427,6 +420,16 @@ export function DocumentEditPage() {
   const errorCount = Object.keys(errors).length
   const namingCode = doc.namingCode
   const displayCode = namingCode || "Pre-draft"
+  // Four-eyes in the UI: only the named reviewer approves and only the named
+  // approver publishes. Everyone else sees who it waits for.
+  const assigned = docResult.assigned
+  const waitingFor =
+    status === "in_review" && assigned.reviewer && assigned.reviewer._id !== person?._id
+      ? assigned.reviewer.name
+      : status === "approved" && assigned.approver && assigned.approver._id !== person?._id
+        ? assigned.approver.name
+        : null
+  const isNewVersion = doc.liveVersion != null
 
   return (
     <div className="flex flex-col">
@@ -447,7 +450,7 @@ export function DocumentEditPage() {
           <span className="flex flex-wrap items-center gap-2">
             <TypeBadge type={meta.type} />
             <StatusBadge status={status} />
-            <span className="font-mono text-[10px]">v{doc.currentVersion}</span>
+            <span className="font-mono text-xs">v{doc.currentVersion}</span>
           </span>
         }
         actions={
@@ -513,7 +516,7 @@ export function DocumentEditPage() {
               disabled={busy}
               onClick={() => void run("save")}
             >
-              {running === "save" ? "Saving…" : "Save"}
+              {running === "save" ? "Saving..." : "Save"}
             </Button>
 
             {(status === "in_review" || status === "approved") && (
@@ -523,37 +526,26 @@ export function DocumentEditPage() {
                 disabled={busy}
                 onClick={() => void run("revert")}
               >
-                {running === "revert" ? "Reverting…" : "Revert to draft"}
+                {running === "revert" ? "Sending back..." : "Send back to draft"}
               </Button>
             )}
 
             {status === "draft" && (
-              <Button
-                size="sm"
-                disabled={busy}
-                onClick={() => void run("submit")}
-                title={!meta.reviewerId ? "Assign a reviewer first" : undefined}
-              >
-                {running === "submit" ? "Submitting…" : "Submit for review"}
+              <Button size="sm" disabled={busy} onClick={() => void run("submit")}>
+                Submit for review
               </Button>
             )}
-            {status === "in_review" && (
-              <Button
-                size="sm"
-                disabled={busy}
-                onClick={() => void run("approve")}
-                title={!meta.approverId ? "Assign an approver first" : undefined}
-              >
-                {running === "approve" ? "Approving…" : "Approve"}
+            {(status === "in_review" || status === "approved") && waitingFor && (
+              <span className="text-sm text-muted-foreground">Waiting for {waitingFor}</span>
+            )}
+            {status === "in_review" && !waitingFor && (
+              <Button size="sm" disabled={busy} onClick={() => void run("approve")}>
+                {running === "approve" ? "Approving..." : "Approve"}
               </Button>
             )}
-            {status === "approved" && (
-              <Button
-                size="sm"
-                disabled={busy}
-                onClick={() => void run("publish")}
-              >
-                {running === "publish" ? "Publishing…" : "Publish"}
+            {status === "approved" && !waitingFor && (
+              <Button size="sm" disabled={busy} onClick={() => void run("publish")}>
+                Publish
               </Button>
             )}
           </>
@@ -563,20 +555,34 @@ export function DocumentEditPage() {
       {(status === "in_review" || status === "approved") && (
         <DecisionStrip
           status={status}
-          missingApprover={status === "in_review" && !meta.approverId}
-          busy={busy}
-          running={running}
-          onAct={() => void run(status === "in_review" ? "approve" : "publish")}
+          missingApprover={status === "in_review" && !meta.approverPersonId && !doc.approverId}
+          waitingFor={waitingFor}
           onShowMeta={() => setMetaVisible(true)}
         />
+      )}
+
+      {fixFinding && !fixDismissed && (
+        <div className="mx-6 mt-3 flex items-start gap-3 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+          <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="font-medium">Add this fix to v{doc.currentVersion}: {fixFinding.summary}</p>
+            {[fixFinding.a, fixFinding.b].map((s) => (
+              <p key={s.documentId} className="text-xs text-muted-foreground">
+                <span className="font-mono">{s.namingCode}</span>: "{s.quote}"
+              </p>
+            ))}
+          </div>
+          <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Hide" onClick={() => setFixDismissed(true)}>
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       )}
 
       {recovered && (
         <div className="mx-6 mt-3 flex items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
           <RotateCcw className="h-4 w-4 shrink-0" />
           <span className="flex-1">
-            Unsaved changes from {new Date(recovered.at).toLocaleString()} were
-            recovered.
+            Unsaved changes from {formatDateTime(recovered.at)} were recovered.
           </span>
           <Button
             size="sm"
@@ -611,7 +617,7 @@ export function DocumentEditPage() {
           <DocumentEditor
             content={body}
             onChange={(json) => setBody(json)}
-            placeholder="Continue writing… type / for blocks"
+            placeholder="Continue writing. Type / for blocks"
             toolbarTopOffset={stickyTop}
           />
         </div>
@@ -639,25 +645,54 @@ export function DocumentEditPage() {
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>
-                {signOff === "approve" ? "Approve" : "Publish"} {namingCode} v{doc.currentVersion}?
+                Approve {namingCode} v{doc.currentVersion}?
               </AlertDialogTitle>
               <AlertDialogDescription>
-                {signOff === "approve"
-                  ? "This records your approval of the saved version. It is not published yet."
-                  : "Publishing makes the saved version Knowledge: Operators, Ask and Wikis start using it, and the previous version stops being used."}{" "}
-                Unsaved edits are not included: save first if you changed something
-                (saving changed text sends it back to draft). The sign-off is recorded
-                in the name of {engineer?.name ?? "the checked-in Engineer"}.
+                This records your review of the saved version. It is not published yet: the approver
+                does that next. Unsaved edits are not included: save first if you changed something
+                (saving changed text sends it back to draft). The sign-off is recorded in the name of{" "}
+                {engineer?.name ?? "the checked-in Engineer"}.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction onClick={() => signOff && void run(signOff)}>
-                {signOff === "approve" ? "Approve" : "Publish"} as {engineer?.name.split(" ")[0] ?? "Engineer"}
+                Approve as {engineer?.name.split(" ")[0] ?? "Engineer"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+        <SubmitForReviewDialog
+          open={submitOpen}
+          onOpenChange={setSubmitOpen}
+          documentId={doc._id}
+          namingCode={namingCode}
+          isNewVersion={isNewVersion}
+          initialReviewer={meta.reviewerPersonId || null}
+          initialApprover={meta.approverPersonId || null}
+          initialNote={assigned.changeNote}
+          beforeSubmit={async (roles) => {
+            try {
+              return await persist(roles)
+            } catch (err) {
+              toast.error(serverMessage(err, "The draft could not be saved."))
+              return false
+            }
+          }}
+          onSubmitted={() => toast.success(`${namingCode} is submitted for review`)}
+        />
+        <PublishDocumentDialog
+          open={publishOpen}
+          onOpenChange={setPublishOpen}
+          documentId={doc._id}
+          namingCode={namingCode}
+          version={doc.currentVersion}
+          initialNote={assigned.changeNote}
+          onPublished={() => {
+            toast.success(`${namingCode} v${doc.currentVersion} is Published`)
+            setLocation(`/docs/${doc._id}`)
+          }}
+        />
         <RefileDocumentDialog
           open={refileOpen}
           onOpenChange={setRefileOpen}
@@ -678,16 +713,12 @@ export function DocumentEditPage() {
 function DecisionStrip({
   status,
   missingApprover,
-  busy,
-  running,
-  onAct,
+  waitingFor,
   onShowMeta,
 }: {
   status: "in_review" | "approved"
   missingApprover: boolean
-  busy: boolean
-  running: string | null
-  onAct: () => void
+  waitingFor: string | null
   onShowMeta: () => void
 }) {
   const review = status === "in_review"
@@ -701,22 +732,18 @@ function DecisionStrip({
           {review ? "Waiting for review and approval" : "Approved, ready to publish"}
         </p>
         <p className="text-xs text-muted-foreground">
-          {review
-            ? missingApprover
-              ? "Assign an approver in the metadata panel, then approve. Approving does not publish yet."
-              : "Read it through and fix what is needed, then approve. Approving does not publish yet."
-            : "Publishing makes this version Knowledge: Operators, Ask and Wikis start using it."}
+          {waitingFor
+            ? `Waiting for ${waitingFor}. Only the named ${review ? "reviewer approves" : "approver publishes"} it. Editing the text sends it back to draft.`
+            : review
+              ? missingApprover
+                ? "Choose an approver in the details panel, then approve. Approving does not publish yet."
+                : "Read it through and fix what is needed, then approve. Approving does not publish yet."
+              : "Publishing makes this version Knowledge: Operators, Ask and Wikis start using it."}
         </p>
       </div>
-      {review && missingApprover ? (
+      {!waitingFor && review && missingApprover && (
         <Button size="sm" variant="outline" onClick={onShowMeta}>
-          Assign approver
-        </Button>
-      ) : (
-        <Button size="sm" disabled={busy} onClick={onAct}>
-          {review
-            ? running === "approve" ? "Approving…" : "Approve"
-            : running === "publish" ? "Publishing…" : "Publish"}
+          Choose approver
         </Button>
       )}
     </div>

@@ -3,78 +3,125 @@
 @tailwind utilities;
  
 @layer base {
+  /* Brand and role tokens (one place). Tailwind reads every colour as
+     hsl(var(--x)), so a theme only redefines these variables.
+     - primary / primary-strong #6E59A5: the filled primary, 4.5:1+ with white
+     - primary-soft #9b87f5: tints, borders and selection only
+     - muted-foreground slate #64748B: secondary text, never purple
+     - ring #7E69AB: focus ring
+     - status-*: reserved for status (Draft grey, In review amber, Approved
+       blue, Published green, Archived slate, Re-train red). */
   :root {
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
- 
+    --foreground: 222.2 47.4% 11.2%;
+
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
- 
+    --card-foreground: 222.2 47.4% 11.2%;
+
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
- 
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
- 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
- 
-    --muted: 210 40% 96.1%;
+    --popover-foreground: 222.2 47.4% 11.2%;
+
+    --primary: 256.6 29.9% 49.8%;
+    --primary-foreground: 0 0% 100%;
+    --primary-strong: 256.6 29.9% 49.8%;
+    --primary-soft: 250.9 84.6% 74.5%;
+
+    --secondary: 248.6 50% 94.5%;
+    --secondary-foreground: 255.8 33.3% 32%;
+
+    --muted: 250 25% 96.5%;
     --muted-foreground: 215.4 16.3% 46.9%;
- 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
- 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
- 
+
+    --accent: 253.3 69.2% 94.9%;
+    --accent-foreground: 223.3 25.7% 13.7%;
+
+    --destructive: 0 72.2% 50.6%;
+    --destructive-foreground: 0 0% 100%;
+
     --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
- 
+    --input: 214.3 31.8% 88%;
+    --ring: 259.1 28.2% 54.1%;
+
     --radius: 0.75rem;
 
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 222.2 84% 4.9%;
-    --sidebar-primary: 221.2 83.2% 53.3%;
-    --sidebar-primary-foreground: 210 40% 98%;
-    --sidebar-accent: 210 40% 96.1%;
-    --sidebar-accent-foreground: 222.2 47.4% 11.2%;
-    --sidebar-border: 214.3 31.8% 91.4%;
-    --sidebar-ring: 221.2 83.2% 53.3%;
+    --sidebar-background: 223.3 25.7% 13.7%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 250.9 84.6% 74.5%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 265.2 86.1% 85.9%;
+    --sidebar-accent-foreground: 223.3 25.7% 13.7%;
+    --sidebar-border: 217.8 23.1% 22.9%;
+    --sidebar-ring: 250.9 84.6% 74.5%;
+
+    --status-draft: 215.3 19.3% 34.5%;
+    --status-draft-bg: 210 40% 96.1%;
+    --status-review: 21.7 77.8% 26.5%;
+    --status-review-bg: 48 100% 96.1%;
+    --status-approved: 224.3 76.3% 48%;
+    --status-approved-bg: 213.8 100% 96.9%;
+    --status-published: 142.1 72.2% 29.2%;
+    --status-published-bg: 138.5 76.5% 96.7%;
+    --status-archived: 215.4 16.3% 46.9%;
+    --status-archived-bg: 210 40% 98%;
+    --status-retrain: 0 73.7% 41.8%;
+    --status-retrain-bg: 0 85.7% 97.3%;
   }
 
+  /* Dark mode is not offered yet (the toggle is hidden until every surface
+     passes); the values are kept coherent so nothing turns unreadable. */
   .dark {
-    --background: 222.2 84% 4.9%;
+    --background: 224 24% 9%;
     --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
+    --card: 224 22% 12%;
     --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
+    --popover: 224 22% 12%;
     --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
+    --primary: 252 45% 66%;
+    --primary-foreground: 224 24% 9%;
+    --primary-strong: 256.6 29.9% 49.8%;
+    --primary-soft: 250.9 84.6% 74.5%;
+    --secondary: 255 30% 22%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
+    --muted: 224 18% 17%;
     --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
+    --accent: 255 30% 22%;
     --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 0 62.8% 50%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --border: 224 16% 22%;
+    --input: 224 16% 26%;
+    --ring: 252 45% 66%;
+    --status-draft: 215 20% 75%;
+    --status-draft-bg: 215 20% 18%;
+    --status-review: 43 96% 70%;
+    --status-review-bg: 35 60% 15%;
+    --status-approved: 213 94% 78%;
+    --status-approved-bg: 220 50% 18%;
+    --status-published: 142 70% 65%;
+    --status-published-bg: 145 45% 14%;
+    --status-archived: 215 16% 65%;
+    --status-archived-bg: 215 16% 15%;
+    --status-retrain: 0 90% 75%;
+    --status-retrain-bg: 0 50% 16%;
   }
 }
- 
+
 @layer base {
   * {
     @apply border-border;
   }
   body {
     @apply bg-background text-foreground;
+    -webkit-tap-highlight-color: transparent;
+  }
+  ::selection {
+    background: hsl(var(--primary-soft) / 0.35);
   }
 }
+
+/* Floor type scale (/m): body 16px, secondary 14px, meta 13px minimum. These
+   are tailwind fontSize tokens (text-floor-body, text-floor-secondary,
+   text-floor-meta, text-floor-title); see tailwind.config.js. */
 
 /* ---------------------------------------------------------------------------
  * Shared TipTap content styling.

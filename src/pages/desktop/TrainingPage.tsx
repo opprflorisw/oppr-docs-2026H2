@@ -1,35 +1,33 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useMutation, useQuery } from "convex/react"
-import { Link, useLocation, useRoute } from "wouter"
+import type { FunctionReturnType } from "convex/server"
+import { Link, useLocation, useRoute, useSearch } from "wouter"
 import { toast } from "sonner"
 import {
   AlertTriangle,
   Archive,
-  ArrowRight,
   CheckCircle2,
   CircleAlert,
-  FileCheck2,
+  Eye,
   GitBranch,
   Info,
   ListChecks,
-  Loader2,
   MapPin,
   Pencil,
-  Play,
-  Send,
+  ShieldAlert,
   ShieldCheck,
   Smartphone,
   Trash2,
   Undo2,
-  UserRound,
+  UserPlus,
 } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Textarea } from "@/components/ui/textarea"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,53 +38,48 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { StatusBadge } from "@/components/docs/StatusBadge"
 import { useCheckIn } from "@/lib/checkIn"
 import { cn } from "@/lib/utils"
-import {
-  daysAgo,
-  errorText,
-  fmtDate,
-  KindBadge,
-  KindIcon,
-  ScoreBadge,
-  SourceChip,
-} from "@/components/learn/training/lib"
+import { errorText, fmtDate, KindBadge, SourceChip } from "@/components/learn/training/lib"
 import {
   TrainingGuidedCreation,
-  type TrainingDraft,
+  useTrainingDraft,
+  type BuilderTab,
 } from "@/components/learn/training/TrainingGuidedCreation"
+import { BreakdownReadView } from "@/components/learn/training/JobBreakdownEditor"
+import { TrainingPeoplePanel } from "@/components/learn/training/TrainingPeoplePanel"
+import { StillOnPointSignal, TrainingInsightsPanel } from "@/components/learn/training/TrainingInsightsPanel"
+import { TrainingLearnerView } from "@/components/learn/training/TrainingLearnerView"
+import { AssignDialog, resolveAudience, useCatalogue } from "@/components/learn/training/AssignDialog"
+import { passRuleText, questionCount } from "@/components/learn/training/builderModel"
+import { TrainingPreview } from "@/components/learn/training/TrainingPreview"
 
 type SignOff = "approve" | "publish" | "archive" | "confirm"
+type PageTab = "overview" | "people" | "insights" | "versions"
 
-// /learn/trainings/:id: one Training, its objectives, stops, versions, sign-offs and records; start an Attempt.
+const PAGE_TABS: { value: PageTab; label: string }[] = [
+  { value: "overview", label: "Overview" },
+  { value: "people", label: "People" },
+  { value: "insights", label: "How it is going" },
+  { value: "versions", label: "Versions" },
+]
+
+const DAY = 24 * 60 * 60 * 1000
+
+// /learn/trainings/:id. Engineers manage the Training here; an Operator (or
+// nobody checked in) gets the learner view with one Start button.
 export function TrainingPage() {
   const [, params] = useRoute<{ id: string }>("/learn/trainings/:id")
   const id = params?.id as Id<"trainings"> | undefined
   const data = useQuery(api.trainings.get, id ? { id } : "skip")
-  const records = useQuery(api.attempts.listRecords, id ? { trainingId: id, includeFailed: true } : "skip")
-  const { person } = useCheckIn()
-  const mine = useQuery(api.attempts.listMine, person ? { personId: person._id } : "skip")
-  const engineer = person?.kind === "engineer" ? person : null
+  const { person, people } = useCheckIn()
+  // Wait for the check-in, so an Engineer never sees the learner view flash.
+  const hydrated = people !== undefined
   const [, navigate] = useLocation()
 
-  const submit = useMutation(api.trainings.submitForReview)
-  const revert = useMutation(api.trainings.revertToDraft)
-  const approve = useMutation(api.trainings.approve)
-  const publish = useMutation(api.trainings.publish)
-  const newVersion = useMutation(api.trainings.newVersion)
-  const archive = useMutation(api.trainings.archive)
-  const confirmStillValid = useMutation(api.trainings.confirmStillValid)
-  const removeDraft = useMutation(api.trainings.removeDraft)
-  const startAttempt = useMutation(api.attempts.start)
-
-  const [editing, setEditing] = useState(false)
-  const [signOff, setSignOff] = useState<SignOff | null>(null)
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const [busy, setBusy] = useState<string | null>(null)
-  const [showLive, setShowLive] = useState(false)
-
-  if (data === undefined) {
+  if (data === undefined || hydrated === false) {
     return (
       <div className="flex flex-col">
         <TopBar breadcrumb={[{ label: "Learn", href: "/learn?tab=trainings" }, { label: "Training" }]} />
@@ -105,7 +98,7 @@ export function TrainingPage() {
         <div className="flex flex-col items-center gap-2 p-12 text-center">
           <ListChecks className="h-8 w-8 text-muted-foreground" />
           <p className="text-sm font-medium">This Training does not exist</p>
-          <p className="text-xs text-muted-foreground">It may have been deleted while it was still a draft.</p>
+          <p className="text-sm text-muted-foreground">It may have been deleted while it was still a draft.</p>
           <Button size="sm" variant="outline" onClick={() => navigate("/learn?tab=trainings")}>
             All Trainings
           </Button>
@@ -114,144 +107,169 @@ export function TrainingPage() {
     )
   }
 
-  const { training: t, current, live, versions, stats } = data
-  const view = showLive && live ? live : current
+  const t = data.training
+  if (person?.kind !== "engineer") {
+    return (
+      <div className="flex flex-col">
+        <TopBar breadcrumb={[{ label: "Learn", href: "/learn" }, { label: t.title }]} />
+        <TrainingLearnerView
+          trainingId={t._id}
+          code={t.code}
+          title={t.title}
+          kind={t.kind}
+          blockedReason={data.blockedReason ?? null}
+        />
+      </div>
+    )
+  }
+  return <EngineerTrainingPage data={data} />
+}
+
+type TrainingData = NonNullable<FunctionReturnType<typeof api.trainings.get>>
+type ObjectiveView = NonNullable<TrainingData["current"]>["objectives"]
+
+function EngineerTrainingPage({ data }: { data: TrainingData }) {
+  const { training: t, current, live, versions } = data
+  const { person } = useCheckIn()
+  const engineer = person?.kind === "engineer" ? person : null
+  const [, navigate] = useLocation()
+  const search = useSearch()
+  const setup = useQuery(api.trainingBuilder.setup, { trainingId: t._id })
+  const draft = useTrainingDraft(t._id)
+  const catalogue = useCatalogue()
+
+  const submitRevert = useMutation(api.trainings.revertToDraft)
+  const approve = useMutation(api.trainings.approve)
+  const publish = useMutation(api.trainings.publish)
+  const newVersion = useMutation(api.trainings.newVersion)
+  const archive = useMutation(api.trainings.archive)
+  const confirmStillValid = useMutation(api.trainings.confirmStillValid)
+  const removeDraft = useMutation(api.trainings.removeDraft)
+
+  const initialTab = (new URLSearchParams(search).get("tab") as PageTab | null) ?? "overview"
+  const [tab, setTab] = useState<PageTab>(PAGE_TABS.some((x) => x.value === initialTab) ? initialTab : "overview")
+  const [builder, setBuilder] = useState<BuilderTab | null>(null)
+  const [signOff, setSignOff] = useState<SignOff | null>(null)
+  const [sendToAudience, setSendToAudience] = useState(true)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [reverting, setReverting] = useState(false)
+  const [revertReason, setRevertReason] = useState("")
+  const [assigning, setAssigning] = useState(false)
+  const [startingVersion, setStartingVersion] = useState(false)
+  const [changeNote, setChangeNote] = useState("")
+  const [busy, setBusy] = useState<string | null>(null)
+  const [showLive, setShowLive] = useState(false)
+  const [previewing, setPreviewing] = useState(false)
+
+  const view = showLive && live ? live : current!
+  const viewSetup = showLive && setup?.live ? setup.live : setup?.current
   const isLive = t.liveVersion != null && t.status !== "archived"
-  const myOpen = mine?.find(
-    (a) => a.trainingId === t._id && (a.status === "in_progress" || a.status === "generating" || a.status === "error"),
-  )
-  const myLast = mine?.find((a) => a.trainingId === t._id && (a.status === "passed" || a.status === "failed"))
-  const problems = current.objectives.filter((o) => o.check === "missing" || o.check === "unpublished").length
+  const problems = current!.objectives.filter((o) => o.check === "missing" || o.check === "unpublished").length
+  const authors = new Set(current!.signoffs.filter((s) => s.role === "author" && s.personId).map((s) => String(s.personId)))
+  const isAuthor = engineer ? authors.has(String(engineer._id)) : false
+  const changes = useMemo(() => (live ? diffVersions(live, current!) : null), [live, current])
 
   async function run(key: string, fn: () => Promise<unknown>, ok?: string) {
     setBusy(key)
     try {
       await fn()
       if (ok) toast.success(ok)
+      return true
     } catch (err) {
       toast.error(errorText(err))
+      return false
     } finally {
       setBusy(null)
     }
   }
 
-  function askSignOff(kind: SignOff) {
-    if (!engineer) {
-      toast.error("Check in as an Engineer (top right) to sign this off.")
-      return
-    }
-    setSignOff(kind)
-  }
+  // Who a publish sends it to.
+  const audience = setup?.current.audience ?? null
+  const audiencePeople = audience ? resolveAudience(catalogue, audience.profileIds, audience.personIds) : []
+  const audienceProfiles = (catalogue?.profiles ?? []).filter((p) => audience?.profileIds.includes(p._id)).map((p) => p.name)
+  const dueAt = audience ? Date.now() + audience.dueDays * DAY : null
 
   async function doSignOff() {
     if (!engineer || !signOff) return
     const kind = signOff
     setSignOff(null)
-    const first = engineer.name.split(" ")[0]
     if (kind === "approve") await run("approve", () => approve({ id: t._id, personId: engineer._id }), `Approved by ${engineer.name}`)
-    if (kind === "publish")
-      await run("publish", () => publish({ id: t._id, personId: engineer._id }), `Published by ${engineer.name}. Attempts now use v${t.currentVersion}.`)
-    if (kind === "archive") await run("archive", () => archive({ id: t._id, personId: engineer._id }), `Archived by ${first}`)
+    if (kind === "publish") {
+      const ok = await run(
+        "publish",
+        () => publish({ id: t._id, personId: engineer._id, sendToAudience: audience ? sendToAudience : false }),
+        `Published by ${engineer.name}. Attempts now use v${t.currentVersion}.`,
+      )
+      if (ok && audience && sendToAudience) setTab("people")
+    }
+    if (kind === "archive") await run("archive", () => archive({ id: t._id, personId: engineer._id }), `Archived by ${engineer.name}`)
     if (kind === "confirm")
       await run("confirm", () => confirmStillValid({ id: t._id, personId: engineer._id }), `Confirmed still valid by ${engineer.name}`)
   }
 
-  async function start() {
-    if (!person) {
-      toast.error("Check in first (top right). An Attempt is proof, so it needs to know who you are.")
-      return
-    }
-    setBusy("start")
-    try {
-      const attemptId = await startAttempt({ trainingId: t._id, personId: person._id })
-      navigate(`/learn/attempts/${attemptId}`)
-    } catch (err) {
-      toast.error(errorText(err))
-      setBusy(null)
-    }
-  }
-
-  const initialDraft: TrainingDraft = {
-    title: t.title,
-    kind: t.kind,
-    area: t.area,
-    purpose: current.purpose,
-    documentIds: Array.from(new Set(current.objectives.map((o) => o.documentId))),
-    objectives: current.objectives.map((o) => ({
-      id: o.id,
-      text: o.text,
-      documentId: o.documentId,
-      chunkId: o.chunkId,
-      quote: o.quote,
-    })),
-    stops: current.stops.map((s) => ({ assetId: s.assetId, objectiveIds: s.objectiveIds, hint: s.hint, evidence: s.evidence })),
-    passMark: current.passMark,
-    questionsPerObjective: current.questionsPerObjective,
-  }
-
-  // The lifecycle action that moves this Training on, in the header.
-  const lifecycle = (
-    <>
-      {t.status === "draft" && (
-        <>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEditing(true)}>
-            <Pencil className="h-3.5 w-3.5" /> Edit
-          </Button>
-          <Button
-            size="sm"
-            className="gap-1.5"
-            disabled={busy !== null}
-            onClick={() => run("submit", () => submit({ id: t._id }), "Sent for review. An Engineer can now approve it.")}
-          >
-            {busy === "submit" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-            Send for review
-          </Button>
-        </>
-      )}
-      {(t.status === "in_review" || t.status === "approved") && (
-        <>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="gap-1.5"
-            disabled={busy !== null}
-            onClick={() => run("revert", () => revert({ id: t._id }), "Back to draft")}
-          >
-            <Undo2 className="h-3.5 w-3.5" /> Back to draft
-          </Button>
-          <Button size="sm" className="gap-1.5" disabled={busy !== null} onClick={() => askSignOff(t.status === "in_review" ? "approve" : "publish")}>
-            {busy === "approve" || busy === "publish" ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <ShieldCheck className="h-3.5 w-3.5" />
-            )}
-            {t.status === "in_review" ? "Approve" : "Publish"}
-          </Button>
-        </>
-      )}
-      {t.status === "published" && !engineer && (
-        <span className="text-[11px] text-muted-foreground">Check in as an Engineer to change or archive this Training.</span>
-      )}
-      {t.status === "published" && engineer && (
-        <>
-          <Button size="sm" variant="ghost" className="gap-1.5" disabled={busy !== null} onClick={() => askSignOff("archive")}>
-            <Archive className="h-3.5 w-3.5" /> Archive
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            disabled={busy !== null}
-            onClick={() =>
-              run("new", () => newVersion({ id: t._id, personId: engineer._id }), `v${t.currentVersion + 1} started as a draft. v${t.liveVersion} stays in use.`)
+  // The one primary action, by status.
+  const primary =
+    t.status === "draft"
+      ? { label: "Open the builder", icon: Pencil, onClick: () => setBuilder("source") }
+      : t.status === "in_review"
+        ? {
+            label: "Approve",
+            icon: ShieldCheck,
+            onClick: () => setSignOff("approve"),
+            disabled: isAuthor || busy !== null,
+            disabledReason: isAuthor ? "You wrote this version. Another Engineer must review it." : undefined,
+          }
+        : t.status === "approved"
+          ? {
+              label: "Publish",
+              icon: ShieldCheck,
+              onClick: () => setSignOff("publish"),
+              disabled: isAuthor || busy !== null,
+              disabledReason: isAuthor ? "You wrote this version. Another Engineer must publish it." : undefined,
             }
-          >
-            <GitBranch className="h-3.5 w-3.5" /> New version
-          </Button>
-        </>
-      )}
-    </>
+          : t.status === "published"
+            ? { label: "Assign to people", icon: UserPlus, onClick: () => setAssigning(true) }
+            : undefined
+  const secondary = [
+    ...(t.status === "published"
+      ? [
+          { label: "New version", icon: GitBranch, onClick: () => setStartingVersion(true) },
+        ]
+      : []),
+    ...(t.status === "in_review" || t.status === "approved"
+      ? [
+          { label: "Edit in the builder", icon: Pencil, onClick: () => setBuilder("source") },
+          { label: "Back to draft", icon: Undo2, onClick: () => setReverting(true) },
+        ]
+      : []),
+  ]
+  const menu = [
+    ...(t.status === "published" ? [{ label: "Archive", icon: Archive, onClick: () => setSignOff("archive"), destructive: true }] : []),
+    ...(t.status === "draft" && t.liveVersion == null
+      ? [{ label: "Delete this draft", icon: Trash2, onClick: () => setConfirmDelete(true), destructive: true }]
+      : []),
+  ]
+
+  const critical = new Set(viewSetup?.critical ?? [])
+  const total = questionCount({
+    objectives: view.objectives.map((o) => ({ ...o, critical: critical.has(o.id) })),
+    questionsPerObjective: view.questionsPerObjective,
+    questionBank: (viewSetup?.questionBank ?? []).map((q) => ({ ...q, source: q.source })),
+  } as Parameters<typeof questionCount>[0])
+  const skillNames = (viewSetup?.skillIds ?? []).map((sid) => catalogue?.skills.find((s) => s._id === sid)?.name).filter(Boolean)
+  // A Skill with the Training's name that this Training does not prove yet.
+  const unlinkedSkill =
+    skillNames.length === 0
+      ? (catalogue?.skills ?? []).find((s) => s.name.trim().toLowerCase() === t.title.trim().toLowerCase()) ?? null
+      : null
+  const bank = viewSetup?.questionBank ?? []
+  const safetyPoints = (viewSetup?.breakdown ?? []).reduce(
+    (n, r) => n + r.keyPoints.filter((_, i) => r.keyPointKinds?.[i] === "safety").length,
+    0,
   )
+  const safetyWithoutTryOut = (safetyPoints > 0 || critical.size > 0) && !viewSetup?.tryOut?.required
+  const nextStepForEdits =
+    t.status === "published" ? "Start a new version to change it." : t.status === "draft" ? "Open the builder to change it." : "Send it back to draft to change it."
 
   return (
     <div className="flex flex-col">
@@ -265,312 +283,279 @@ export function TrainingPage() {
       <PageHeader
         icon={t.kind === "round" ? MapPin : ListChecks}
         title={t.title}
-        subtitle={
+        statusLine={
           <span className="flex flex-wrap items-center gap-1.5">
             <span className="font-mono">{t.code}</span>
             <span>· v{t.currentVersion}</span>
             <KindBadge kind={t.kind} />
-            <StatusBadge status={t.status} className="h-5 px-1.5 text-[10px]" />
-            {t.liveVersion != null && t.liveVersion !== t.currentVersion && (
-              <span className="text-[11px]">v{t.liveVersion} in use</span>
-            )}
+            <StatusBadge status={t.status} />
+            {t.liveVersion != null && t.liveVersion !== t.currentVersion && <span>v{t.liveVersion} in use</span>}
           </span>
         }
-        actions={<div className="flex flex-wrap items-center gap-2">{lifecycle}</div>}
+        primary={primary}
+        secondary={secondary}
+        menu={menu}
       />
 
-      <div className="mx-auto grid w-full max-w-6xl gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <section className="min-w-0 space-y-4">
-          {t.needsReview && (
-            <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
-              <p className="flex items-start gap-2 text-sm font-medium">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                Review after change: {t.needsReviewReason ?? "a source document changed"}.
-              </p>
-              <p className="pl-6 text-xs">
-                v{t.liveVersion} stays in use until an Engineer decides. Check the objectives below against the new
-                version: confirm the Training is still valid, or start a new version to change it.
-              </p>
-              <div className="flex flex-wrap gap-2 pl-6">
-                <Button size="sm" className="h-7 gap-1.5 text-xs" disabled={busy !== null} onClick={() => askSignOff("confirm")}>
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Still valid, confirm
-                </Button>
-                {t.status === "published" ? (
-                  engineer && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 gap-1.5 bg-background text-xs"
-                    disabled={busy !== null}
-                    onClick={() => run("new", () => newVersion({ id: t._id, personId: engineer._id }), `v${t.currentVersion + 1} started as a draft`)}
-                  >
-                    <GitBranch className="h-3.5 w-3.5" /> Start a new version
-                  </Button>
-                  )
-                ) : (
-                  <span className="self-center text-[11px]">
-                    v{t.currentVersion} is in progress: publishing it completes this review.
-                  </span>
-                )}
-                {!engineer && <span className="self-center text-[11px]">Check in as an Engineer to sign off.</span>}
-              </div>
+      <div className="mx-auto w-full max-w-6xl space-y-4 p-6">
+        {!engineer && (
+          <p className="text-sm text-muted-foreground">Check in as an Engineer to sign off, assign or change this Training.</p>
+        )}
+        {t.needsReview && (
+          <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+            <p className="flex items-start gap-2 text-sm font-medium">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              Review after change: {t.needsReviewReason ?? "a source document changed"}.
+            </p>
+            <p className="pl-6 text-sm">
+              Operators cannot start it until an Engineer decides. Check the objectives against the new version: confirm
+              the Training is still valid, or start a new version to change it.
+            </p>
+            <div className="flex flex-wrap gap-2 pl-6">
+              <Button size="sm" className="gap-1.5" disabled={busy !== null} onClick={() => setSignOff("confirm")}>
+                <CheckCircle2 className="h-4 w-4" /> Still valid, confirm
+              </Button>
             </div>
-          )}
-
-          {live && (
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary">
-              <Info className="h-3.5 w-3.5 shrink-0" />
-              <span className="flex-1">
-                {showLive
-                  ? `You are looking at v${live.version}, the published version Attempts use now.`
-                  : `v${current.version} is ${t.status === "draft" ? "a draft" : t.status.replace("_", " ")}. v${live.version} stays in use for Attempts until v${current.version} is published.`}
-              </span>
-              <button type="button" className="font-medium underline-offset-2 hover:underline" onClick={() => setShowLive(!showLive)}>
-                {showLive ? `Show v${current.version}` : `Show v${live.version}`}
-              </button>
-            </div>
-          )}
-
-          {problems > 0 && !showLive && (
-            <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-              <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              {problems} {problems === 1 ? "objective cites a passage" : "objectives cite passages"} that {problems === 1 ? "is" : "are"} no
-              longer published. {t.status === "published" ? "Start a new version to pick new passages." : "Edit the draft to pick new passages."}
-            </div>
-          )}
-
-          <Card>
-            <CardContent className="space-y-1 p-4">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Purpose</p>
-              <p className="text-sm">{view.purpose || <span className="text-muted-foreground">No purpose written yet.</span>}</p>
-              <p className="pt-1 text-xs text-muted-foreground">
-                Every Attempt asks {view.objectives.length * view.questionsPerObjective} fresh{" "}
-                {view.objectives.length * view.questionsPerObjective === 1 ? "question" : "questions"}
-                {view.questionsPerObjective > 1 ? ` (${view.questionsPerObjective} per objective)` : ", one per objective"}. Pass mark{" "}
-                {view.passMark}%.
-              </p>
-            </CardContent>
-          </Card>
-
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <ListChecks className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold">Learning objectives</h2>
-              <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                {view.objectives.length}
-              </Badge>
-            </div>
-            {view.objectives.length === 0 ? (
-              <Card>
-                <CardContent className="flex flex-col items-center gap-2 py-8 text-center">
-                  <p className="text-sm font-medium">No Learning objectives yet</p>
-                  <p className="max-w-sm text-xs text-muted-foreground">
-                    Each objective is one thing a person must know or do, taken from a published passage.
-                  </p>
-                  {t.status === "draft" && (
-                    <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-                      Add objectives
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-            ) : (
-              <Card>
-                <CardContent className="divide-y p-0">
-                  {view.objectives.map((o, i) => (
-                    <div key={o.id} className="flex gap-3 px-4 py-3">
-                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
-                        {i + 1}
-                      </span>
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <p className="text-sm">{o.text}</p>
-                        <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                          <SourceChip
-                            documentId={o.documentId}
-                            namingCode={o.namingCode}
-                            version={o.documentVersion}
-                            section={o.section}
-                            quote={o.quote}
-                            className="mt-px shrink-0"
-                          />
-                          <span className="line-clamp-2 italic">"{o.quote}"</span>
-                        </div>
-                        <ObjectiveCheck check={o.check} code={o.namingCode} liveVersion={o.liveVersion} />
-                      </div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
           </div>
+        )}
 
-          {t.kind === "round" && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <MapPin className="h-4 w-4 text-primary" />
-                <h2 className="text-sm font-semibold">Stops</h2>
-                <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                  {view.stops.length}
-                </Badge>
-                <span className="text-[11px] text-muted-foreground">walked in this order</span>
-              </div>
-              <Card>
-                <CardContent className="divide-y p-0">
-                  {view.stops.length === 0 && (
-                    <p className="px-4 py-6 text-center text-xs text-muted-foreground">No stops yet. A Round needs at least one Asset.</p>
-                  )}
-                  {view.stops.map((s, i) => (
-                    <div key={s.assetId} className="flex gap-3 px-4 py-3">
-                      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-500/10 text-xs font-semibold text-violet-700 dark:text-violet-300">
-                        {i + 1}
-                      </span>
-                      <div className="min-w-0 flex-1 space-y-0.5">
-                        <p className="text-sm">
-                          <Link href={`/assets/${s.assetId}`} className="font-mono text-xs font-medium hover:text-primary hover:underline">
-                            {s.code}
-                          </Link>{" "}
-                          {s.name}
-                        </p>
-                        {s.hint && <p className="text-xs text-muted-foreground">{s.hint}</p>}
-                        <p className="text-[11px] text-muted-foreground">
-                          {s.objectiveIds.length > 0
-                            ? `Tests objective ${s.objectiveIds
-                                .map((oid) => view.objectives.findIndex((o) => o.id === oid) + 1)
-                                .filter((n) => n > 0)
-                                .join(", ")}`
-                            : "No questions here"}
-                          {s.evidence === "photo" && " · asks a photo"}
-                          {s.evidence === "note" && " · asks a note"}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            </div>
-          )}
+        <StillOnPointSignal trainingId={t._id} onOpen={() => setTab("insights")} />
 
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <FileCheck2 className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold">Attempts and records</h2>
-              {records && (
-                <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                  {records.length}
-                </Badge>
-              )}
-              {records && records.length > 0 && (
-                <span className="text-[11px] text-muted-foreground">
-                  {records.filter((r) => r.passed).length} passed, each one a Training record
-                </span>
-              )}
-              {records && records.length > 0 && (
-                <Link href="/learn?tab=records" className="ml-auto text-[11px] text-primary hover:underline">
-                  All records
-                </Link>
-              )}
-            </div>
-            <Card>
-              <CardContent className="divide-y p-0">
-                {records === undefined ? (
-                  <p className="px-4 py-4 text-xs text-muted-foreground">Loading…</p>
-                ) : records.length === 0 ? (
-                  <div className="px-4 py-6 text-center">
-                    <p className="text-sm font-medium">No Attempts finished yet</p>
-                    <p className="text-xs text-muted-foreground">
-                      {isLive
-                        ? "Every passed Attempt appears here as a Training record: who, which version, which questions and answers, when."
-                        : "Once this Training is published, every passed Attempt appears here as a Training record."}
-                    </p>
-                  </div>
-                ) : (
-                  records.slice(0, 12).map((r) => (
-                    <Link
-                      key={r._id}
-                      href={`/learn/attempts/${r.attemptId}`}
-                      className="flex items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-muted/50"
-                    >
-                      <UserRound className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {r.personName}
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          v{r.trainingVersion} · {fmtDate(r.at)} ({daysAgo(r.at)})
-                        </span>
-                      </span>
-                      {!r.passed && <span className="text-[11px] text-red-600">Not passed</span>}
-                      <ScoreBadge score={r.score} passed={r.passed} />
-                      <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
-                    </Link>
-                  ))
-                )}
-              </CardContent>
-            </Card>
+        {changes && (t.status === "in_review" || t.status === "approved" || t.status === "draft") && (
+          <ChangesStrip changes={changes} liveVersion={live!.version} currentVersion={current!.version} changeNote={versions.find((v) => v.isCurrent)?.changeNote ?? null} />
+        )}
+
+        {problems > 0 && !showLive && (
+          <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+            {problems} {problems === 1 ? "objective cites a passage" : "objectives cite passages"} that {problems === 1 ? "is" : "are"} no
+            longer published. {t.status === "published" ? "Start a new version to pick new passages." : "Open the builder to pick new passages."}
           </div>
-        </section>
+        )}
 
-        <aside className="space-y-3">
-          <StartCard
-            kind={t.kind}
-            isLive={isLive}
-            liveVersion={t.liveVersion}
-            trainingId={t._id}
-            personName={person?.name ?? null}
-            open={myOpen ? { id: myOpen._id, answered: myOpen.answered, total: myOpen.total } : null}
-            last={myLast ? { id: myLast._id, status: myLast.status, score: myLast.score, at: myLast.finishedAt } : null}
-            starting={busy === "start"}
-            onStart={() => void start()}
-          />
-
-          <div className="space-y-2 rounded-lg border p-3">
-            <p className="text-xs font-semibold">Version v{view.version} sign-offs</p>
-            <Signoffs signoffs={view.signoffs} publishedAt={view.publishedAt} />
-            {!engineer && (t.status === "in_review" || t.status === "approved") && (
-              <p className="text-[11px] text-muted-foreground">Approving and publishing are sign-offs. Check in as an Engineer (top right) to do them.</p>
-            )}
-          </div>
-
-          <div className="space-y-1.5 rounded-lg border p-3">
-            <p className="text-xs font-semibold">Versions</p>
-            {versions.map((ver) => (
-              <div key={ver.version} className="flex items-center gap-2 text-xs">
-                <span className="font-mono">v{ver.version}</span>
-                {ver.isLive && (
-                  <Badge variant="success" className="h-4 px-1 text-[9px]">
-                    In use
-                  </Badge>
-                )}
-                {ver.isCurrent && !ver.isLive && (
-                  <Badge variant="secondary" className="h-4 px-1 text-[9px]">
-                    {t.status === "archived" ? "Archived" : "Working"}
-                  </Badge>
-                )}
-                <span className="ml-auto text-[11px] text-muted-foreground">
-                  {ver.publishedAt ? `Published ${fmtDate(ver.publishedAt)}` : "Not published"}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border">
-            <MiniStat label="Records" value={stats.records} />
-            <MiniStat label="Pass rate" value={stats.passRate == null ? "–" : `${stats.passRate}%`} />
-            <MiniStat label="Attempts" value={stats.attempts} />
-            <MiniStat label="In progress" value={stats.inProgress} />
-          </div>
-
-          {t.status === "draft" && t.liveVersion == null && (
+        <div className="flex gap-1 border-b" role="tablist">
+          {PAGE_TABS.map((x) => (
             <button
+              key={x.value}
               type="button"
-              onClick={() => setConfirmDelete(true)}
-              className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-destructive"
+              role="tab"
+              aria-selected={tab === x.value}
+              onClick={() => setTab(x.value)}
+              className={cn(
+                "-mb-px border-b-2 px-3 py-2 text-sm transition-colors",
+                tab === x.value ? "border-primary font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
             >
-              <Trash2 className="h-3 w-3" /> Delete this draft
+              {x.label}
             </button>
-          )}
-        </aside>
+          ))}
+        </div>
+
+        {tab === "overview" && (
+          <div className="space-y-5">
+            {live && (
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+                <Info className="h-4 w-4 shrink-0 text-primary" />
+                <span className="flex-1">
+                  {showLive
+                    ? `You are looking at v${live.version}, the version Attempts use now.`
+                    : `v${current!.version} is ${t.status === "draft" ? "a draft" : t.status.replace("_", " ")}. v${live.version} stays in use until v${current!.version} is published.`}
+                </span>
+                <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={() => setShowLive(!showLive)}>
+                  {showLive ? `Show v${current!.version}` : `Show v${live.version}`}
+                </button>
+              </div>
+            )}
+
+            {viewSetup && safetyWithoutTryOut && (
+              <div
+                className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
+                data-safety-tryout-warning
+              >
+                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  {safetyPoints > 0
+                    ? `${safetyPoints} safety key ${safetyPoints === 1 ? "point" : "points"}`
+                    : `${critical.size} Must be right ${critical.size === 1 ? "objective" : "objectives"}`}
+                  , but no try-out at the line. Passing the questions does not show someone can do the job safely.{" "}
+                  {nextStepForEdits} Then turn on the try-out under Try-out and refresher.
+                </span>
+              </div>
+            )}
+
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+              <div className="space-y-2 rounded-lg border p-4">
+                <p className="text-xs font-medium text-muted-foreground">Purpose</p>
+                <p className="text-sm">{view.purpose || <span className="text-muted-foreground">No purpose written yet.</span>}</p>
+                <p className="text-sm text-muted-foreground">
+                  {total} {total === 1 ? "question" : "questions"} per Attempt
+                  {(viewSetup?.questionBank?.length ?? 0) > 0 ? ` from a bank of ${viewSetup!.questionBank!.length}` : ", written fresh each time"}.
+                  To pass: {passRuleText(total, view.passMark, critical.size).toLowerCase()}
+                </p>
+              </div>
+              <div className="space-y-2 rounded-lg border p-4 text-sm">
+                <p>
+                  <span className="text-muted-foreground">Proves: </span>
+                  {skillNames.length > 0 ? (
+                    <span className="font-medium">{skillNames.map((n) => `${n} (level 1)`).join(", ")}</span>
+                  ) : (
+                    <span className="text-muted-foreground">no Skill linked yet</span>
+                  )}
+                </p>
+                {unlinkedSkill && (
+                  <p className="text-xs text-amber-800 dark:text-amber-300">
+                    The Skill "{unlinkedSkill.name}" exists but this Training does not prove it. {nextStepForEdits} Then link it under
+                    People.
+                  </p>
+                )}
+                <p>
+                  <span className="text-muted-foreground">Try-out at the line: </span>
+                  {viewSetup?.tryOut?.required ? "yes, then level 2" : "no"}
+                </p>
+                <p>
+                  <span className="text-muted-foreground">Refresher: </span>
+                  {viewSetup?.refreshMonths ? `after ${viewSetup.refreshMonths} months` : "none"}
+                </p>
+                {t.kind === "round" && (
+                  <Button asChild size="sm" variant="outline" className="h-auto w-full gap-1.5 whitespace-normal py-2">
+                    <Link href={`/floor?round=${t._id}`}>
+                      <Smartphone className="h-4 w-4 shrink-0" /> Walk it in the Floor simulator
+                    </Link>
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {viewSetup && (viewSetup.breakdown?.length ?? 0) === 0 && (
+              <section className="space-y-2">
+                <h2 className="text-sm font-semibold">Job breakdown</h2>
+                <p className="rounded-lg border border-dashed px-4 py-4 text-sm text-muted-foreground">
+                  No job breakdown yet: this Training is a quiz on the objectives only. A breakdown (important steps, key points and
+                  their reasons) is shown to the trainee before the questions. {nextStepForEdits}
+                </p>
+              </section>
+            )}
+            {(viewSetup?.breakdown?.length ?? 0) > 0 && (
+              <section className="space-y-2">
+                <h2 className="text-sm font-semibold">Job breakdown</h2>
+                <BreakdownReadView
+                  rows={viewSetup!.breakdown!.map((r) => ({
+                    ...r,
+                    keyPointKinds: r.keyPoints.map((_, i) => r.keyPointKinds?.[i] ?? "quality"),
+                  }))}
+                  objectives={view.objectives.map((o) => ({ id: o.id, text: o.text, critical: critical.has(o.id) }))}
+                />
+              </section>
+            )}
+
+            <QuestionsReadView
+              bank={bank}
+              total={total}
+              objectives={view.objectives.map((o) => ({ id: o.id, text: o.text }))}
+              onPreview={draft ? () => setPreviewing(true) : undefined}
+            />
+
+            <section className="space-y-2">
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold">Learning objectives</h2>
+                <Badge variant="secondary">{view.objectives.length}</Badge>
+              </div>
+              <ObjectiveList trainingId={t._id} objectives={view.objectives} critical={critical} onOpenBuilder={() => setBuilder("source")} editable={t.status === "draft"} />
+            </section>
+
+            {t.kind === "round" && (
+              <section className="space-y-2">
+                <h2 className="text-sm font-semibold">Stops, walked in this order</h2>
+                <ol className="divide-y rounded-lg border">
+                  {view.stops.map((s, i) => (
+                    <li key={s.assetId} className="flex gap-3 px-4 py-3 text-sm">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{i + 1}</span>
+                      <span className="min-w-0">
+                        <Link href={`/assets/${s.assetId}`} className="font-mono text-xs font-medium hover:text-primary hover:underline">
+                          {s.code}
+                        </Link>{" "}
+                        {s.name}
+                        {s.hint && <span className="block text-xs text-muted-foreground">{s.hint}</span>}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
+          </div>
+        )}
+
+        {tab === "people" && <TrainingPeoplePanel trainingId={t._id} isLive={isLive} />}
+
+        {tab === "insights" && (
+          <TrainingInsightsPanel
+            trainingId={t._id}
+            objectives={(live ?? current!).objectives.map((o) => ({ id: o.id, text: o.text, documentId: o.documentId, namingCode: o.namingCode }))}
+            onOpenQuestions={t.status === "draft" ? () => setBuilder("questions") : undefined}
+          />
+        )}
+
+        {tab === "versions" && (
+          <div className="space-y-4">
+            <ul className="divide-y rounded-lg border">
+              {versions.map((ver) => (
+                <li key={ver.version} className="space-y-1 px-4 py-3 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-medium">v{ver.version}</span>
+                    {ver.isLive && <Badge variant="success">In use</Badge>}
+                    {ver.isCurrent && !ver.isLive && <Badge variant="secondary">{t.status === "archived" ? "Archived" : "Working"}</Badge>}
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {ver.publishedAt ? `Published ${fmtDate(ver.publishedAt)}` : "Not published"}
+                    </span>
+                  </div>
+                  {ver.changeNote && <p className="text-muted-foreground">{ver.changeNote}</p>}
+                </li>
+              ))}
+            </ul>
+            <div className="space-y-2 rounded-lg border p-4">
+              <p className="text-sm font-semibold">Version v{view.version} sign-offs</p>
+              <Signoffs signoffs={view.signoffs} publishedAt={view.publishedAt} />
+            </div>
+          </div>
+        )}
       </div>
 
-      <TrainingGuidedCreation open={editing} onOpenChange={setEditing} trainingId={t._id} initial={initialDraft} />
+      {draft && (
+        <TrainingGuidedCreation
+          open={builder !== null}
+          onOpenChange={(o) => !o && setBuilder(null)}
+          trainingId={t._id}
+          code={t.code}
+          version={t.currentVersion}
+          initial={draft}
+          initialTab={builder ?? "source"}
+          hasLive={t.liveVersion != null}
+        />
+      )}
+
+      {draft && (
+        <Dialog open={previewing} onOpenChange={setPreviewing}>
+          <DialogContent className="flex h-[92vh] w-[95vw] max-w-5xl flex-col gap-0 overflow-hidden p-0">
+            <div className="border-b px-5 py-3 pr-14">
+              <DialogTitle className="text-base font-semibold">Preview as trainee: {t.title}</DialogTitle>
+              <DialogDescription className="text-xs">
+                v{t.currentVersion}, as an Operator sees it on the phone. Nothing is recorded.
+              </DialogDescription>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+              <TrainingPreview
+                draft={draft}
+                docInfo={
+                  new Map(current!.objectives.map((o) => [String(o.documentId), { namingCode: o.namingCode, version: o.version ?? 1 }]))
+                }
+                onGoToQuestions={() => setPreviewing(false)}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      <AssignDialog open={assigning} onOpenChange={setAssigning} trainingId={t._id} />
 
       <AlertDialog open={signOff !== null} onOpenChange={(o) => !o && setSignOff(null)}>
         <AlertDialogContent>
@@ -581,18 +566,38 @@ export function TrainingPage() {
               {signOff === "archive" && `Archive ${t.code}?`}
               {signOff === "confirm" && `Confirm ${t.code} v${t.liveVersion} is still valid?`}
             </AlertDialogTitle>
-            <AlertDialogDescription>
-              {signOff === "approve" && "This records your review of the objectives, their sources and the pass mark. It is not published yet."}
-              {signOff === "publish" &&
-                (t.liveVersion != null
-                  ? `New Attempts will use v${t.currentVersion}. v${t.liveVersion} stops being used; its records stay valid.`
-                  : "From now on, checked-in people can do Attempts, and a pass becomes a Training record.")}
-              {signOff === "archive" && "Nobody can start new Attempts. Existing Training records stay as proof."}
-              {signOff === "confirm" &&
-                `You checked the objectives against the newly published source and they still hold. The review mark is cleared and v${t.liveVersion} keeps being used.`}{" "}
-              The sign-off is recorded in the name of {engineer?.name ?? "the checked-in Engineer"}.
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  {signOff === "approve" && "This records your review of the objectives, the breakdown, the questions and their sources. It is not published yet."}
+                  {signOff === "publish" &&
+                    (t.liveVersion != null
+                      ? `New Attempts will use v${t.currentVersion}. v${t.liveVersion} stops being used; its records stay valid.`
+                      : "From now on, checked-in people can do it, and a pass becomes a Training record.")}
+                  {signOff === "archive" && "Nobody can start new Attempts. Existing Training records stay as proof."}
+                  {signOff === "confirm" &&
+                    `You checked the objectives against the newly published source and they still hold. v${t.liveVersion} keeps being used.`}{" "}
+                  Signed in the name of {engineer?.name ?? "the checked-in Engineer"}.
+                </p>
+                {(signOff === "approve" || signOff === "publish") && changes && <ChangeList changes={changes} />}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {signOff === "publish" && audience && (
+            <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
+              <input
+                type="checkbox"
+                checked={sendToAudience}
+                onChange={(e) => setSendToAudience(e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-primary"
+              />
+              <span>
+                Send to {audiencePeople.length} {audiencePeople.length === 1 ? "person" : "people"}
+                {audienceProfiles.length > 0 ? ` (${audienceProfiles.join(", ")})` : ""}
+                {dueAt ? `, due ${fmtDate(dueAt)}` : ""}
+              </span>
+            </label>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={() => void doSignOff()}>
@@ -603,10 +608,71 @@ export function TrainingPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={startingVersion} onOpenChange={setStartingVersion}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Start v{t.currentVersion + 1} of {t.code}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              v{t.liveVersion} stays in use until the new version is published. Say what will change and why: the
+              reviewer reads it first.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea
+            value={changeNote}
+            onChange={(e) => setChangeNote(e.target.value)}
+            rows={3}
+            placeholder="e.g. Purge time follows EXT-OPS-SOP-0001 v3: 5 minutes instead of 3."
+            aria-label="What will change and why"
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!changeNote.trim() || !engineer}
+              onClick={() =>
+                void run(
+                  "new",
+                  () => newVersion({ id: t._id, personId: engineer!._id, changeNote: changeNote.trim() }),
+                  `v${t.currentVersion + 1} started as a draft. v${t.liveVersion} stays in use.`,
+                ).then((ok) => {
+                  if (!ok) return
+                  setChangeNote("")
+                  setBuilder("source")
+                })
+              }
+            >
+              Start v{t.currentVersion + 1}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={reverting} onOpenChange={setReverting}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Send {t.code} v{t.currentVersion} back to draft?</AlertDialogTitle>
+            <AlertDialogDescription>Review sign-offs are dropped. Say why, so the author knows what to change.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea value={revertReason} onChange={(e) => setRevertReason(e.target.value)} rows={3} placeholder="e.g. Step 3 has no reason yet." aria-label="Reason" />
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!revertReason.trim() || !engineer}
+              onClick={() =>
+                void run("revert", () => submitRevert({ id: t._id, personId: engineer!._id, reason: revertReason }), "Back to draft").then(() =>
+                  setRevertReason(""),
+                )
+              }
+            >
+              Back to draft
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this draft?</AlertDialogTitle>
+            <AlertDialogTitle>Delete the draft {t.code}?</AlertDialogTitle>
             <AlertDialogDescription>
               {t.code} was never published and has no Attempts, so nothing depends on it. This cannot be undone.
             </AlertDialogDescription>
@@ -630,30 +696,177 @@ export function TrainingPage() {
   )
 }
 
-function ObjectiveCheck({
-  check,
-  code,
-  liveVersion,
+// ---- Objectives with their checks and open Findings ---------------------------------
+
+function ObjectiveList({
+  trainingId,
+  objectives,
+  critical,
+  editable,
+  onOpenBuilder,
 }: {
-  check: "current" | "moved" | "missing" | "unpublished"
-  code: string
-  liveVersion: number | null
+  trainingId: Id<"trainings">
+  objectives: ObjectiveView
+  critical: Set<string>
+  editable: boolean
+  onOpenBuilder: () => void
 }) {
+  const findings = useQuery(api.trainings.openFindingsForObjectives, { trainingId })
+  const byObjective = new Map((findings ?? []).map((f) => [f.objectiveId, f.findings]))
+  if (objectives.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed px-4 py-8 text-center">
+        <p className="text-sm font-medium">No Learning objectives yet</p>
+        <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+          Each objective is one thing a person must know or do, taken from a Published passage.
+        </p>
+        {editable && (
+          <Button size="sm" variant="outline" className="mt-2" onClick={onOpenBuilder}>
+            Add objectives
+          </Button>
+        )}
+      </div>
+    )
+  }
+  return (
+    <ol className="divide-y rounded-lg border">
+      {objectives.map((o, i) => {
+        const open = (byObjective.get(o.id) ?? []).filter((f) => !f.acked)
+        return (
+          <li key={o.id} className="flex gap-3 px-4 py-3">
+            <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+              {i + 1}
+            </span>
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="text-sm">
+                {o.text}
+                {critical.has(o.id) && (
+                  <span className="ml-2 inline-flex items-center gap-0.5 rounded-full border border-red-300 bg-red-50 px-1.5 text-xs font-medium text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-300">
+                    <ShieldAlert className="h-3 w-3" /> Must be right
+                  </span>
+                )}
+              </p>
+              <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                <SourceChip documentId={o.documentId} namingCode={o.namingCode} version={o.documentVersion} section={o.section} quote={o.quote} className="mt-px shrink-0" />
+                <span className="line-clamp-2 italic">"{o.quote}"</span>
+              </div>
+              <ObjectiveCheck check={o.check} code={o.namingCode} liveVersion={o.liveVersion} />
+              {open.map((f) => (
+                <p key={f.findingId} className="flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-950 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    Open contradiction with <span className="font-mono">{f.otherCode}</span>: {f.summary}{" "}
+                    <Link href={`/library/findings?id=${f.findingId}`} className="font-medium underline-offset-2 hover:underline">
+                      Settle the Finding first
+                    </Link>
+                  </span>
+                </p>
+              ))}
+            </div>
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+function ObjectiveCheck({ check, code, liveVersion }: { check: "current" | "moved" | "missing" | "unpublished"; code: string; liveVersion: number | null }) {
   if (check === "current") return null
   if (check === "moved")
     return (
-      <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
-        <Info className="h-3 w-3" />
+      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+        <Info className="h-3.5 w-3.5" />
         {code} is now v{liveVersion}. The quoted passage is still in it.
       </p>
     )
   return (
-    <p className="flex items-center gap-1 text-[11px] font-medium text-destructive">
-      <CircleAlert className="h-3 w-3" />
-      {check === "missing"
-        ? `The quoted passage is no longer in ${code} v${liveVersion}.`
-        : `${code} is no longer published.`}
+    <p className="flex items-center gap-1 text-xs font-medium text-destructive">
+      <CircleAlert className="h-3.5 w-3.5" />
+      {check === "missing" ? `The quoted passage is no longer in ${code} v${liveVersion}.` : `${code} is no longer published.`}
     </p>
+  )
+}
+
+// ---- Changes since the version in use ------------------------------------------------
+
+interface Changes {
+  added: string[]
+  removed: string[]
+  changed: string[]
+  sourceMoved: string[]
+}
+
+function diffVersions(
+  before: { objectives: { id: string; text: string; quote: string; namingCode: string; documentVersion: number }[]; passMark: number },
+  after: { objectives: { id: string; text: string; quote: string; namingCode: string; documentVersion: number }[]; passMark: number },
+): Changes {
+  const b = new Map(before.objectives.map((o) => [o.id, o]))
+  const a = new Map(after.objectives.map((o) => [o.id, o]))
+  const out: Changes = { added: [], removed: [], changed: [], sourceMoved: [] }
+  for (const o of after.objectives) {
+    const old = b.get(o.id)
+    if (!old) out.added.push(o.text)
+    else if (old.text !== o.text || old.quote !== o.quote) out.changed.push(o.text)
+    if (old && old.documentVersion !== o.documentVersion)
+      out.sourceMoved.push(`${o.namingCode} v${old.documentVersion} to v${o.documentVersion}`)
+  }
+  for (const o of before.objectives) if (!a.has(o.id)) out.removed.push(o.text)
+  out.sourceMoved = Array.from(new Set(out.sourceMoved))
+  return out
+}
+
+function ChangesStrip({
+  changes,
+  liveVersion,
+  currentVersion,
+  changeNote,
+}: {
+  changes: Changes
+  liveVersion: number
+  currentVersion: number
+  changeNote: string | null
+}) {
+  return (
+    <div className="space-y-2 rounded-lg border border-sky-300 bg-sky-50/60 p-3 dark:border-sky-500/40 dark:bg-sky-500/10">
+      <p className="text-sm font-semibold">
+        Changes since v{liveVersion} <span className="font-normal text-muted-foreground">(v{currentVersion} against the version in use)</span>
+      </p>
+      {changeNote && <p className="text-sm">"{changeNote}"</p>}
+      <ChangeList changes={changes} />
+    </div>
+  )
+}
+
+function ChangeList({ changes }: { changes: Changes }) {
+  const none = changes.added.length + changes.removed.length + changes.changed.length + changes.sourceMoved.length === 0
+  if (none) return <p className="text-sm text-muted-foreground">No objective changed. The breakdown, questions or settings may have.</p>
+  return (
+    <ul className="space-y-1 text-sm">
+      {changes.added.map((x, i) => (
+        <li key={`a${i}`} className="flex gap-2">
+          <Badge variant="success" className="shrink-0">Added</Badge>
+          <span className="text-foreground">{x}</span>
+        </li>
+      ))}
+      {changes.changed.map((x, i) => (
+        <li key={`c${i}`} className="flex gap-2">
+          <Badge variant="secondary" className="shrink-0">Changed</Badge>
+          <span className="text-foreground">{x}</span>
+        </li>
+      ))}
+      {changes.removed.map((x, i) => (
+        <li key={`r${i}`} className="flex gap-2">
+          <Badge variant="destructive" className="shrink-0">Removed</Badge>
+          <span className="text-foreground line-through decoration-muted-foreground/60">{x}</span>
+        </li>
+      ))}
+      {changes.sourceMoved.map((x, i) => (
+        <li key={`s${i}`} className="flex gap-2 text-muted-foreground">
+          <Badge variant="outline" className="shrink-0">Source moved</Badge>
+          {x}
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -675,115 +888,101 @@ function Signoffs({
   return (
     <ul className="space-y-1.5">
       {signoffs.map((s, i) => (
-        <li key={i} className="flex items-start gap-2 text-xs">
-          <ShieldCheck
-            className={cn(
-              "mt-0.5 h-3.5 w-3.5 shrink-0",
-              s.role === "author" ? "text-muted-foreground" : "text-emerald-600",
-            )}
-          />
+        <li key={i} className="flex items-start gap-2 text-sm">
+          <ShieldCheck className={cn("mt-0.5 h-4 w-4 shrink-0", s.role === "author" ? "text-muted-foreground" : "text-emerald-600")} />
           <span className="min-w-0">
             <span className="text-muted-foreground">{label(s)} </span>
             <span className="font-medium">{s.name ?? "a team member"}</span>
-            <span className="block text-[11px] text-muted-foreground">{fmtDate(s.at, true)}</span>
+            <span className="block text-xs text-muted-foreground">{fmtDate(s.at)}</span>
           </span>
         </li>
       ))}
-      {signoffs.length === 0 && <li className="text-[11px] text-muted-foreground">No sign-offs yet.</li>}
+      {signoffs.length === 0 && <li className="text-xs text-muted-foreground">No sign-offs yet.</li>}
     </ul>
   )
 }
 
-function MiniStat({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="bg-card p-2.5">
-      <div className="text-base font-semibold tabular-nums">{value}</div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-    </div>
-  )
+// ---- Question bank, read only -------------------------------------------------------
+
+type BankItem = {
+  id: string
+  objectiveId: string
+  kind: "choice" | "open"
+  prompt: string
+  options: string[]
+  correctIndex: number
+  keyPoints?: string[]
 }
 
-function StartCard({
-  kind,
-  isLive,
-  liveVersion,
-  trainingId,
-  personName,
-  open,
-  last,
-  starting,
-  onStart,
+function QuestionsReadView({
+  bank,
+  total,
+  objectives,
+  onPreview,
 }: {
-  kind: "course" | "round"
-  isLive: boolean
-  liveVersion: number | null
-  trainingId: Id<"trainings">
-  personName: string | null
-  open: { id: Id<"trainingAttempts">; answered: number; total: number } | null
-  last: { id: Id<"trainingAttempts">; status: string; score: number | null; at: number | null } | null
-  starting: boolean
-  onStart: () => void
+  bank: BankItem[]
+  total: number
+  objectives: { id: string; text: string }[]
+  onPreview?: () => void
 }) {
-  if (!isLive) {
-    return (
-      <div className="space-y-1 rounded-lg border border-dashed p-3">
-        <p className="flex items-center gap-1.5 text-xs font-semibold">
-          <KindIcon kind={kind} className="h-3.5 w-3.5 text-muted-foreground" />
-          Not in use yet
-        </p>
-        <p className="text-[11px] text-muted-foreground">
-          Attempts start once an Engineer has approved and published this Training.
-        </p>
-      </div>
-    )
-  }
+  const [open, setOpen] = useState(false)
   return (
-    <div className="space-y-2.5 rounded-lg border border-primary/30 bg-primary/5 p-3">
-      <p className="flex items-center gap-1.5 text-xs font-semibold">
-        <KindIcon kind={kind} className="h-3.5 w-3.5 text-primary" />
-        {kind === "round" ? "Do this Round" : "Do this Training"}
-      </p>
-      {personName ? (
-        <p className="text-[11px] text-muted-foreground">
-          As {personName}. Questions are written fresh for you from v{liveVersion}, and every one cites its source.
-        </p>
-      ) : (
-        <p className="text-[11px] text-muted-foreground">
-          Check in first (top right). An Attempt is proof, so it needs to know who you are.
-        </p>
+    <section className="space-y-2" data-questions-read>
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="text-sm font-semibold">Questions</h2>
+        <Badge variant="secondary">{bank.length > 0 ? bank.length : total}</Badge>
+        <span className="text-sm text-muted-foreground">
+          {bank.length > 0
+            ? `Each Attempt draws ${total} of these ${bank.length}.`
+            : `No fixed bank: each Attempt writes ${total} fresh questions from the passages.`}
+        </span>
+        <span className="ml-auto flex gap-2">
+          {bank.length > 0 && (
+            <Button size="sm" variant="outline" aria-expanded={open} onClick={() => setOpen(!open)}>
+              {open ? "Hide questions" : "View questions"}
+            </Button>
+          )}
+          {onPreview && (
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={onPreview}>
+              <Eye className="h-4 w-4" /> Preview as trainee
+            </Button>
+          )}
+        </span>
+      </div>
+      {open && (
+        <ol className="divide-y rounded-lg border">
+          {bank.map((q, i) => (
+            <li key={q.id} className="space-y-1.5 px-4 py-3 text-sm">
+              <p className="flex gap-2">
+                <span className="w-7 shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">Q{i + 1}</span>
+                <span className="min-w-0 flex-1 font-medium">{q.prompt}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{q.kind === "open" ? "Open answer" : "Multiple choice"}</span>
+              </p>
+              <p className="pl-9 text-xs text-muted-foreground">
+                Tests: {objectives.find((o) => o.id === q.objectiveId)?.text ?? "a removed objective"}
+              </p>
+              {q.kind === "choice" ? (
+                <ul className="space-y-0.5 pl-9">
+                  {q.options.map((opt, j) => (
+                    <li
+                      key={j}
+                      className={cn(
+                        "flex gap-2",
+                        j === q.correctIndex ? "font-medium text-emerald-800 dark:text-emerald-300" : "text-muted-foreground",
+                      )}
+                    >
+                      {j === q.correctIndex ? <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : <span className="w-3.5 shrink-0" />}
+                      {opt}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="pl-9 text-muted-foreground">Key points: {(q.keyPoints ?? []).join("; ") || "none"}</p>
+              )}
+            </li>
+          ))}
+        </ol>
       )}
-      {open ? (
-        <Button asChild size="sm" className="w-full gap-1.5">
-          <Link href={`/learn/attempts/${open.id}`}>
-            <Play className="h-3.5 w-3.5" />
-            Continue your Attempt{open.total > 0 ? ` (${open.answered}/${open.total})` : ""}
-          </Link>
-        </Button>
-      ) : kind === "round" ? (
-        <>
-          <Button asChild size="sm" className="w-full gap-1.5">
-            <Link href={`/floor?round=${trainingId}`}>
-              <Smartphone className="h-3.5 w-3.5" /> Do this Round in the Floor simulator
-            </Link>
-          </Button>
-          <Button size="sm" variant="outline" className="w-full gap-1.5 bg-background" disabled={!personName || starting} onClick={onStart}>
-            {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-            Or do it here, stop by stop
-          </Button>
-        </>
-      ) : (
-        <Button size="sm" className="w-full gap-1.5" disabled={!personName || starting} onClick={onStart}>
-          {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-          Start an Attempt
-        </Button>
-      )}
-      {last && (
-        <Link href={`/learn/attempts/${last.id}`} className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-primary">
-          Your last Attempt: {last.status === "passed" ? "passed" : "not passed"} with {last.score ?? 0}%
-          {last.at ? `, ${daysAgo(last.at)}` : ""}
-          <ArrowRight className="h-3 w-3" />
-        </Link>
-      )}
-    </div>
+    </section>
   )
 }

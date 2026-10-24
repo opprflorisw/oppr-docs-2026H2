@@ -187,6 +187,8 @@ const TRAININGS: TrainingDef[] = [
       { person: "Jan de Vries", daysAgo: 150 },
       { person: "Fatima El Amrani", daysAgo: 120, wrong: [3] },
       { person: "Ahmed Yilmaz", daysAgo: 95 },
+      // Lotte did not pass twice in a row: the second time asks for a walk-through.
+      { person: "Lotte Smit", daysAgo: 6, wrong: [1, 2, 3] },
       { person: "Lotte Smit", daysAgo: 4, wrong: [1, 2, 3] },
     ],
   },
@@ -550,6 +552,696 @@ const TRAININGS: TrainingDef[] = [
   },
 ]
 
+// ---- Builder content: question banks, breakdown, open answers, signals ----------
+//
+// Seeded Trainings carry an Engineer-made question bank, so Attempts draw
+// from it and the demo needs no AI calls: per objective the static question,
+// a second wording, open questions (answered in your own words) and picture
+// questions (a picture used in the source document). Must-be-right
+// objectives have at least two questions. Some past Attempts answer an open
+// question, with grades (good, partly, not yet with a shared misconception),
+// and one "Still on point?" analysis is ready.
+
+interface OpenDef {
+  prompt: string
+  keyPoints: string[]
+  modelAnswer: string
+  explanation: string
+  /** Answer by taking a photo at the stop. */
+  byPhoto?: boolean
+}
+interface ImageDef {
+  /** Words the picture's alt text contains (all of them). */
+  match: string[]
+  kind: "choice" | "open"
+  prompt: string
+  correct?: string
+  wrong?: [string, string, string]
+  whyWrong?: [string, string, string]
+  keyPoints?: string[]
+  modelAnswer?: string
+  explanation: string
+}
+interface ObjectiveExtra {
+  critical?: boolean
+  variants?: (StaticQuestion & { whyWrong?: [string, string, string] })[]
+  whyWrong?: [string, string, string]
+  open?: OpenDef
+  image?: ImageDef
+}
+interface OpenAnswerDef {
+  text: string
+  mode?: "typed" | "voice"
+  verdict: "good" | "partly" | "not_yet"
+  matched: string[]
+  missing: string[]
+  misconception?: string
+  feedback: string
+}
+interface TrainingExtra {
+  objectives: Record<string, ObjectiveExtra>
+  breakdown?: {
+    step: string
+    keyPoints: [string, "safety" | "quality" | "knack"][]
+    reasons: string[]
+    objectives: string[]
+  }[]
+  tryOut?: { required: boolean; checklist: string[] }
+  refreshMonths?: number
+  /** Past Attempts (by person and days ago) that answered an objective's open question. */
+  openAnswers?: { person: string; daysAgo: number; key: string; answer: OpenAnswerDef }[]
+  signals?: {
+    summary: string
+    items: {
+      kind: "misconception" | "unclear_question" | "document_gap" | "too_easy" | "practice_differs"
+      objective?: string
+      text: string
+      count: number
+      examples: string[]
+      suggestion: string
+    }[]
+  }
+}
+
+const PURGE_MISCONCEPTION = "Thinks the purge runs at the normal running temperature of 230 °C"
+
+const EXTRAS: Record<string, TrainingExtra> = {
+  "EXT-TRN-0001": {
+    objectives: {
+      c1: {
+        whyWrong: [
+          "Stopping the screw comes later; first the mixing operator must know.",
+          "Line 2 is not isolated for a changeover; the SOP starts by telling the mixing operator.",
+          "The hopper is run down later, after dosing stops, not emptied first.",
+        ],
+        variants: [
+          {
+            prompt: "Who do you tell first when a colour changeover on line 2 starts, and what do you tell them?",
+            correct: "The mixing operator: the changeover is starting and which colour comes next",
+            wrong: [
+              "The shift leader: the line will stop for an hour",
+              "The quality lab: the first pipes need measuring",
+              "Nobody: the changeover card says it all",
+            ],
+            explanation: "Tell the mixing operator the changeover is starting and which colour comes next.",
+          },
+        ],
+      },
+      c2: {
+        whyWrong: [
+          "An empty hopper starves the screw; dosing stops below 20 percent.",
+          "At 50 percent there is still too much old colour in the hopper.",
+          "Dosing stops at a hopper level, not when the changeover is announced.",
+        ],
+        variants: [
+          {
+            prompt: "The extruder hopper is running down for a changeover. At what level do you stop dosing at MXR-101?",
+            correct: "Below 20 percent",
+            wrong: ["Below 50 percent", "At 0 percent, when it is empty", "Below 75 percent"],
+            explanation: "Stop dosing at MXR-101 when the extruder hopper is below 20 percent.",
+          },
+        ],
+      },
+      c3: {
+        whyWrong: [
+          "230 °C is too hot for the purge; the SOP says 190 °C.",
+          "Fresh granulate does not clean the barrel; use purge compound PX-4400.",
+          "150 °C is too cold for the purge; the SOP says 190 °C.",
+        ],
+        variants: [
+          {
+            prompt: "You are about to purge the barrel of EXL-201. Which temperature do you purge at?",
+            correct: "190 °C",
+            wrong: ["230 °C", "150 °C", "210 °C"],
+            explanation: "Purge the barrel with purge compound PX-4400 at 190 °C until the melt runs clean.",
+          },
+        ],
+        open: {
+          prompt: "Describe in your own words how you purge the barrel during a colour changeover.",
+          keyPoints: ["Use purge compound PX-4400", "Purge at 190 °C", "Keep purging until the melt runs clean"],
+          modelAnswer: "I purge with purge compound PX-4400 at 190 °C and keep going until the melt runs clean.",
+          explanation: "Purge the barrel with purge compound PX-4400 at 190 °C until the melt runs clean.",
+        },
+      },
+      c4: {
+        whyWrong: [
+          "One by one pulls the die off centre; tighten crosswise.",
+          "Hand tight is not enough; the torque is 40 Nm.",
+          "80 Nm is double the torque the SOP gives.",
+        ],
+        variants: [
+          {
+            prompt: "You fit the die after a changeover. How do you tighten the die bolts?",
+            correct: "Crosswise, to 40 Nm",
+            wrong: ["One by one around the die, to 40 Nm", "Crosswise, to 80 Nm", "Crosswise, hand tight"],
+            explanation: "Tighten the die bolts crosswise to 40 Nm.",
+          },
+        ],
+        open: {
+          prompt: "Explain how you tighten the die bolts after fitting the die.",
+          keyPoints: ["Tighten crosswise", "Tighten to 40 Nm"],
+          modelAnswer: "I tighten the bolts crosswise, not one by one, to 40 Nm with the torque wrench.",
+          explanation: "Tighten the die bolts crosswise to 40 Nm.",
+        },
+      },
+      c5: {
+        critical: true,
+        whyWrong: [
+          "The die does not cool down that fast during a changeover.",
+          "The die and barrel stay hot during a changeover, above 150 °C.",
+          "The heaters stay on during a changeover, so the parts stay hot.",
+        ],
+        variants: [
+          {
+            prompt: "During a changeover you need to touch the die. What do you wear on your hands?",
+            correct: "Heat-resistant gloves",
+            wrong: ["Thin nitrile gloves", "No gloves, for a better grip", "Cut-resistant gloves only"],
+            explanation: "The die and barrel stay above 150 °C during a changeover: wear heat-resistant gloves.",
+          },
+        ],
+      },
+      c6: {
+        whyWrong: [
+          "The first pipes after a restart are often off; the SOP asks to scrap and measure.",
+          "One pipe is not enough; measure each of the first 10 pipes.",
+          "Scrap the first 3 metres, not only the first 1 metre.",
+        ],
+        variants: [
+          {
+            prompt: "Line 2 runs again after a changeover. What happens with the first pipes?",
+            correct: "Scrap the first 3 metres, then measure the wall of each of the first 10 pipes",
+            wrong: [
+              "Keep them: the line was already at temperature",
+              "Scrap the first 3 metres and measure only the first pipe",
+              "Scrap the first 1 metre and measure every second pipe",
+            ],
+            explanation: "Scrap the first 3 metres and measure wall thickness on each of the first 10 pipes.",
+          },
+        ],
+        open: {
+          prompt: "The line runs again after a changeover. Describe what you do with the first pipes.",
+          keyPoints: ["Scrap the first 3 metres", "Measure wall thickness on each of the first 10 pipes"],
+          modelAnswer: "I scrap the first 3 metres and have the wall thickness of each of the first 10 pipes measured.",
+          explanation: "Scrap the first 3 metres and measure wall thickness on each of the first 10 pipes.",
+        },
+        image: {
+          match: ["first 3 metres", "first pipe"],
+          kind: "open",
+          prompt: "This picture shows the first pipe after the saw of SAW-202 after a changeover. What do you do before this pipe counts as good?",
+          keyPoints: ["Scrap the first 3 metres", "Measure wall thickness on each of the first 10 pipes"],
+          modelAnswer: "The first 3 metres are scrapped, and the wall of each of the first 10 pipes is measured.",
+          explanation: "Scrap the first 3 metres and measure wall thickness on each of the first 10 pipes.",
+        },
+      },
+    },
+    breakdown: [
+      {
+        step: "Announce the changeover",
+        keyPoints: [
+          ["Tell the mixing operator the changeover is starting", "quality"],
+          ["Say which colour comes next", "quality"],
+        ],
+        reasons: ["So the right masterbatch is ready and no old colour is dosed after the change."],
+        objectives: ["c1"],
+      },
+      {
+        step: "Run the hopper down",
+        keyPoints: [["Stop dosing at MXR-101 when the extruder hopper is below 20 percent", "quality"]],
+        reasons: ["Less old material in the hopper means less to purge out."],
+        objectives: ["c2"],
+      },
+      {
+        step: "Purge the barrel",
+        keyPoints: [
+          ["Use purge compound PX-4400", "quality"],
+          ["Purge at 190 °C until the melt runs clean", "quality"],
+          ["Heat-resistant gloves on: the die stays above 150 °C", "safety"],
+        ],
+        reasons: ["The compound cleans the screw and die, so the new colour comes out clean.", "Hot parts and melt can burn."],
+        objectives: ["c3", "c5"],
+      },
+      {
+        step: "Fit the die and tighten the bolts",
+        keyPoints: [
+          ["Tighten crosswise", "knack"],
+          ["Tighten to 40 Nm", "quality"],
+        ],
+        reasons: ["Even pressure keeps the die centred, so the wall thickness stays even."],
+        objectives: ["c4"],
+      },
+      {
+        step: "Restart and check the first pipes",
+        keyPoints: [
+          ["Scrap the first 3 metres", "quality"],
+          ["Measure wall thickness on each of the first 10 pipes", "quality"],
+        ],
+        reasons: ["The first pipe after a changeover is often out of tolerance."],
+        objectives: ["c6"],
+      },
+    ],
+    tryOut: {
+      required: true,
+      checklist: [
+        "Told the mixing operator the changeover and the next colour",
+        "Stopped dosing with the hopper below 20 percent",
+        "Purged with PX-4400 at 190 °C, heat-resistant gloves on",
+        "Tightened the die bolts crosswise to 40 Nm",
+        "Scrapped the first 3 metres and had the first 10 pipes measured",
+      ],
+    },
+    refreshMonths: 12,
+    openAnswers: [
+      {
+        person: "Jan de Vries",
+        daysAgo: 150,
+        key: "c3",
+        answer: {
+          text: "PX-4400 purge compound, barrel at 190 degrees, and I keep purging until the melt comes out clean with no old colour.",
+          verdict: "good",
+          matched: ["Use purge compound PX-4400", "Purge at 190 °C", "Keep purging until the melt runs clean"],
+          missing: [],
+          feedback: "Right: PX-4400 at 190 °C until the melt runs clean (EXT-OPS-SOP-0001 v1).",
+        },
+      },
+      {
+        person: "Ahmed Yilmaz",
+        daysAgo: 95,
+        key: "c3",
+        answer: {
+          text: "I put in the purge compound and run it until the melt is clean.",
+          mode: "voice",
+          verdict: "partly",
+          matched: ["Use purge compound PX-4400", "Keep purging until the melt runs clean"],
+          missing: ["Purge at 190 °C"],
+          feedback: "Good start. Add the temperature: EXT-OPS-SOP-0001 v1 says purge at 190 °C.",
+        },
+      },
+      {
+        person: "Lotte Smit",
+        daysAgo: 4,
+        key: "c3",
+        answer: {
+          text: "Run the purge at 230 like normal production and stop when it looks clean.",
+          mode: "voice",
+          verdict: "not_yet",
+          matched: ["Keep purging until the melt runs clean"],
+          missing: ["Use purge compound PX-4400", "Purge at 190 °C"],
+          misconception: PURGE_MISCONCEPTION,
+          feedback: "Not yet. The purge is not done at running temperature: EXT-OPS-SOP-0001 v1 says purge compound PX-4400 at 190 °C.",
+        },
+      },
+      {
+        person: "Lotte Smit",
+        daysAgo: 6,
+        key: "c3",
+        answer: {
+          text: "Same temperature as running, 230, with the purge stuff until clean.",
+          verdict: "not_yet",
+          matched: ["Keep purging until the melt runs clean"],
+          missing: ["Use purge compound PX-4400", "Purge at 190 °C"],
+          misconception: PURGE_MISCONCEPTION,
+          feedback: "Not yet. Purge with PX-4400 at 190 °C, not at the running temperature (EXT-OPS-SOP-0001 v1).",
+        },
+      },
+    ],
+    signals: {
+      summary:
+        "Most people know the changeover order. The purge temperature is mixed up with the running temperature, and the hopper level question trips up new starters.",
+      items: [
+        {
+          kind: "misconception",
+          objective: "c3",
+          text: "People think the purge runs at the normal running temperature (230 °C) instead of 190 °C.",
+          count: 2,
+          examples: [
+            "Run the purge at 230 like normal production and stop when it looks clean.",
+            "Same temperature as running, 230, with the purge stuff until clean.",
+          ],
+          suggestion: "Show the purge temperature next to the running temperature in step 4 of the SOP, and add a key point 'Purge at 190 °C, not at running temperature'.",
+        },
+        {
+          kind: "document_gap",
+          objective: "c3",
+          text: "EXT-OPS-SOP-0001 gives 190 °C for the purge but does not say to lower the zones from running temperature first.",
+          count: 2,
+          examples: ["Same temperature as running, 230, with the purge stuff until clean."],
+          suggestion: "Propose a revision: add 'Lower all zones to 190 °C before you start the purge' to the purge step.",
+        },
+        {
+          kind: "unclear_question",
+          objective: "c2",
+          text: "The hopper level question is answered wrongly by new starters: 'below 20 percent' is read as 'at 20 percent full'.",
+          count: 2,
+          examples: ["When the extruder hopper is below 50 percent"],
+          suggestion: "Ask it as a situation: 'The hopper shows 25 percent. Do you stop dosing yet?'",
+        },
+        {
+          kind: "too_easy",
+          objective: "c1",
+          text: "Everyone gets the first step right on the first try.",
+          count: 5,
+          examples: [],
+          suggestion: "Keep one question on it, or ask what goes wrong when the mixing operator is not told.",
+        },
+      ],
+    },
+  },
+  "EXT-TRN-0002": {
+    objectives: {
+      r1: {
+        critical: true,
+        variants: [
+          {
+            prompt: "You must reach into the haul-off of line 2. How do you make the line safe first?",
+            correct: "Switch off the main isolator and attach your personal lock and tag",
+            wrong: [
+              "Press the emergency stop and start working",
+              "Ask a colleague to watch the control panel",
+              "Switch off the haul-off motor at its local panel",
+            ],
+            explanation: "Isolate line 2 at the main isolator and attach your personal lock and tag.",
+          },
+        ],
+        open: {
+          prompt: "Explain in your own words how you isolate line 2 before you work on it.",
+          keyPoints: ["Switch off the main isolator of line 2", "Attach your own personal lock", "Attach your tag"],
+          modelAnswer: "I switch off the main isolator of line 2 and put my own personal lock and tag on it.",
+          explanation: "Isolate line 2 at the main isolator with your own lock and tag.",
+        },
+      },
+      r2: {
+        variants: [
+          {
+            prompt: "You are about to work at the die head of EXL-201. Which gloves do you wear?",
+            correct: "Heat-resistant gloves",
+            wrong: ["Nitrile gloves", "Cut-resistant gloves", "No gloves"],
+            explanation: "Wear heat-resistant gloves when working at the hot die.",
+          },
+        ],
+        image: {
+          match: ["right PPE", "hot die head"],
+          kind: "open",
+          prompt: "Look at the operator at the hot die head of EXL-201. Which protection for the hands must you wear here, and why?",
+          keyPoints: ["Heat-resistant gloves"],
+          modelAnswer: "Heat-resistant gloves, because the die head is hot and can burn.",
+          explanation: "Wear heat-resistant gloves when working at the hot die.",
+        },
+      },
+      r3: {
+        variants: [
+          {
+            prompt: "You stand at VAC-203. Which vacuum should the gauge of the calibration tank show?",
+            correct: "-0.3 bar",
+            wrong: ["-0.9 bar", "0 bar", "+0.3 bar"],
+            explanation: "The vacuum in the calibration tank is -0.3 bar.",
+          },
+        ],
+      },
+      r4: {
+        critical: true,
+        variants: [
+          {
+            prompt: "Line 2 has stopped by itself and a pipe is stuck in the saw area. What do you do?",
+            correct: "Do not reach in: lock out the line first, because a stopped line can restart",
+            wrong: [
+              "Reach in quickly while it is stopped",
+              "Reach in with a tool instead of your hand",
+              "Press the emergency stop, then reach in",
+            ],
+            explanation: "Never reach into the haul-off or saw area of a line that is only stopped.",
+          },
+        ],
+      },
+      r5: {
+        variants: [
+          {
+            prompt: "Before you work on the haul-off, how do you release the stored energy?",
+            correct: "Open the pneumatic dump valve on the haul-off",
+            wrong: [
+              "Close the pneumatic dump valve on the haul-off",
+              "Wait 5 minutes after the stop",
+              "Switch off the compressor in the workshop",
+            ],
+            explanation: "Release stored energy by opening the pneumatic dump valve on the haul-off.",
+          },
+        ],
+        open: {
+          prompt: "Show it: take a photo of the pneumatic dump valve on the haul-off in the position it must be in before you work on it.",
+          keyPoints: ["The pneumatic dump valve on the haul-off", "The valve is open"],
+          modelAnswer: "A photo of the dump valve on the haul-off of SAW-202 in the open position.",
+          explanation: "Release stored energy by opening the pneumatic dump valve on the haul-off.",
+          byPhoto: true,
+        },
+      },
+      r6: {
+        variants: [
+          {
+            prompt: "The work on line 2 is done. Which locks may you take off?",
+            correct: "Only your own lock",
+            wrong: ["Every lock on the isolator", "Your own lock and your colleague's", "The shift leader's lock"],
+            explanation: "Only the person who placed a lock may remove it.",
+          },
+        ],
+      },
+    },
+    breakdown: [
+      {
+        step: "Isolate line 2 at EXL-201",
+        keyPoints: [
+          ["Switch off the main isolator of line 2", "safety"],
+          ["Attach your own personal lock and tag", "safety"],
+        ],
+        reasons: ["Your own lock means nobody can switch line 2 on while you work on it."],
+        objectives: ["r1"],
+      },
+      {
+        step: "Protect yourself at the die head",
+        keyPoints: [["Heat-resistant gloves at the hot die", "safety"]],
+        reasons: ["The die and barrel of EXL-201 stay above 150 °C for hours after a stop."],
+        objectives: ["r2"],
+      },
+      {
+        step: "Check the vacuum at VAC-203",
+        keyPoints: [["The calibration tank gauge reads -0.3 bar", "quality"]],
+        reasons: ["The vacuum pulls the hot pipe against the sizing sleeve, which sets the outside diameter."],
+        objectives: ["r3"],
+      },
+      {
+        step: "Make the haul-off and saw safe at SAW-202",
+        keyPoints: [
+          ["Never reach in while the line is only stopped", "safety"],
+          ["Open the pneumatic dump valve on the haul-off", "safety"],
+        ],
+        reasons: [
+          "A stopped line can restart.",
+          "Compressed air stays in the haul-off cylinders until the dump valve is opened.",
+        ],
+        objectives: ["r4", "r5"],
+      },
+      {
+        step: "Finish the work at CLR-204",
+        keyPoints: [["Remove only your own lock", "safety"]],
+        reasons: ["Only the person who placed a lock may remove it, so nobody is left unprotected."],
+        objectives: ["r6"],
+      },
+    ],
+    refreshMonths: 12,
+    tryOut: {
+      required: true,
+      checklist: [
+        "Switched off the main isolator of line 2",
+        "Attached own lock and tag",
+        "Released stored energy at the haul-off dump valve",
+        "Wore heat-resistant gloves at the die head",
+        "Explained why a stopped line is not a safe line",
+      ],
+    },
+  },
+  "EXT-TRN-0003": {
+    objectives: {
+      s2: {
+        open: {
+          prompt: "How do you recognise that the screen pack of EXL-201 is clogged?",
+          keyPoints: ["Melt pressure more than 30 bar above the baseline", "The baseline for that product"],
+          modelAnswer: "The melt pressure is more than 30 bar above the baseline for that product.",
+          explanation: "A melt pressure more than 30 bar above the baseline for the product means the screen pack is clogged.",
+        },
+      },
+      s3: {
+        image: {
+          match: ["breaker plate", "three screens"],
+          kind: "choice",
+          prompt: "This is the breaker plate of EXL-201. In which order are the screens fitted, from the screw side?",
+          correct: "40 mesh, 80 mesh, 40 mesh",
+          wrong: ["80 mesh, 40 mesh, 80 mesh", "40 mesh, 40 mesh, 80 mesh", "80 mesh, 80 mesh, 40 mesh"],
+          whyWrong: [
+            "The fine 80 mesh screen sits in the middle, not on the outside.",
+            "The 80 mesh screen goes in the middle, between two 40 mesh screens.",
+            "Only one 80 mesh screen is used, in the middle.",
+          ],
+          explanation: "Three screens: 40/80/40 mesh, the fine one in the middle.",
+        },
+      },
+      s4: {
+        critical: true,
+        variants: [
+          {
+            prompt: "You open the adapter clamp to change the screen pack. What do you wear on your hands?",
+            correct: "Heat-resistant gloves",
+            wrong: ["Nitrile gloves", "Cut-resistant gloves only", "No gloves, for a better grip"],
+            explanation: "Wear heat-resistant gloves when working at the hot parts.",
+          },
+        ],
+      },
+    },
+    breakdown: [
+      {
+        step: "Decide that the screen pack is due",
+        keyPoints: [
+          ["At least every 500 operating hours", "quality"],
+          ["Melt pressure more than 30 bar above the baseline for the product", "quality"],
+        ],
+        reasons: ["A blocked screen pack raises the melt pressure and gives specks in the pipe."],
+        objectives: ["s1", "s2"],
+      },
+      {
+        step: "Open the adapter clamp and take out the breaker plate",
+        keyPoints: [["Heat-resistant gloves (EN 407) and a face shield", "safety"]],
+        reasons: ["The screen pack is changed hot, with the zones at set point, so the PE stays soft: it is hot work at the die head."],
+        objectives: ["s4"],
+      },
+      {
+        step: "Fit the new screens",
+        keyPoints: [["40 mesh, 80 mesh, 40 mesh from the screw side", "knack"]],
+        reasons: ["The screens catch dirt and unmelted particles before they reach the die."],
+        objectives: ["s3"],
+      },
+    ],
+    tryOut: {
+      required: true,
+      checklist: [
+        "Wrote the melt pressure in the maintenance log before stopping",
+        "Wore EN 407 gloves and a face shield at the adapter clamp",
+        "Fitted the screens 40, 80, 40 mesh from the screw side",
+      ],
+    },
+    refreshMonths: 24,
+  },
+  "MIX-TRN-0001": {
+    objectives: {
+      m2: {
+        open: {
+          prompt: "Describe how you load MXR-101 for a batch.",
+          keyPoints: ["Granulate first", "Then the masterbatch", "Close the lid before starting"],
+          modelAnswer: "Granulate goes in first, then the masterbatch, and I close the lid before I start the mixer.",
+          explanation: "Load granulate first, then masterbatch, and close the lid before starting.",
+        },
+      },
+      m4: {
+        critical: true,
+        variants: [
+          {
+            prompt: "You empty bags of masterbatch into the dosing hopper. What do you wear against the dust?",
+            correct: "An FFP2 dust mask",
+            wrong: ["An FFP1 dust mask", "Safety glasses only", "Nothing, the extraction hood is on"],
+            explanation: "Wear an FFP2 dust mask when emptying bags of masterbatch.",
+          },
+        ],
+      },
+    },
+    breakdown: [
+      {
+        step: "Weigh the masterbatch",
+        keyPoints: [["2 kg per 100 kg of PE granulate, unless the batch card says otherwise", "quality"]],
+        reasons: ["The batch card can set another ratio: it always wins over the standard."],
+        objectives: ["m1"],
+      },
+      {
+        step: "Empty the bags into the dosing hopper",
+        keyPoints: [
+          ["FFP2 dust mask on while emptying bags", "safety"],
+          ["Local extraction at the dosing hopper on", "safety"],
+        ],
+        reasons: ["Emptying bags puts masterbatch and granulate dust in the air you breathe."],
+        objectives: ["m4"],
+      },
+      {
+        step: "Load MXR-101 and close the lid",
+        keyPoints: [
+          ["Granulate first, then masterbatch", "knack"],
+          ["Close the lid fully before starting", "safety"],
+        ],
+        reasons: ["MXR-101 will not start with the lid open: never bypass the lid interlock."],
+        objectives: ["m2"],
+      },
+      {
+        step: "Mix and release the batch",
+        keyPoints: [["Mix for 4 minutes", "quality"]],
+        reasons: ["The batch is released to the line 2 hopper only after the full mixing time."],
+        objectives: ["m3"],
+      },
+      {
+        step: "Dry the granulate on DRY-102",
+        keyPoints: [["80 °C for at least 4 hours", "quality"]],
+        reasons: ["Moisture in the granulate turns into steam in the extruder: bubbles, voids and a rough inner surface in the pipe wall."],
+        objectives: ["m5"],
+      },
+    ],
+    tryOut: {
+      required: true,
+      checklist: [
+        "Checked the batch card for the masterbatch ratio",
+        "Wore the FFP2 dust mask with the extraction on",
+        "Loaded granulate first, then masterbatch, and closed the lid",
+        "Mixed for 4 minutes before releasing the batch",
+      ],
+    },
+    refreshMonths: 24,
+  },
+  "QCL-TRN-0001": {
+    objectives: {
+      w5: {
+        open: {
+          prompt: "A pipe is out of tolerance. Explain what happens to it and who decides.",
+          keyPoints: ["The pipe goes to quarantine", "Only the quality manager releases it"],
+          modelAnswer: "The pipe goes into quarantine with a red label, and only the quality manager may release it.",
+          explanation: "Pipe out of tolerance is quarantined; only the quality manager releases it.",
+        },
+      },
+    },
+    breakdown: [
+      {
+        step: "Calibrate the UT-200",
+        keyPoints: [["Two-point calibration on the 3 mm and 12 mm steps of the step block", "quality"]],
+        reasons: ["Before the first measurement of the day, and after the probe, cable or batteries are changed or the gauge was dropped."],
+        objectives: ["w1"],
+      },
+      {
+        step: "Measure the test piece",
+        keyPoints: [
+          ["8 points evenly around the circumference at each end", "quality"],
+          ["One test piece every 2 hours on line 2", "quality"],
+        ],
+        reasons: ["16 readings per test piece show an off-centre die, where one side of the wall is thin."],
+        objectives: ["w2", "w3"],
+      },
+      {
+        step: "Judge the result",
+        keyPoints: [
+          ["110 SDR 11: wall 10.0 to 11.1 mm", "quality"],
+          ["Out of tolerance: quarantine, only the quality manager releases", "quality"],
+        ],
+        reasons: ["The pipe is used for drinking water and gas."],
+        objectives: ["w4", "w5"],
+      },
+    ],
+    tryOut: { required: false, checklist: [] },
+    refreshMonths: 12,
+  },
+}
+
+const gradeScore = (v: OpenAnswerDef["verdict"]) => (v === "good" ? 1 : v === "partly" ? 0.5 : 0)
+
 // ---- Matching ------------------------------------------------------------------
 
 const squash = (s: string) => normalise(s).replace(/\s+/g, " ").trim()
@@ -625,6 +1317,150 @@ export const checkObjectives = internalQuery({
   },
 })
 
+type Resolved = Map<string, { def: ObjectiveDef; stored: Doc<"trainingVersions">["objectives"][number]; section: string | null }>
+
+/** The question bank, breakdown and try-out of a seeded version, from EXTRAS. */
+function bankAndBreakdown(
+  def: TrainingDef,
+  extra: TrainingExtra,
+  keys: string[],
+  resolved: Resolved,
+  stops: Doc<"trainingVersions">["stops"],
+  imageFor: (match: string[]) => Id<"images"> | null,
+) {
+  type Bank = NonNullable<Doc<"trainingVersions">["questionBank"]>
+  const bank: Bank = []
+  const stopOf = (k: string) => {
+    if (def.kind !== "round") return null
+    const i = stops.findIndex((s) => s.objectiveIds.includes(k))
+    return i >= 0 ? i : null
+  }
+  for (const k of keys) {
+    const r = resolved.get(k)!
+    const x = extra.objectives[k] ?? {}
+    const citation = {
+      documentId: r.stored.documentId,
+      namingCode: r.stored.namingCode,
+      version: r.stored.documentVersion,
+      chunkId: r.stored.chunkId,
+      quote: r.stored.quote,
+    }
+    const choices = [
+      { q: r.def.q, why: x.whyWrong },
+      ...(x.variants ?? []).map((q) => ({ q, why: q.whyWrong })),
+    ]
+    choices.forEach(({ q, why }, vi) => {
+      const correctAt = (vi + k.length) % 4
+      const options = [...q.wrong] as string[]
+      options.splice(correctAt, 0, q.correct)
+      bank.push({
+        id: `${k}-c${vi + 1}`,
+        objectiveId: k,
+        kind: "choice",
+        prompt: q.prompt,
+        options,
+        correctIndex: correctAt,
+        explanation: q.explanation,
+        citation,
+        source: "engineer",
+        stopIndex: stopOf(k),
+        ...(why ? { whyWrong: [...why] } : {}),
+      })
+    })
+    if (x.open) {
+      // A photo answer only where the stop asks for a photo.
+      const byPhoto = !!x.open.byPhoto && def.kind === "round" && stops[stopOf(k) ?? -1]?.evidence === "photo"
+      if (!x.open.byPhoto || byPhoto)
+        bank.push({
+          id: `${k}-o1`,
+          objectiveId: k,
+          kind: "open",
+          prompt: x.open.prompt,
+          options: [],
+          correctIndex: 0,
+          keyPoints: x.open.keyPoints,
+          modelAnswer: x.open.modelAnswer,
+          explanation: x.open.explanation,
+          citation,
+          source: "engineer",
+          stopIndex: stopOf(k),
+          ...(byPhoto ? { answerByPhoto: true } : {}),
+        })
+    }
+    if (x.image) {
+      const imageId = imageFor(x.image.match)
+      if (imageId) {
+        const img = x.image
+        if (img.kind === "choice" && img.correct && img.wrong) {
+          const options = [...img.wrong] as string[]
+          options.splice(1, 0, img.correct)
+          bank.push({
+            id: `${k}-i1`,
+            objectiveId: k,
+            kind: "choice",
+            prompt: img.prompt,
+            options,
+            correctIndex: 1,
+            explanation: img.explanation,
+            citation,
+            source: "engineer",
+            stopIndex: stopOf(k),
+            imageId,
+            ...(img.whyWrong ? { whyWrong: [...img.whyWrong] } : {}),
+          })
+        } else if (img.kind === "open" && img.keyPoints) {
+          bank.push({
+            id: `${k}-i1`,
+            objectiveId: k,
+            kind: "open",
+            prompt: img.prompt,
+            options: [],
+            correctIndex: 0,
+            keyPoints: img.keyPoints,
+            modelAnswer: img.modelAnswer,
+            explanation: img.explanation,
+            citation,
+            source: "engineer",
+            stopIndex: stopOf(k),
+            imageId,
+          })
+        }
+      }
+    }
+  }
+  const breakdown = extra.breakdown
+    ?.map((b, i) => {
+      const objectiveIds = b.objectives.filter((k) => keys.includes(k))
+      const first = objectiveIds[0] ? resolved.get(objectiveIds[0]) : undefined
+      return {
+        id: `b${i + 1}`,
+        step: b.step,
+        keyPoints: b.keyPoints.map(([t]) => t),
+        keyPointKinds: b.keyPoints.map(([, kind]) => kind),
+        reasons: b.reasons,
+        objectiveIds,
+        ...(first
+          ? {
+              citation: {
+                documentId: first.stored.documentId,
+                namingCode: first.stored.namingCode,
+                version: first.stored.documentVersion,
+                chunkId: first.stored.chunkId,
+                quote: first.stored.quote,
+              },
+            }
+          : {}),
+      }
+    })
+    .filter((b) => b.objectiveIds.length > 0)
+  return {
+    questionBank: bank,
+    ...(breakdown && breakdown.length > 0 ? { breakdown } : {}),
+    ...(extra.tryOut ? { tryOut: extra.tryOut } : {}),
+    ...(extra.refreshMonths ? { refreshMonths: extra.refreshMonths } : {}),
+  }
+}
+
 // ---- Run ------------------------------------------------------------------------
 
 export const run = internalMutation({
@@ -634,7 +1470,7 @@ export const run = internalMutation({
     const people = await ctx.db.query("people").take(200)
     const user = await ctx.db.query("users").first()
     const userId: Id<"users"> | null = user?._id ?? null
-    const counts = { trainings: 0, versions: 0, objectives: 0, attempts: 0, records: 0, skipped: [] as string[] }
+    const counts = { trainings: 0, versions: 0, objectives: 0, attempts: 0, records: 0, signals: 0, skipped: [] as string[] }
 
     // Idempotent: replace only what this seed owns.
     for (const def of TRAININGS) {
@@ -658,9 +1494,25 @@ export const run = internalMutation({
           .withIndex("by_trainingId", (q) => q.eq("trainingId", t._id))
           .collect())
           await ctx.db.delete(r._id)
+        for (const s of await ctx.db
+          .query("trainingSignals")
+          .withIndex("by_trainingId_and_version", (q) => q.eq("trainingId", t._id))
+          .collect())
+          await ctx.db.delete(s._id)
+        for (const a of await ctx.db
+          .query("trainingAssignments")
+          .withIndex("by_trainingId", (q) => q.eq("trainingId", t._id))
+          .collect())
+          await ctx.db.delete(a._id)
         await ctx.db.delete(t._id)
       }
     }
+    // Requests point at Trainings and Attempts that were just replaced.
+    for (const r of await ctx.db.query("tryOutRequests").take(2000)) if (!(await ctx.db.get(r.trainingId))) await ctx.db.delete(r._id)
+    // Pictures by their alt text, for the picture questions.
+    const images = await ctx.db.query("images").take(2000)
+    const imageFor = (match: string[]) =>
+      images.find((img) => match.every((m) => img.altText.toLowerCase().includes(m.toLowerCase())))?._id ?? null
 
     const liveDocs = new Map<string, LiveDoc | null>()
     const liveByCode = async (code: string) => {
@@ -792,14 +1644,20 @@ export const run = internalMutation({
           const p = await findPerson(ctx, people, vd.approver, true)
           signoffs.push({ role: "approver", personId: p?._id ?? null, userId, at: published })
         }
+        const extra = EXTRAS[def.code]
+        const objectives = vd.keys.map((k) => ({
+          ...resolved.get(k)!.stored,
+          ...(extra?.objectives[k]?.critical ? { critical: true } : {}),
+        }))
         await ctx.db.insert("trainingVersions", {
           trainingId,
           version: i + 1,
           purpose: def.purpose,
-          objectives: vd.keys.map((k) => resolved.get(k)!.stored),
+          objectives,
           stops: def.kind === "round" ? stops : [],
           passMark: def.passMark,
           questionsPerObjective: 1,
+          ...(extra ? bankAndBreakdown(def, extra, vd.keys, resolved, stops, imageFor) : {}),
           signoffs,
           publishedAt: published,
         })
@@ -822,11 +1680,55 @@ export const run = internalMutation({
         const stopOf = new Map<string, number>()
         stops.forEach((s, si) => s.objectiveIds.forEach((k) => stopOf.set(k, si)))
         const ordered = def.kind === "round" ? [...liveKeys].sort((a, b) => (stopOf.get(a) ?? 0) - (stopOf.get(b) ?? 0)) : liveKeys
-        const questions = ordered.map((k, qi) => {
+        const extra = EXTRAS[def.code]
+        const questions: Doc<"trainingAttempts">["questions"] = ordered.map((k, qi) => {
           const r = resolved.get(k)!
+          const citation = {
+            documentId: r.stored.documentId,
+            namingCode: r.stored.namingCode,
+            version: r.stored.documentVersion,
+            chunkId: r.stored.chunkId,
+            quote: r.stored.quote,
+          }
+          const critical = extra?.objectives[k]?.critical ? { critical: true } : {}
+          const answeredAt = startedAt + (qi + 1) * 90 * 1000
+          const open = extra?.openAnswers?.find((x) => x.person === ad.person && x.daysAgo === ad.daysAgo && x.key === k)
+          const openDef = extra?.objectives[k]?.open
+          if (open && openDef) {
+            return {
+              id: `q${qi + 1}`,
+              objectiveId: k,
+              stopIndex: def.kind === "round" ? stopOf.get(k) ?? null : null,
+              prompt: openDef.prompt,
+              options: [],
+              correctIndex: 0,
+              explanation: openDef.explanation,
+              citation,
+              answerIndex: null,
+              answeredAt,
+              flag: null,
+              kind: "open" as const,
+              keyPoints: openDef.keyPoints,
+              answerText: open.answer.text,
+              answerMode: open.answer.mode ?? "typed",
+              grade: {
+                verdict: open.answer.verdict,
+                score: gradeScore(open.answer.verdict),
+                matched: open.answer.matched,
+                missing: open.answer.missing,
+                ...(open.answer.misconception ? { misconception: open.answer.misconception } : {}),
+                feedback: open.answer.feedback,
+                gradedBy: "ai" as const,
+                gradedAt: answeredAt + 20 * 1000,
+              },
+              source: "bank" as const,
+              ...critical,
+            }
+          }
           const correctAt = (pi + qi * 3) % 4
           const options = [...r.def.q.wrong] as string[]
           options.splice(correctAt, 0, r.def.q.correct)
+          const why = extra?.objectives[k]?.whyWrong
           const wrong = ad.wrong?.includes(qi) ?? false
           const answerIndex = wrong ? (correctAt + 1 + (qi % 3)) % 4 : correctAt
           return {
@@ -837,21 +1739,25 @@ export const run = internalMutation({
             options,
             correctIndex: correctAt,
             explanation: r.def.q.explanation,
-            citation: {
-              documentId: r.stored.documentId,
-              namingCode: r.stored.namingCode,
-              version: r.stored.documentVersion,
-              chunkId: r.stored.chunkId,
-              quote: r.stored.quote,
-            },
+            citation,
             answerIndex,
-            answeredAt: startedAt + (qi + 1) * 90 * 1000,
+            answeredAt,
             flag: null,
+            kind: "choice" as const,
+            ...(why ? { whyWrong: [...why] } : {}),
+            source: "bank" as const,
+            ...critical,
           }
         })
-        const correct = questions.filter((q) => q.answerIndex === q.correctIndex).length
-        const score = Math.round((correct / questions.length) * 100)
-        const passed = score >= def.passMark
+        const points = questions.reduce(
+          (n, q) => n + (q.kind === "open" ? q.grade?.score ?? 0 : q.answerIndex === q.correctIndex ? 1 : 0),
+          0,
+        )
+        const score = Math.round((points / questions.length) * 100)
+        const mustBeRightMissed = questions
+          .filter((q) => q.critical && (q.kind === "open" ? (q.grade?.score ?? 0) < 1 : q.answerIndex !== q.correctIndex))
+          .map((q) => q.objectiveId)
+        const passed = score >= def.passMark && mustBeRightMissed.length === 0
         const attemptId = await ctx.db.insert("trainingAttempts", {
           trainingId,
           trainingVersion: liveVersion,
@@ -880,6 +1786,8 @@ export const run = internalMutation({
           startedAt,
           finishedAt,
           error: null,
+          ...(mustBeRightMissed.length > 0 ? { mustBeRightMissed } : {}),
+          ...(def.kind === "course" && extra?.breakdown ? { presentSeenAt: startedAt + 30 * 1000 } : {}),
         })
         counts.attempts += 1
         if (passed) {
@@ -895,6 +1803,36 @@ export const run = internalMutation({
           })
           counts.records += 1
         }
+      }
+
+      // One ready "Still on point?" analysis, so the demo shows it without AI calls.
+      const sig = EXTRAS[def.code]?.signals
+      if (sig) {
+        const finishedCount = (
+          await ctx.db
+            .query("trainingAttempts")
+            .withIndex("by_trainingId", (q) => q.eq("trainingId", trainingId))
+            .collect()
+        ).filter((a) => a.status === "passed" || a.status === "failed").length
+        await ctx.db.insert("trainingSignals", {
+          trainingId,
+          version: liveVersion,
+          status: "ready",
+          at: now - 2 * DAY,
+          attemptsAnalysed: finishedCount,
+          summary: sig.summary,
+          items: sig.items
+            .filter((i) => !i.objective || liveKeys.includes(i.objective))
+            .map((i) => ({
+              kind: i.kind,
+              ...(i.objective ? { objectiveId: i.objective } : {}),
+              text: i.text,
+              count: i.count,
+              examples: i.examples,
+              suggestion: i.suggestion,
+            })),
+        })
+        counts.signals += 1
       }
     }
 

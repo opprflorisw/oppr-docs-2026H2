@@ -1,16 +1,17 @@
-// Slide-in Ask IDA sheet.
+// Slide-in Ask sheet.
 //
 // Wraps AskPanel inside a shadcn Sheet that slides in from the right.
 // Used in:
 //   - DocumentReadPage  → scoped to the open document
 //   - LibraryPage       → scoped to the whole library
-//   - (later) AssetDetailPage → scoped to the asset
+//   - FloatingAskIda    → scoped from the route
+//   - WikiPage          → "This Wiki" (Ask this Wiki)
 //
-// The trigger renders as a primary-styled button with an "Ask IDA" label
-// + sparkle/message icon. Both the trigger and the sheet are owned by this
-// component so callers just pass `scope` and (optionally) `triggerLabel`.
+// On a Wiki page (/wiki/:id) the sheet opens on "This Wiki": answers come only
+// from the Wiki's sources, and the thread is saved like any other scope.
 
-import { useState, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
+import { useLocation } from "wouter"
 import { MessageSquareText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,19 +22,29 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { AskPanel, type AskPanelScope } from "./AskPanel"
+import type { AnyAskScope } from "./ScopeChip"
 import { cn } from "@/lib/utils"
 
 interface AskIdaSheetProps {
-  scope: AskPanelScope
-  /** Override the trigger button label. Default: "Ask IDA". */
+  scope: AnyAskScope
+  /** Override the trigger button label. Default: "Ask". */
   triggerLabel?: string
-  /** Replace the default trigger entirely. */
-  trigger?: ReactNode
+  /** Replace the default trigger entirely; null renders no trigger (controlled use). */
+  trigger?: ReactNode | null
   /** Trigger button variant. */
   variant?: "default" | "outline" | "secondary" | "ghost"
   /** Trigger button size. */
   size?: "default" | "sm" | "lg" | "icon"
   className?: string
+  /** Controlled open state (optional). */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}
+
+/** The Wiki open on this route, if any. */
+function wikiIdFromLocation(location: string): string | null {
+  const m = location.match(/^\/wiki\/([a-z0-9]{32})$/)
+  return m ? m[1] : null
 }
 
 export function AskIdaSheet({
@@ -43,33 +54,53 @@ export function AskIdaSheet({
   variant = "default",
   size = "sm",
   className,
+  open: openProp,
+  onOpenChange,
 }: AskIdaSheetProps) {
-  const [open, setOpen] = useState(false)
+  const [openState, setOpenState] = useState(false)
+  const open = openProp ?? openState
+  const setOpen = (next: boolean) => {
+    setOpenState(next)
+    onOpenChange?.(next)
+  }
+  const [location] = useLocation()
+  // Opened on a Wiki page with the default (library) scope: preselect the Wiki.
+  const routeWiki = wikiIdFromLocation(location)
+  const initial: AnyAskScope =
+    routeWiki && scope.kind === "library" ? { kind: "wiki", id: routeWiki } : scope
+  const [active, setActive] = useState<AnyAskScope>(initial)
+  const initialKey = initial.kind === "library" ? "library" : `${initial.kind}:${initial.id}`
+  useEffect(() => {
+    setActive(initial)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialKey])
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        {trigger ?? (
-          <Button
-            variant={variant}
-            size={size}
-            className={cn("gap-2", className)}
-          >
-            <MessageSquareText className="h-4 w-4" />
-            {triggerLabel}
-          </Button>
-        )}
-      </SheetTrigger>
+      {trigger !== null && (
+        <SheetTrigger asChild>
+          {trigger ?? (
+            <Button variant={variant} size={size} className={cn("gap-2", className)}>
+              <MessageSquareText className="h-4 w-4" />
+              {triggerLabel}
+            </Button>
+          )}
+        </SheetTrigger>
+      )}
       <SheetContent
         side="right"
         className="flex w-full flex-col gap-0 p-0 sm:max-w-md md:max-w-lg"
       >
         <SheetTitle className="sr-only">Ask</SheetTitle>
         <SheetDescription className="sr-only">
-          Q&amp;A panel for the current document, asset, or the entire library.
+          Questions and answers for the current document, Asset, Wiki or the entire library.
         </SheetDescription>
-        <div className="flex-1 min-h-0 p-3">
-          <AskPanel scope={scope} className="h-full border-0 shadow-none" />
+        <div className="min-h-0 flex-1 p-3">
+          <AskPanel
+            scope={active as AskPanelScope}
+            onScopeChange={(next) => setActive(next)}
+            className="h-full border-0 shadow-none"
+          />
         </div>
       </SheetContent>
     </Sheet>

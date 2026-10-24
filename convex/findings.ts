@@ -497,6 +497,7 @@ async function present(ctx: QueryCtx, f: Doc<"findings">) {
       liveVersion: d ? publishedVersion(d) : null,
       // A revision of this document is already being drafted.
       revisionInProgress: d != null && d.liveVersion != null && d.currentVersion !== d.liveVersion,
+      workingVersion: d?.currentVersion ?? null,
     }
   }
   const dismissedBy = f.dismissedBy ? await ctx.db.get(f.dismissedBy) : null

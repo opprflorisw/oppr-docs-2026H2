@@ -262,7 +262,7 @@ export function DiagramPicker({
       return null
     }
     if (file.size > 10 * 1024 * 1024) {
-      toast.error("Image too large — 10 MB limit.")
+      toast.error("The image is too large. The limit is 10 MB.")
       return null
     }
     try {

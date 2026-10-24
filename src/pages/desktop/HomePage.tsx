@@ -4,6 +4,9 @@ import { HomeRevisionRows } from "@/components/insights/HomeRevisionRows"
 import { HomeTrainingRows } from "@/components/learn/HomeTrainingRows"
 import { HomeSkillRows } from "@/components/learn/HomeSkillRows"
 import { HomeInsightsPanel } from "@/components/insights/HomeInsightsPanel"
+import { ShiftCoverCard } from "@/components/learn/ShiftCoverCard"
+import { ThisWeekCard } from "@/components/learn/ThisWeekCard"
+import { TrainingSignalsHealth } from "@/components/learn/training/TrainingSignalsHealth"
 import { useQuery } from "convex/react"
 import { Link, useLocation } from "wouter"
 import {
@@ -57,7 +60,7 @@ export function HomePage() {
             <Inbox className="h-4 w-4 text-primary" />
             <h2 className="text-sm font-semibold">Inbox</h2>
             {data && (
-              <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+              <Badge variant="secondary" className="h-5 px-1.5 text-xs">
                 {inboxCount}
               </Badge>
             )}
@@ -134,7 +137,10 @@ export function HomePage() {
           <HomeSkillRows />
         </section>
 
-        <aside className="space-y-3">
+        <aside className="space-y-5">
+          {person && <ShiftCoverCard engineer={engineer} />}
+          {person && <ThisWeekCard />}
+          <div className="space-y-3">
           <div className="flex items-center gap-2">
             <BookOpenText className="h-4 w-4 text-primary" />
             <h2 className="text-sm font-semibold">Knowledge health</h2>
@@ -153,10 +159,12 @@ export function HomePage() {
             </CardContent>
           </Card>
           <HomeInsightsPanel />
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
+          <TrainingSignalsHealth compact />
+          <p className="text-xs leading-relaxed text-muted-foreground">
             Only published documents count as knowledge. Ask and every Wiki
             use the published version, never a draft.
           </p>
+          </div>
         </aside>
       </div>
       <NewDocumentChooserDialog open={newOpen} onOpenChange={setNewOpen} />
@@ -228,8 +236,8 @@ function Stat({
       <div className={cn("text-xl font-semibold tabular-nums", warn && "text-red-600")}>
         {value ?? "–"}
       </div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-      {hint && <div className="text-[10px] font-medium text-red-600">{hint}</div>}
+      <div className="text-xs text-muted-foreground">{label}</div>
+      {hint && <div className="text-xs font-medium text-red-600">{hint}</div>}
     </>
   )
   if (!href) return <div className="bg-card p-3">{body}</div>
