@@ -198,7 +198,7 @@ Assets:
 | EXL-201 | Pipe extruder line 2 | EXT |
 | VAC-203 | Vacuum calibration tank line 2 | EXT |
 | SAW-202 | Haul-off and cutting saw line 2 | EXT |
-| BEL-204 | Belling machine line 2 | EXT |
+| CLR-204 | Pipe coiler line 2 | EXT |
 | QCL-301 | Ultrasonic wall thickness gauge | QCL |
 
 People (check-in identities): Operators: Jan de Vries (line 2, night),
@@ -214,7 +214,7 @@ Documents (20). Existing fixtures keep their codes, status and sentinel text.
 |---|---|---|---|---|---|---|
 | 1 | EXT-OPS-SOP-0001 | Colour and product changeover on extrusion line 2 | SOP | Published v1, v2 draft | EXL-201, MXR-101, SAW-202 | Fixture: v2 uses PX-9917. Die bolts **40 Nm**. |
 | 2 | EXT-MNT-MAN-0001 | Krauss KX-60 single-screw extruder: operating and maintenance manual | Manual, **wrapped PDF** (Krauss Extrusionstechnik GmbH) | Published v1, review due in 20 days | EXL-201 | Die bolts **45 Nm**, barrel 170-220 °C, melt 350 bar max, breaker plate and screen pack. |
-| 3 | EXT-HSE-SOP-0001 | Lockout/tagout on extrusion line 2 | SOP | Published, review overdue 10 days | EXL-201, VAC-203, SAW-202, BEL-204 | "Never reach into the haul-off or saw area while the line is only stopped." |
+| 3 | EXT-HSE-SOP-0001 | Lockout/tagout on extrusion line 2 | SOP | Published, review overdue 10 days | EXL-201, VAC-203, SAW-202, CLR-204 | "Never reach into the haul-off or saw area while the line is only stopped." |
 | 4 | MIX-OPS-WI-0001 | Starting a batch on mixer MXR-101 | WI | Published, review in 60 days | MXR-101 | |
 | 5 | EXT-OPS-WI-0001 | Saw blade check on SAW-202 | WI | In review | SAW-202 | Fixture BL-7730. |
 | 6 | MIX-OPS-SOP-0001 | Cleaning mixer MXR-101 | SOP | Draft, never published | MXR-101 | Fixture MT-5521. |
@@ -230,7 +230,7 @@ Documents (20). Existing fixtures keep their codes, status and sentinel text.
 | 16 | EXT-HSE-LMRA-0001 | LMRA: working at the hot die head | LMRA | Published | EXL-201 | |
 | 17 | EXT-HSE-SOP-0002 | Hot melt burns: first response | SOP | Published | EXL-201 | |
 | 18 | EXT-MNT-SOP-0001 | Changing the screen pack on EXL-201 | SOP | Published v1, **v2 in review** (a real procedural change, to be published as a Significant change in the demo) | EXL-201 | |
-| 19 | EXT-OPS-WI-0003 | Setting up the belling machine BEL-204 | WI | **Approved** (inbox shows Publish) | BEL-204 | |
+| 19 | EXT-OPS-WI-0003 | Setting up the pipe coiler CLR-204 | WI | **Approved** (inbox shows Publish) | CLR-204 | |
 | 20 | MIX-HSE-LMRA-0001 | LMRA: dust and masterbatch handling at the mixer | LMRA | Published | MXR-101, DRY-102 | Rarely used (Knowledge health shows it). |
 
 Skills (C2): Operate extrusion line 2; Colour and product changeover line 2;
@@ -241,7 +241,7 @@ Quality lab technician.
 
 Trainings (C1): `EXT-TRN-0001` Line 2 changeover (course, Published);
 `EXT-TRN-0002` Line 2 safety round (Round, Published, stops EXL-201, VAC-203,
-SAW-202, BEL-204); `MIX-TRN-0001` Batch mixing basics (course, in review);
+SAW-202, CLR-204); `MIX-TRN-0001` Batch mixing basics (course, in review);
 `QCL-TRN-0001` Wall thickness measurement (course, Published);
 `EXT-TRN-0003` Screen pack change (course, Published, uses doc 18, so the
 Significant change demo sends it back to review).

@@ -13,6 +13,10 @@ function scopeForLocation(loc: string): AskPanelScope | null {
   if (loc.startsWith("/analysis")) return null
   if (loc.startsWith("/docs/new")) return null
   if (loc.startsWith("/import")) return null
+  // The Floor simulator has its own Ask inside the phone.
+  if (loc.startsWith("/floor")) return null
+  // Doing an Attempt: no help from Ask during the test.
+  if (loc.startsWith("/learn/attempts")) return null
   if (/^\/docs\/[^/]+\/edit$/.test(loc)) return null
 
   const docMatch = loc.match(/^\/docs\/([^/]+)$/)

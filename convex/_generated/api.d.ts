@@ -50,6 +50,7 @@ import type * as ppeImages from "../ppeImages.js";
 import type * as qa from "../qa.js";
 import type * as seedKnowledge from "../seedKnowledge.js";
 import type * as seedTemplates from "../seedTemplates.js";
+import type * as seed_builders from "../seed/builders.js";
 import type * as seed_insights from "../seed/insights.js";
 import type * as seed_skills from "../seed/skills.js";
 import type * as seed_trainings from "../seed/trainings.js";
@@ -109,6 +110,7 @@ declare const fullApi: ApiFromModules<{
   qa: typeof qa;
   seedKnowledge: typeof seedKnowledge;
   seedTemplates: typeof seedTemplates;
+  "seed/builders": typeof seed_builders;
   "seed/insights": typeof seed_insights;
   "seed/skills": typeof seed_skills;
   "seed/trainings": typeof seed_trainings;
