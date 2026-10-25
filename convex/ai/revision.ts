@@ -10,7 +10,7 @@ import { internal } from "../_generated/api"
 import { Id } from "../_generated/dataModel"
 import { requireUserId } from "../lib/auth"
 import { claudeConfigured, claudeJson, describeClaudeError } from "./llm"
-import { checkPoint, factTokens, ProvidedExcerpt } from "./grounding"
+import { checkPoint, factTokens, ProvidedExcerpt, support } from "./grounding"
 import type { BodyBlock, PlannedChange } from "../revisions"
 import { stripBlockKeys } from "../revisions"
 
@@ -136,6 +136,15 @@ export const generate = internalAction({
         `THIS DOCUMENT SAYS (${input.doc.namingCode}${f.mine.section ? `, ${f.mine.section}` : ""}): "${f.mine.quote}"`,
         `OTHER DOCUMENT (${f.other.namingCode} v${f.other.version} · ${f.other.title}${f.other.section ? `, ${f.other.section}` : ""}) SAYS: "${f.other.quote}"`,
       ].join("\n")
+    } else if (kind === "wiki_check") {
+      // The claims and their passages are in the Engineer's note ("Claim n: ...").
+      signal = [
+        "KIND: Statements an Engineer checked against this document (Wiki check).",
+        "Each claim below differs from what this document says, is disputed between two Published documents, or this document does not say it.",
+        "Give the document's owner one change per claim, so they can decide. The Engineer's claim is not Published Knowledge: never copy its values into the document's own text.",
+        "- Where this document says something different: keep the document's words and add, right after that passage, a bracketed placeholder that states the Engineer's claim as a question, for example \"[Engineer to confirm: a Wiki check states 230 °C here]\".",
+        "- Where this document is silent: add the claim as a bracketed placeholder to the block that fits it best, for example \"[Engineer to confirm: a Wiki check states that the first aider is on extension 2222]\".",
+      ].join("\n")
     } else {
       const unanswered = input.questions.filter((q) => !q.answered)
       const answered = input.questions.filter((q) => q.answered)
@@ -181,6 +190,7 @@ export const generate = internalAction({
     let out: z.infer<typeof Out>
     try {
       out = await claudeJson({
+        meter: { ctx, feature: "revision", personId: null, target: { kind: "proposedRevision", id: args.proposedRevisionId } },
         system: SYSTEM,
         messages: [{ role: "user", content: prompt }],
         schema: Out,
@@ -262,6 +272,15 @@ export const generate = internalAction({
       kept.push({ blockKey, before, after, reason: stripBlockKeys(clean(c.reason)) })
     }
 
+    // A Wiki check always reaches its owner: when no suggested change survived
+    // the checks, each claim becomes a placeholder question on its passage.
+    if (kind === "wiki_check" && kept.length === 0) {
+      for (const c of input.wikiClaims.slice(0, 8)) {
+        const change = placeholderChange(blocks, c, kept)
+        if (change) kept.push(change)
+      }
+    }
+
     const summary = stripBlockKeys(clean(out.summary)) || "Proposed edits from the signal."
     const reasons = Array.from(new Set(dropped)).join("; ")
     if (kept.length === 0) {
@@ -281,3 +300,30 @@ export const generate = internalAction({
     })
   },
 })
+
+/**
+ * A Wiki check claim as a question for the Document owner: the passage it is
+ * about (the one the check quoted, else the best matching block) keeps its
+ * words and gets a bracketed placeholder. Nothing of the claim becomes the
+ * document's own text.
+ */
+function placeholderChange(
+  blocks: BodyBlock[],
+  claim: { n: number; text: string; verdict: string; quote: string | null },
+  kept: PlannedChange[],
+): PlannedChange | null {
+  const body = blocks.filter((b) => b.kind !== "heading" && b.text.trim() && !kept.some((k) => k.blockKey === b.key))
+  if (body.length === 0) return null
+  const quote = claim.quote?.trim() ?? ""
+  const quoted = quote ? (body.find((b) => b.text.includes(quote)) ?? body.find((b) => quote.includes(b.text.trim()))) : undefined
+  const block = quoted ?? body.reduce((best, b) => (support(claim.text, b.text) > support(claim.text, best.text) ? b : best), body[0])
+  const before = block.text.trim()
+  const said = claim.text.replace(/[[\]]/g, "").replace(/\s+/g, " ").trim().replace(/[.\s]+$/, "")
+  const silent = claim.verdict === "notCovered" || claim.verdict === "partly"
+  return {
+    blockKey: block.key,
+    before,
+    after: `${before} [Engineer to confirm: a Wiki check states "${said}"; this document ${silent ? "does not say it" : "says otherwise"}]`,
+    reason: `A Wiki check (claim ${claim.n}) found this document ${silent ? "silent" : "different"} here; the owner decides.`,
+  }
+}

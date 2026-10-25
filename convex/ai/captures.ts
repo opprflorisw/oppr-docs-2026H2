@@ -23,12 +23,10 @@ import { z } from "zod"
 import { internalAction, internalQuery } from "../_generated/server"
 import { internal } from "../_generated/api"
 import { Id } from "../_generated/dataModel"
-import { CHAT_MODEL } from "./constants"
 import { claudeConfigured, claudeJson, describeClaudeError } from "./llm"
 import { aiStubEnabled } from "./wiki"
-import { embedText } from "../mcp/embedding"
-
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+import { embedText, geminiText, toBase64 } from "./gemini"
+import type { MeterSpec } from "../lib/aiMeter"
 
 /** Largest file sent inline to Gemini (the request limit is 20 MB after base64). */
 export const INLINE_MAX_BYTES = 14 * 1024 * 1024
@@ -38,49 +36,9 @@ type MomentKind = (typeof MOMENT_KINDS)[number]
 
 // ---- Gemini -------------------------------------------------------------------------
 
-function toBase64(bytes: Uint8Array): string {
-  let s = ""
-  const CHUNK = 0x8000
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    s += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
-  }
-  return btoa(s)
-}
-
 function baseMime(mime: string | undefined, fallback: string): string {
   const m = (mime ?? "").split(";")[0].trim().toLowerCase()
   return m || fallback
-}
-
-async function geminiGenerate(
-  parts: ({ text: string } | { inlineData: { mimeType: string; data: string } })[],
-  opts: { json?: boolean; system?: string; maxOutputTokens?: number } = {},
-): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not set on this deployment.")
-  const res = await fetch(`${GEMINI_BASE}/models/${CHAT_MODEL}:generateContent?key=${apiKey}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      ...(opts.system ? { systemInstruction: { parts: [{ text: opts.system }] } } : {}),
-      contents: [{ role: "user", parts }],
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: opts.maxOutputTokens ?? 2048,
-        ...(opts.json ? { responseMimeType: "application/json" } : {}),
-      },
-    }),
-  })
-  if (!res.ok) {
-    const body = await res.text().catch(() => "")
-    throw new Error(`Gemini ${res.status}: ${body.slice(0, 200)}`)
-  }
-  const json = (await res.json()) as {
-    candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[]
-  }
-  const text = (json.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim()
-  if (!text) throw new Error(`Gemini returned no text (${json.candidates?.[0]?.finishReason ?? "no candidate"}).`)
-  return text
 }
 
 const MEDIA_PROMPT = {
@@ -92,14 +50,16 @@ const MEDIA_PROMPT = {
     "This short video was recorded by an operator in a plastic pipe factory while recording how they do a job. Summarize in 2 to 5 plain sentences what is done, in order, with readings, settings and hazards that are visible or said. Include anything the operator says that matters. Return only the summary.",
 } as const
 
-async function analyzeMedia(kind: "voice" | "photo" | "video", bytes: Uint8Array, mime: string): Promise<string> {
+async function analyzeMedia(m: MeterSpec, kind: "voice" | "photo" | "video", bytes: Uint8Array, mime: string): Promise<string> {
   const data = toBase64(bytes)
   try {
-    return await geminiGenerate([{ inlineData: { mimeType: mime, data } }, { text: MEDIA_PROMPT[kind] }])
+    return await geminiText(m, [{ inlineData: { mimeType: mime, data } }, { text: MEDIA_PROMPT[kind] }], { maxOutputTokens: 2048 })
   } catch (e) {
     // Browsers record audio as audio/webm; Gemini reads the same bytes as video/webm.
     if (kind === "voice" && mime === "audio/webm") {
-      return await geminiGenerate([{ inlineData: { mimeType: "video/webm", data } }, { text: MEDIA_PROMPT.voice }])
+      return await geminiText(m, [{ inlineData: { mimeType: "video/webm", data } }, { text: MEDIA_PROMPT.voice }], {
+        maxOutputTokens: 2048,
+      })
     }
     throw e
   }
@@ -107,16 +67,16 @@ async function analyzeMedia(kind: "voice" | "photo" | "video", bytes: Uint8Array
 
 // ---- structured output (Claude, else Gemini) ------------------------------------------
 
-async function structured<S extends z.ZodType>(system: string, prompt: string, schema: S, maxTokens = 16000): Promise<z.infer<S>> {
+async function structured<S extends z.ZodType>(m: MeterSpec, system: string, prompt: string, schema: S, maxTokens = 16000): Promise<z.infer<S>> {
   if (claudeConfigured()) {
     try {
-      return await claudeJson({ system, messages: [{ role: "user", content: prompt }], schema, effort: "medium", maxTokens })
+      return await claudeJson({ system, messages: [{ role: "user", content: prompt }], schema, effort: "medium", maxTokens, meter: m })
     } catch (e) {
       throw new Error(describeClaudeError(e))
     }
   }
   const shape = JSON.stringify(z.toJSONSchema(schema))
-  const text = await geminiGenerate([{ text: `${prompt}\n\nAnswer with JSON matching this JSON schema:\n${shape}` }], {
+  const text = await geminiText(m, [{ text: `${prompt}\n\nAnswer with JSON matching this JSON schema:\n${shape}` }], {
     json: true,
     system,
     maxOutputTokens: 8192,
@@ -176,6 +136,7 @@ export const processCapture = internalAction({
       const data = await ctx.runQuery(internal.captures.captures.loadForProcessing, { captureId: args.captureId })
       if (!data) return
       const stub = aiStubEnabled()
+      const m: MeterSpec = { ctx, feature: "capture", personId: data.capture.authorId, target: { kind: "capture", id: args.captureId } }
 
       // 1. Media → text (Gemini).
       const texts = new Map<string, string>()
@@ -210,7 +171,7 @@ export const processCapture = internalAction({
           }
           const fallback = kind === "voice" ? "audio/webm" : kind === "photo" ? "image/jpeg" : "video/mp4"
           const mime = baseMime(e.mimeType ?? blob.type, fallback)
-          const out = (await analyzeMedia(kind, new Uint8Array(await blob.arrayBuffer()), mime)).slice(0, 4000)
+          const out = (await analyzeMedia(m, kind, new Uint8Array(await blob.arrayBuffer()), mime)).slice(0, 4000)
           texts.set(e._id, out)
           await ctx.runMutation(internal.captures.captures.saveEntryAnalysis, {
             entryId: e._id,
@@ -255,7 +216,7 @@ export const processCapture = internalAction({
           "ENTRIES (key, minutes into the Capture, kind, Asset, content):",
           ...lines,
         ].join("\n")
-        out = await structured(PROCESS_SYSTEM, prompt, MomentsOut)
+        out = await structured(m, PROCESS_SYSTEM, prompt, MomentsOut)
       }
 
       const entryAsset = new Map(data.entries.map((e) => [e._id as string, e.assetId]))
@@ -373,6 +334,7 @@ export const combine = internalAction({
       const data = await ctx.runQuery(internal.captures.sets.loadForCombine, { setId: args.setId })
       if (!data) return
       if (data.captures.length < 2) throw new Error("A Capture set needs at least 2 Captures.")
+      const m: MeterSpec = { ctx, feature: "capture", personId: null, target: { kind: "captureSet", id: args.setId } }
 
       const capKey = new Map<string, Id<"captures">>()
       const momentEntries = new Map<string, Id<"captureEntries">[]>()
@@ -404,7 +366,7 @@ export const combine = internalAction({
         combined = stubCombine(data.captures.map((c, i) => ({ key: `C${i + 1}`, moments: c.moments })))
       } else {
         const prompt = [`CAPTURE SET: ${data.set.title}`, `JOB: ${data.set.job ?? "(not given)"}`, "", "CAPTURES:", ...blocks].join("\n")
-        combined = await structured(COMBINE_SYSTEM, prompt, CombineOut)
+        combined = await structured(m, COMBINE_SYSTEM, prompt, CombineOut)
       }
 
       const steps = combined.steps
@@ -439,7 +401,7 @@ export const combine = internalAction({
           const query = [st.title, st.detail, ...st.variations.map((vr) => vr.text)].join(". ")
           let hits
           try {
-            const vector = await embedText(query)
+            const vector = await embedText(m, query)
             hits = await ctx.vectorSearch("chunks", "by_embedding", { vector, limit: 8 })
           } catch (e) {
             console.warn(`Capture set ${args.setId}: search failed for step ${i + 1}:`, e)
@@ -469,7 +431,7 @@ export const combine = internalAction({
             })
             .join("\n\n")
           try {
-            const found = await structured(CONFLICT_SYSTEM, prompt, ConflictsOut, 8000)
+            const found = await structured(m, CONFLICT_SYSTEM, prompt, ConflictsOut, 8000)
             for (const c of found.conflicts) {
               const st = steps[c.step - 1]
               const p = passageByKey.get(c.passage.trim().toUpperCase())

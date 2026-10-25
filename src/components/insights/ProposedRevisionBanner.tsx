@@ -29,6 +29,7 @@ const SHOWN = 3
 export function ProposedRevisionBanner({ documentId }: { documentId: Id<"documents"> }) {
   const data = useQuery(api.revisions.forDocument, { documentId })
   const discard = useMutation(api.revisions.discard)
+  const retryPrepare = useMutation(api.revisions.retry)
   const [, navigate] = useLocation()
   const [showAll, setShowAll] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -59,6 +60,18 @@ export function ProposedRevisionBanner({ documentId }: { documentId: Id<"documen
       <Link href="/library/health" className="underline underline-offset-2">
         Knowledge health
       </Link>
+    ) : source.kind === "wiki_check" ? (
+      source.wikiCheck ? (
+        source.wikiCheck.wikiId ? (
+          <Link href={`/wiki/${source.wikiCheck.wikiId}`} className="underline underline-offset-2">
+            {source.wikiCheck.label}
+          </Link>
+        ) : (
+          source.wikiCheck.label
+        )
+      ) : (
+        "a Wiki check"
+      )
     ) : (
       "this document's insights: the questions people Ask and the unclear marks"
     )
@@ -104,7 +117,9 @@ export function ProposedRevisionBanner({ documentId }: { documentId: Id<"documen
         ? source.finding && source.finding.status === "open"
           ? { kind: "finding", findingId: source.finding._id }
           : null
-        : { kind: source.kind }
+        : source.kind === "wiki_check"
+          ? null
+          : { kind: source.kind }
     return (
       <div className="flex items-start gap-3 rounded-lg border border-red-300 bg-red-50/70 p-3 dark:border-red-500/40 dark:bg-red-500/10 print:hidden">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
@@ -119,6 +134,22 @@ export function ProposedRevisionBanner({ documentId }: { documentId: Id<"documen
               <PrepareRevisionButton documentId={documentId} namingCode={p.namingCode} source={retry}>
                 Try again
               </PrepareRevisionButton>
+            )}
+            {source.kind === "wiki_check" && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                disabled={busy}
+                onClick={() => {
+                  setBusy(true)
+                  retryPrepare({ proposedRevisionId: p._id })
+                    .catch((err) => toast.error(errorText(err)))
+                    .finally(() => setBusy(false))
+                }}
+              >
+                Try again
+              </Button>
             )}
             <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={onDiscard} disabled={busy}>
               Dismiss

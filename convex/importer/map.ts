@@ -8,10 +8,9 @@ import { v } from "convex/values"
 import { action } from "../_generated/server"
 import { internal } from "../_generated/api"
 import { requireUser } from "../lib/auth"
-import { CHAT_MODEL } from "../ai/constants"
+import { geminiText } from "../ai/gemini"
+import type { MeterSpec } from "../lib/aiMeter"
 import { TEMPLATES, buildSystemPrompt, targetIsLogSpec } from "./templates"
-
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 interface ImportJobLite {
   _id: string
@@ -65,7 +64,7 @@ export const runMapping = action({
 
     let parsed: unknown
     try {
-      parsed = await callGemini(apiKey, systemPrompt, userPrompt)
+      parsed = await callGemini({ ctx, feature: "import", target: { kind: "importJob", id: args.jobId } }, systemPrompt, userPrompt)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       await ctx.runMutation(internal.importer.jobs.recordMappingFailure, {
@@ -116,35 +115,8 @@ export const runMapping = action({
   },
 })
 
-async function callGemini(
-  apiKey: string,
-  systemPrompt: string,
-  userPrompt: string,
-): Promise<unknown> {
-  const url = `${GEMINI_BASE}/models/${CHAT_MODEL}:generateContent?key=${apiKey}`
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-      generationConfig: {
-        temperature: 0.2,
-        responseMimeType: "application/json",
-      },
-    }),
-  })
-  if (!res.ok) {
-    const body = await res.text().catch(() => "")
-    throw new Error(`Gemini ${res.status}: ${body.slice(0, 300)}`)
-  }
-  const json = (await res.json()) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[]
-  }
-  const text = json.candidates?.[0]?.content?.parts?.[0]?.text
-  if (typeof text !== "string") {
-    throw new Error("Gemini response missing text.")
-  }
+async function callGemini(m: MeterSpec, systemPrompt: string, userPrompt: string): Promise<unknown> {
+  const text = await geminiText(m, [{ text: userPrompt }], { system: systemPrompt, json: true })
   // Tolerate markdown fences just in case.
   const cleaned = text
     .trim()

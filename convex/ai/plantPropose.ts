@@ -92,6 +92,7 @@ export const propose = action({
     let out: z.infer<typeof Out>
     try {
       out = await claudeJson({
+        meter: { ctx, feature: "plant", personId: args.personId },
         system: SYSTEM,
         messages: [{ role: "user", content: prompt }],
         schema: Out,

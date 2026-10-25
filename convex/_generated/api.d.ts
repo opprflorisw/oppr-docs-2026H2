@@ -10,12 +10,15 @@
 
 import type * as accounts from "../accounts.js";
 import type * as admin from "../admin.js";
+import type * as aiPrices from "../aiPrices.js";
+import type * as aiUsage from "../aiUsage.js";
 import type * as ai_ask from "../ai/ask.js";
 import type * as ai_askSkills from "../ai/askSkills.js";
 import type * as ai_captures from "../ai/captures.js";
 import type * as ai_consistency from "../ai/consistency.js";
 import type * as ai_constants from "../ai/constants.js";
 import type * as ai_embed from "../ai/embed.js";
+import type * as ai_gemini from "../ai/gemini.js";
 import type * as ai_grounding from "../ai/grounding.js";
 import type * as ai_guidedChat from "../ai/guidedChat.js";
 import type * as ai_imageDescribe from "../ai/imageDescribe.js";
@@ -28,6 +31,8 @@ import type * as ai_revision from "../ai/revision.js";
 import type * as ai_training from "../ai/training.js";
 import type * as ai_trainingBuilder from "../ai/trainingBuilder.js";
 import type * as ai_wiki from "../ai/wiki.js";
+import type * as ai_wikiBlock from "../ai/wikiBlock.js";
+import type * as ai_wikiCheck from "../ai/wikiCheck.js";
 import type * as assets from "../assets.js";
 import type * as assignments from "../assignments.js";
 import type * as attempts from "../attempts.js";
@@ -54,6 +59,9 @@ import type * as importer_templates from "../importer/templates.js";
 import type * as insights from "../insights.js";
 import type * as iso from "../iso.js";
 import type * as lab_embeddings from "../lab/embeddings.js";
+import type * as lib_aiBudget from "../lib/aiBudget.js";
+import type * as lib_aiMeter from "../lib/aiMeter.js";
+import type * as lib_aiUsageView from "../lib/aiUsageView.js";
 import type * as lib_assetWalker from "../lib/assetWalker.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_chunking from "../lib/chunking.js";
@@ -63,10 +71,12 @@ import type * as lib_pdfStamp from "../lib/pdfStamp.js";
 import type * as lib_published from "../lib/published.js";
 import type * as lib_roles from "../lib/roles.js";
 import type * as lib_scope from "../lib/scope.js";
+import type * as lib_wikiServer from "../lib/wikiServer.js";
+import type * as lib_wikiTypes from "../lib/wikiTypes.js";
+import type * as lib_wikiValidators from "../lib/wikiValidators.js";
 import type * as logs from "../logs.js";
 import type * as manuals from "../manuals.js";
 import type * as mcp_data from "../mcp/data.js";
-import type * as mcp_embedding from "../mcp/embedding.js";
 import type * as mcp_info from "../mcp/info.js";
 import type * as mcp_keys from "../mcp/keys.js";
 import type * as mcp_render from "../mcp/render.js";
@@ -135,6 +145,7 @@ import type * as trainings from "../trainings.js";
 import type * as tryOuts from "../tryOuts.js";
 import type * as usage from "../usage.js";
 import type * as users from "../users.js";
+import type * as wikiBlocks from "../wikiBlocks.js";
 import type * as wikis from "../wikis.js";
 
 import type {
@@ -146,12 +157,15 @@ import type {
 declare const fullApi: ApiFromModules<{
   accounts: typeof accounts;
   admin: typeof admin;
+  aiPrices: typeof aiPrices;
+  aiUsage: typeof aiUsage;
   "ai/ask": typeof ai_ask;
   "ai/askSkills": typeof ai_askSkills;
   "ai/captures": typeof ai_captures;
   "ai/consistency": typeof ai_consistency;
   "ai/constants": typeof ai_constants;
   "ai/embed": typeof ai_embed;
+  "ai/gemini": typeof ai_gemini;
   "ai/grounding": typeof ai_grounding;
   "ai/guidedChat": typeof ai_guidedChat;
   "ai/imageDescribe": typeof ai_imageDescribe;
@@ -164,6 +178,8 @@ declare const fullApi: ApiFromModules<{
   "ai/training": typeof ai_training;
   "ai/trainingBuilder": typeof ai_trainingBuilder;
   "ai/wiki": typeof ai_wiki;
+  "ai/wikiBlock": typeof ai_wikiBlock;
+  "ai/wikiCheck": typeof ai_wikiCheck;
   assets: typeof assets;
   assignments: typeof assignments;
   attempts: typeof attempts;
@@ -190,6 +206,9 @@ declare const fullApi: ApiFromModules<{
   insights: typeof insights;
   iso: typeof iso;
   "lab/embeddings": typeof lab_embeddings;
+  "lib/aiBudget": typeof lib_aiBudget;
+  "lib/aiMeter": typeof lib_aiMeter;
+  "lib/aiUsageView": typeof lib_aiUsageView;
   "lib/assetWalker": typeof lib_assetWalker;
   "lib/auth": typeof lib_auth;
   "lib/chunking": typeof lib_chunking;
@@ -199,10 +218,12 @@ declare const fullApi: ApiFromModules<{
   "lib/published": typeof lib_published;
   "lib/roles": typeof lib_roles;
   "lib/scope": typeof lib_scope;
+  "lib/wikiServer": typeof lib_wikiServer;
+  "lib/wikiTypes": typeof lib_wikiTypes;
+  "lib/wikiValidators": typeof lib_wikiValidators;
   logs: typeof logs;
   manuals: typeof manuals;
   "mcp/data": typeof mcp_data;
-  "mcp/embedding": typeof mcp_embedding;
   "mcp/info": typeof mcp_info;
   "mcp/keys": typeof mcp_keys;
   "mcp/render": typeof mcp_render;
@@ -271,6 +292,7 @@ declare const fullApi: ApiFromModules<{
   tryOuts: typeof tryOuts;
   usage: typeof usage;
   users: typeof users;
+  wikiBlocks: typeof wikiBlocks;
   wikis: typeof wikis;
 }>;
 

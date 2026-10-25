@@ -3,6 +3,7 @@ import { useAction, useMutation } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import type { FunctionReturnType } from "convex/server"
+import { useCheckIn } from "@/lib/checkIn"
 import { uploadBlob } from "./uploadImage"
 
 export type ImageHit = FunctionReturnType<typeof api.imageSearch.search>[number]
@@ -18,6 +19,7 @@ export function useImageSearch(opts: {
   assetIds?: Id<"assets">[]
 } = {}) {
   const search = useAction(api.imageSearch.search)
+  const personId = useCheckIn().person?._id
   const generateUploadUrl = useMutation(api.files.generateUploadUrl)
   const [text, setText] = useState("")
   const [photo, setPhoto] = useState<{ storageId: Id<"_storage">; previewUrl: string } | null>(null)
@@ -48,6 +50,7 @@ export function useImageSearch(opts: {
           limit,
           ...(areas.length ? { areaCodes: areas } : {}),
           ...(assets.length ? { assetIds: assets } : {}),
+          ...(personId ? { personId } : {}),
         })
           .then((r) => {
             if (seq.current !== my) return
@@ -65,7 +68,7 @@ export function useImageSearch(opts: {
       photo && !query ? 0 : 350,
     )
     return () => window.clearTimeout(t)
-  }, [active, query, photo, limit, contextKey, search])
+  }, [active, query, photo, limit, contextKey, search, personId])
 
   async function searchByPhoto(file: File) {
     if (!file.type.startsWith("image/")) throw new Error("That file is not an image.")

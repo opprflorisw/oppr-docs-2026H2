@@ -7,6 +7,13 @@ import { publishApproved } from "./documents"
 import { resolveScope } from "./lib/scope"
 import { allocate, MAX_WIKI_CHUNKS, pickChunks, requestGeneration } from "./wikis"
 import { publishedVersion } from "./lib/published"
+import { VISIBLE_STATUSES, allPoints, isContentV2, normaliseContent, pointKey, type Outline } from "./lib/wikiTypes"
+import { assertBudget, allowance } from "./lib/aiBudget"
+import { newWikiId, orderKey, recompose } from "./lib/wikiServer"
+import { blockStatus, codeVerdict, splitClaims, valueConflict, type Found, type Settled } from "./ai/wikiCheck"
+import { features } from "./ai/consistency"
+import { splitSentences } from "./ai/grounding"
+import { openFindingsTouching, stillStands } from "./findings"
 import { walkBodyImages } from "./lib/imageWalker"
 import { counterKey, parseNamingCode, resolveTypeToken } from "./naming"
 
@@ -20,6 +27,8 @@ import { counterKey, parseNamingCode, resolveTypeToken } from "./naming"
 
 // Text that exists only in drafts of the seed (see convex/seedKnowledge.ts).
 const DRAFT_ONLY = ["PX-9917", "MT-5521", "BL-7730"]
+// A full Wiki build is one Claude call writing about 8k tokens: about 70 s.
+const BUILD_WAIT_MS = 150_000
 
 interface Check {
   id: string
@@ -235,9 +244,10 @@ export const seedIntegrity = internalQuery({
 })
 
 function wikiText(w: Doc<"wikis"> | null): string {
-  if (!w?.content) return ""
-  return w.content.sections
-    .flatMap((s) => [s.heading, ...s.points.map((p) => p.text)])
+  const content = normaliseContent(w?.content)
+  if (!content) return ""
+  return content.sections
+    .flatMap((s) => [s.heading, ...s.blocks.flatMap((b) => b.points.map((p) => p.text))])
     .join("\n")
 }
 
@@ -346,6 +356,373 @@ export const openFindings = internalQuery({
   },
 })
 
+// ---- Wiki upgrade checks (docs/specs/wiki-upgrade.md 8.2) ------------------------------
+
+/**
+ * Check 4, extended: block rows readers may not see never reach `content`
+ * (and so neither MCP nor print), and draft-only text is in no block row.
+ */
+export const blockLeaks = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const problems: string[] = []
+    let rows = 0
+    for (const w of await ctx.db.query("wikis").take(200)) {
+      const blocks = await ctx.db
+        .query("wikiBlocks")
+        .withIndex("by_wikiId_and_state", (q) => q.eq("wikiId", w._id))
+        .take(1000)
+      rows += blocks.length
+      const shown = new Set(
+        blocks.filter((b) => b.state === "live" && VISIBLE_STATUSES.includes(b.status)).map((b) => b.blockId),
+      )
+      const content = isContentV2(w.content) ? w.content : null
+      for (const s of content?.sections ?? [])
+        for (const b of s.blocks) if (!shown.has(b.id)) problems.push(`${w.title}: block ${b.id} is in content but not live and visible`)
+      for (const b of blocks) {
+        const text = [b.writtenText ?? "", ...b.points.map((p) => p.text)].join(" ")
+        for (const d of DRAFT_ONLY) if (text.includes(d)) problems.push(`${w.title}: ${d} in a ${b.state} block row`)
+      }
+    }
+    return { rows, problems }
+  },
+})
+
+/** Points of composed written blocks that a second Engineer confirmed on the AI judge's word (exempt from checkPoint, W1). */
+export const judgeConfirmedKeys = internalQuery({
+  args: { wikiId: v.id("wikis") },
+  handler: async (ctx, args) => {
+    const keys: string[] = []
+    for (const b of await ctx.db
+      .query("wikiBlocks")
+      .withIndex("by_wikiId_and_state", (q) => q.eq("wikiId", args.wikiId).eq("state", "live"))
+      .take(1000)) {
+      if (b.origin === "generated" || !b.confirmedBy || !b.checkId) continue
+      const check = await ctx.db.get(b.checkId)
+      for (const c of check?.claims ?? [])
+        if (c.via === "judge" && (c.verdict === "supportedByJudge" || c.verdict === "disputed")) keys.push(pointKey(c.text))
+    }
+    return keys
+  },
+})
+
+/** W1: every composed block is generated and grounded, or written and checked as ADR 0007 requires. */
+export const composedBlockRules = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const problems: string[] = []
+    let blocks = 0
+    for (const w of await ctx.db.query("wikis").take(200)) {
+      if (!isContentV2(w.content)) continue
+      const rows = await ctx.db
+        .query("wikiBlocks")
+        .withIndex("by_wikiId_and_state", (q) => q.eq("wikiId", w._id).eq("state", "live"))
+        .take(1000)
+      const byId = new Map(rows.map((r) => [r.blockId, r]))
+      for (const s of w.content.sections)
+        for (const b of s.blocks) {
+          blocks++
+          const r = byId.get(b.id)
+          if (!r) {
+            problems.push(`${w.title}: ${b.id} has no live row`)
+            continue
+          }
+          if (b.kind === "gap") {
+            if (b.points.length) problems.push(`${w.title}: gap block ${b.id} has points`)
+            continue
+          }
+          if (r.origin === "generated") {
+            if (r.status !== "grounded") problems.push(`${w.title}: generated block ${b.id} is ${r.status}`)
+            continue
+          }
+          if (r.status !== "checked") {
+            problems.push(`${w.title}: written block ${b.id} is ${r.status}`)
+            continue
+          }
+          const check = r.checkId ? await ctx.db.get(r.checkId) : null
+          if (!check?.ok) {
+            problems.push(`${w.title}: written block ${b.id} has no stored check`)
+            continue
+          }
+          for (const c of check.claims) {
+            const byCode = c.via === "code" && (c.verdict === "supported" || c.verdict === "disputed")
+            const confirmed = !!r.confirmedBy && r.confirmedBy !== r.authorPersonId
+            const byJudge = c.via === "judge" && (c.verdict === "supportedByJudge" || c.verdict === "disputed") && confirmed
+            if (!byCode && !byJudge) problems.push(`${w.title}: written claim "${c.text.slice(0, 50)}" is ${c.verdict} via ${c.via}`)
+          }
+        }
+    }
+    return { blocks, problems }
+  },
+})
+
+/** W5: no point cites one side of an open contradiction Finding without showing the other side. */
+export const disputedShown = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const problems: string[] = []
+    let checked = 0
+    for (const w of await ctx.db.query("wikis").take(200)) {
+      const points = allPoints(w.content)
+      const docs = [...new Set(points.flatMap((p) => p.citations.map((c) => c.documentId)))]
+      const sides = new Set<string>()
+      for (const id of docs.slice(0, 40))
+        for (const f of await openFindingsTouching(ctx, id)) {
+          if (f.kind !== "contradiction" || !(await stillStands(ctx, f))) continue
+          if (f.a.chunkId) sides.add(f.a.chunkId)
+          if (f.b.chunkId) sides.add(f.b.chunkId)
+        }
+      for (const p of points) {
+        if (!p.citations.some((c) => sides.has(c.chunkId))) continue
+        checked++
+        // Legacy content (not migrated yet) predates the rule.
+        if (!p.disputed && isContentV2(w.content)) problems.push(`${w.title}: "${p.text.slice(0, 60)}"`)
+      }
+    }
+    return { checked, problems }
+  },
+})
+
+/**
+ * W6: a written block whose cited passage no longer says it leaves `content`
+ * at the next compose (code only), and one that still passes stays. Works on
+ * a throwaway Wiki and deletes everything it wrote.
+ */
+export const reverifyWritten = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const docs = (await ctx.db.query("documents").take(500)).filter((d) => d.liveVersion != null && d.status !== "archived")
+    let pick: { chunk: Doc<"chunks">; doc: Doc<"documents">; sentence: string } | null = null
+    for (const d of docs) {
+      const chunks = await ctx.db
+        .query("chunks")
+        .withIndex("by_documentId_and_version", (q) => q.eq("documentId", d._id).eq("version", d.liveVersion as number))
+        .take(400)
+      for (const c of chunks) {
+        if (c.text.includes(" | ")) continue
+        const sentence = splitSentences(c.text).find((x) => /\b\d{2,3}\s?(?:°C|Nm|minutes|mm|bar)\b/.test(x) && x.split(" ").length >= 6)
+        if (sentence) {
+          pick = { chunk: c, doc: d, sentence }
+          break
+        }
+      }
+      if (pick) break
+    }
+    if (!pick) return { ok: false, detail: "no Published passage with a value found" }
+    const person = (await ctx.db.query("people").take(100)).find((p) => p.kind === "engineer")
+    const changed = pick.sentence.replace(/\b(\d{2,3})(\s?(?:°C|Nm|minutes|mm|bar))\b/, (_m, n: string, u: string) => `${Number(n) + 7}${u}`)
+    const cite = {
+      chunkId: pick.chunk._id,
+      documentId: pick.doc._id,
+      namingCode: pick.doc.namingCode,
+      version: pick.chunk.version,
+      section: pick.chunk.pageOrSection,
+    }
+    const sid = newWikiId("s")
+    const outline: Outline = { sections: [{ id: sid, heading: "Re-verification", fold: "open" }], introEnabled: false }
+    const wikiId = await ctx.db.insert("wikis", {
+      title: "devChecks W6",
+      purpose: "Created by devChecks.",
+      scope: { areas: [], disciplines: [], assetIds: [], documentIds: [pick.doc._id] },
+      status: "ready",
+      content: null,
+      sources: [],
+      generatedAt: null,
+      generationTicket: 0,
+      requestedAt: null,
+      lastTrigger: null,
+      droppedPoints: 0,
+      error: null,
+      createdBy: null,
+      updatedAt: Date.now(),
+      outline,
+    })
+    const row = (blockId: string, n: number, text: string) => ({
+      wikiId,
+      sectionId: sid,
+      blockId,
+      order: orderKey(n),
+      state: "live" as const,
+      kind: "prose" as const,
+      origin: "written" as const,
+      status: "checked" as const,
+      sourceSet: "scope" as const,
+      pinnedChunkIds: [],
+      hiddenPointKeys: [],
+      points: [{ text, pointKey: pointKey(text), citations: [cite] }],
+      writtenText: text,
+      dependsOn: [{ documentId: pick!.doc._id, version: pick!.chunk.version }],
+      generationTicket: 0,
+      droppedPoints: 0,
+      ...(person ? { authorPersonId: person._id } : {}),
+      updatedAt: Date.now(),
+    })
+    const keepId = await ctx.db.insert("wikiBlocks", row("bkeep", 1, pick.sentence))
+    const dropId = await ctx.db.insert("wikiBlocks", row("bdrop", 2, changed))
+    const res = await recompose(ctx, wikiId)
+    const ids = new Set((res?.content?.sections ?? []).flatMap((s) => s.blocks.map((b) => b.id)))
+    const dropRow = await ctx.db.get(dropId)
+    const ok = ids.has("bkeep") && !ids.has("bdrop") && dropRow?.status === "needsRecheck"
+    const detail = `kept "${pick.sentence.slice(0, 50)}" (${ids.has("bkeep") ? "shown" : "missing"}); changed value "${changed.slice(0, 50)}" ${ids.has("bdrop") ? "still shown" : "taken out"}, status ${dropRow?.status}`
+    await ctx.db.delete(keepId)
+    await ctx.db.delete(dropId)
+    for (const e of await ctx.db.query("wikiEvents").withIndex("by_wikiId_and_at", (q) => q.eq("wikiId", wikiId)).take(50)) await ctx.db.delete(e._id)
+    await ctx.db.delete(wikiId)
+    return { ok, detail }
+  },
+})
+
+/**
+ * Budget (spec 6.6): the caps refuse the next action, failed actions do not
+ * count, and the kill switch refuses everything. Writes test action rows and
+ * deletes them in the same transaction, so nobody's allowance changes.
+ */
+export const budgetCaps = internalMutation({
+  args: { wikiId: v.id("wikis") },
+  handler: async (ctx, args) => {
+    const people = await ctx.db.query("people").take(100)
+    const engineers = people.filter((p) => p.kind === "engineer" || p.kind === "admin")
+    const [a, b] = engineers
+    if (!a || !b) return { ok: false, detail: "needs two Engineers" }
+    const inserted: Id<"aiUsage">[] = []
+    const add = async (n: number, row: { personId: Id<"people"> | null; action: string; ok?: boolean; wikiId?: Id<"wikis"> }) => {
+      const time = Date.now() - 1000
+      for (let i = 0; i < n; i++)
+        inserted.push(
+          await ctx.db.insert("aiUsage", {
+            kind: "action",
+            time,
+            day: new Date(time).toISOString().slice(0, 10),
+            feature: "devChecks",
+            provider: "none",
+            model: "",
+            tokensIn: 0,
+            tokensOut: 0,
+            units: 0,
+            latencyMs: 0,
+            personId: row.personId,
+            action: row.action,
+            ...(row.ok !== undefined ? { ok: row.ok } : { ok: true }),
+            ...(row.wikiId ? { targetKind: "wiki", targetId: row.wikiId as string } : {}),
+          }),
+        )
+    }
+    const clear = async () => {
+      while (inserted.length) await ctx.db.delete(inserted.pop()!)
+    }
+    const refused = async (q: Parameters<typeof assertBudget>[1]) => {
+      try {
+        await assertBudget(ctx, q)
+        return null
+      } catch (e) {
+        return e instanceof Error ? (e as { data?: unknown }).data ?? e.message : String(e)
+      }
+    }
+    const out: string[] = []
+    let ok = true
+    // Person, per hour: the 31st block generation is refused; failed ones do not count.
+    const left = (await allowance(ctx, { personId: a._id, wikiId: null })).person!.wikiBlock
+    await add(Math.max(0, left - 1), { personId: a._id, action: "wikiBlock" })
+    await add(5, { personId: a._id, action: "wikiBlock", ok: false })
+    const allowed = await refused({ personId: a._id, wikiId: null, action: "wikiBlock" })
+    await add(1, { personId: a._id, action: "wikiBlock" })
+    const busy = await refused({ personId: a._id, wikiId: null, action: "wikiBlock" })
+    ok &&= allowed === null && typeof busy === "string" && busy.startsWith("Busy")
+    out.push(`person: last one allowed ${allowed === null ? "yes" : `no (${allowed})`}, next "${busy}"`)
+    await clear()
+    // Wiki, per day: the 61st action on one Wiki is refused.
+    const wikiLeft = (await allowance(ctx, { personId: null, wikiId: args.wikiId })).wiki
+    await add(wikiLeft, { personId: null, action: "wikiFind", wikiId: args.wikiId })
+    const wikiFull = await refused({ personId: b._id, wikiId: args.wikiId, action: "wikiCheck" })
+    ok &&= typeof wikiFull === "string" && wikiFull.startsWith("Daily limit for this Wiki")
+    out.push(`Wiki: "${wikiFull}"`)
+    await clear()
+    // System, per day.
+    const lim = (await ctx.db.query("aiSettings").first())?.systemDailyCap ?? 200
+    await add(lim, { personId: null, action: "wikiBuild" })
+    const sys = await refused({ personId: null, wikiId: null, action: "wikiBuild" })
+    ok &&= typeof sys === "string" && sys.startsWith("Daily limit for automatic rebuilds")
+    out.push(`system: "${sys}"`)
+    await clear()
+    // Kill switch (the setting; OPPR_WIKI_AI_OFF=1 works the same way).
+    const settings = await ctx.db.query("aiSettings").first()
+    const sid = settings?._id ?? (await ctx.db.insert("aiSettings", { updatedAt: Date.now() }))
+    const was = settings?.wikiAiOff
+    await ctx.db.patch(sid, { wikiAiOff: true })
+    const off = await refused({ personId: a._id, wikiId: args.wikiId, action: "wikiBlock" })
+    if (settings) await ctx.db.patch(sid, { wikiAiOff: was })
+    else await ctx.db.delete(sid)
+    ok &&= off === "AI is switched off for Wikis."
+    out.push(`kill switch: "${off}"`)
+    return { ok, detail: out.join("; ") }
+  },
+})
+
+/** W2 setup: on a built Wiki, add a section with an instruction and a block to fill, rename one, move one. */
+export const reshapeOutline = internalMutation({
+  args: { wikiId: v.id("wikis") },
+  handler: async (ctx, args) => {
+    const w = await ctx.db.get(args.wikiId)
+    if (!w?.outline) return null
+    const sections = [...w.outline.sections]
+    const body = sections.map((s, i) => ({ s, i })).filter((x) => x.s.role !== "intro")
+    if (body.length < 2) return null
+    const sid = newWikiId("s")
+    sections.push({ id: sid, heading: "Who decides what in week 1", instruction: "Who decides what in week 1", fold: "open" })
+    sections[body[0].i] = { ...sections[body[0].i], heading: `${sections[body[0].i].heading} (renamed)` }
+    const [x, y] = [body[0].i, body[1].i]
+    ;[sections[x], sections[y]] = [sections[y], sections[x]]
+    await ctx.db.patch(args.wikiId, { outline: { ...w.outline, sections } })
+    await ctx.db.insert("wikiBlocks", {
+      wikiId: args.wikiId,
+      sectionId: sid,
+      blockId: newWikiId("b"),
+      order: orderKey(1),
+      state: "live",
+      kind: "bullets",
+      origin: "generated",
+      status: "generating",
+      instruction: "Who decides what in week 1",
+      sourceSet: "scope",
+      pinnedChunkIds: [],
+      hiddenPointKeys: [],
+      points: [],
+      dependsOn: [],
+      generationTicket: 0,
+      droppedPoints: 0,
+      updatedAt: Date.now(),
+    })
+    await requestGeneration(ctx, args.wikiId, "devChecks")
+    return sections.map((s) => `${s.id}:${s.heading}`)
+  },
+})
+
+/** Deletes a probe Wiki with its blocks, builds and events. Run: npx convex run devChecks:removeProbe '{"wikiId":"..."}' */
+export const removeProbe = internalMutation({
+  args: { wikiId: v.id("wikis") },
+  handler: async (ctx, args) => {
+    const w = await ctx.db.get(args.wikiId)
+    if (!w || !w.title.startsWith("devChecks")) return false
+    for (const r of await ctx.db.query("wikiBlocks").withIndex("by_wikiId_and_state", (q) => q.eq("wikiId", w._id)).take(1000)) await ctx.db.delete(r._id)
+    for (const r of await ctx.db.query("wikiBuilds").withIndex("by_wikiId", (q) => q.eq("wikiId", w._id)).take(1000)) await ctx.db.delete(r._id)
+    for (const r of await ctx.db.query("wikiEvents").withIndex("by_wikiId_and_at", (q) => q.eq("wikiId", w._id)).take(1000)) await ctx.db.delete(r._id)
+    await ctx.db.delete(w._id)
+    return true
+  },
+})
+
+/** Check 6: the coalesced publish rebuild is due; run it now instead of in 10 minutes. */
+export const runDueRebuild = internalMutation({
+  args: { wikiId: v.id("wikis") },
+  handler: async (ctx, args) => {
+    const w = await ctx.db.get(args.wikiId)
+    if (!w?.rebuildScheduledAt) return { scheduled: false }
+    const dueIn = w.rebuildScheduledAt - Date.now()
+    await requestGeneration(ctx, args.wikiId, w.lastTrigger ?? "publish")
+    return { scheduled: true, dueIn }
+  },
+})
+
 export const run = internalAction({
   args: {},
   handler: async (ctx): Promise<{ passed: number; failed: number; checks: Check[] }> => {
@@ -433,7 +810,7 @@ export const run = internalAction({
       title: "devChecks probe",
       scope: { areas: ["EXT", "MIX"], disciplines: [], assetIds: [], documentIds: [sop._id, mixerDraft._id] },
     })
-    const probe = await waitForWiki(ctx, probeId, (w) => w.status !== "generating", 60000)
+    const probe = await waitForWiki(ctx, probeId, (w) => w.status !== "generating", BUILD_WAIT_MS)
     const probeText = wikiText(probe.wiki)
     const leakHits = DRAFT_ONLY.filter((s) => probeText.includes(s))
     const sopSource = probe.wiki?.sources.find((s) => s.documentId === sop._id)
@@ -446,6 +823,18 @@ export const run = internalAction({
         `EXT-OPS-SOP-0001 built from v${sopSource?.version} (live v${sop.liveVersion}, draft v${sop.currentVersion}); ` +
         `never-published MIX-OPS-SOP-0001 used: ${probe.wiki?.sources.some((s) => s.documentId === mixerDraft._id) ? "yes" : "no"}`,
     )
+
+    {
+      const leaks = await ctx.runQuery(internal.devChecks.blockLeaks, {})
+      add(
+        "4b",
+        "Unapplied, unchecked and waiting blocks never reach readers; draft text is in no block",
+        leaks.problems.length === 0,
+        leaks.problems.length === 0
+          ? `${leaks.rows} block rows checked; content holds only live, visible blocks; ${DRAFT_ONLY.join(", ")} in none`
+          : leaks.problems.slice(0, 5).join("; "),
+      )
+    }
 
     const wikis = [...snap.wikis.map((w) => w._id), probeId]
     let points = 0
@@ -472,8 +861,11 @@ export const run = internalAction({
       }
       // Same label the generator gives the model (naming code, version, title).
       const titleOf = new Map(w.sources.map((src) => [src.documentId, src.title]))
-      for (const s of w.content.sections) {
-        for (const p of s.points) {
+      // Claims only the AI judge supported, confirmed by a second Engineer (W1 checks those rules).
+      const judged = new Set<string>(await ctx.runQuery(internal.devChecks.judgeConfirmedKeys, { wikiId: id }))
+      // Every point of every composed block: intro, prose, key points, callouts, rows, written.
+      {
+        for (const p of allPoints(w.content)) {
           points += 1
           const provided = new Map<string, ProvidedExcerpt>()
           let traceable = p.citations.length > 0
@@ -485,7 +877,7 @@ export const run = internalAction({
             }
             provided.set(c.chunkId, { key: c.chunkId, text: chunk.text, label: `${c.namingCode} v${c.version} ${titleOf.get(c.documentId) ?? ""}` })
           }
-          const recheck = checkPoint({ text: p.text, sources: p.citations.map((c) => c.chunkId) }, provided)
+          const recheck = judged.has(p.pointKey) ? { ok: true } : checkPoint({ text: p.text, sources: p.citations.map((c) => c.chunkId) }, provided)
           if (!traceable || !recheck.ok) ungrounded.push(`${w.title}: "${p.text.slice(0, 60)}"`)
         }
       }
@@ -571,6 +963,49 @@ export const run = internalAction({
       wrong.length === 0 ? `${cases.length}/${cases.length} cases as expected` : `wrong: ${wrong.map((c) => c[0]).join("; ")}`,
     )
 
+    // ---- W3. Check against Published, the code stage (pure, convex/ai/wikiCheck.ts) ----
+    {
+      const P = (id: string, code: string, text: string, inScope = true): Found => ({
+        chunkId: id as Id<"chunks">,
+        documentId: `d${code}` as Id<"documents">,
+        namingCode: code,
+        title: `T ${code}`,
+        version: 2,
+        section: null,
+        text,
+        score: 0.8,
+        inScope,
+      })
+      const barrel = P("c1", "EXT-MNT-MAN-0001", "Maximum barrel temperature on EXL-201 is 220 °C. Never run the barrel hotter.")
+      const burn = P("c2", "EXT-HSE-SOP-0001", "First aid for burns: cool the burn under cool running water for 20 minutes. Do not use ice.")
+      const guard = P("c3", "EXT-OPS-SOP-0002", "Do not open the guard while the line runs.")
+      const range = P("c4", "EXT-OPS-SOP-0004", "Barrel temperature set point range is 170-220 °C for PE100.")
+      const st = (verdict: Settled["result"]["verdict"], rests: Found | null): Settled => ({
+        result: { text: "x", verdict, via: verdict === "supportedByJudge" ? "judge" : "code", reason: "", passages: [] },
+        rests,
+        statesBoth: false,
+        disputed: null,
+      })
+      const cases: [string, boolean][] = [
+        ["Supported by code", codeVerdict("Cool a burn under running water for 20 minutes.", [barrel, burn])?.verdict === "supported"],
+        ["Differs (number)", codeVerdict("Barrel zones of EXL-201 are never above 230 °C.", [barrel, burn])?.verdict === "differs"],
+        ["Differs (negation)", codeVerdict("Open the guard while the line runs.", [guard])?.verdict === "differs"],
+        ["Not settled by code goes to the judge", codeVerdict("The canteen opens at 7 in the morning.", [burn, guard]) === null],
+        ["Not covered gives notCovered", blockStatus([st("notCovered", null)], { confirmByAnother: false, scoped: true }) === "notCovered"],
+        ["Judge-only support waits for a second Engineer", blockStatus([st("supported", burn), st("supportedByJudge", burn)], { confirmByAnother: false, scoped: true }) === "awaitingConfirm"],
+        ["A value inside a range is no difference", valueConflict(features("Set the barrel to 200 °C."), features(range.text)) === null],
+        ["Compound split into two claims", splitClaims("Wear gloves and keep the guard closed.").claims.length === 2],
+        ["A range stays one claim", splitClaims("Keep the barrel between 170 and 220 °C.").claims.length === 1],
+      ]
+      const wrongW3 = cases.filter(([, pass]) => !pass).map(([n]) => n)
+      add(
+        "W3",
+        "Check against Published: the code stage settles fixed claims as expected",
+        wrongW3.length === 0,
+        wrongW3.length === 0 ? `${cases.length}/${cases.length} cases as expected (no AI call)` : `wrong: ${wrongW3.join("; ")}`,
+      )
+    }
+
     // ---- Broad Scope: the passage budget (pure, see wikis.loadForGeneration) ----
     {
       const sizes = [3, 40, 400, 0]
@@ -647,6 +1082,59 @@ export const run = internalAction({
       `status ${empty.wiki?.status}, content ${empty.wiki?.content === null ? "none" : "present"}`,
     )
 
+    // ---- W1. Composed blocks follow ADR 0007 ----
+    {
+      const r = await ctx.runQuery(internal.devChecks.composedBlockRules, {})
+      add(
+        "W1",
+        "Every composed block is grounded, or written and checked (judge-only claims confirmed by another Engineer)",
+        r.blocks > 0 && r.problems.length === 0,
+        `${r.blocks} composed blocks` + (r.problems.length ? `; ${r.problems.slice(0, 5).join("; ")}` : ", all as required"),
+      )
+    }
+
+    // ---- W5. Both values stated on disputed points ----
+    {
+      const r = await ctx.runQuery(internal.devChecks.disputedShown, {})
+      add(
+        "W5",
+        "No point rests on one side of an open contradiction without showing the other side",
+        r.problems.length === 0,
+        r.problems.length === 0 ? `${r.checked} points on a disputed passage, all show the other side` : r.problems.slice(0, 5).join("; "),
+      )
+    }
+
+    // ---- W6. Written blocks are re-verified by code at compose ----
+    {
+      const r = await ctx.runMutation(internal.devChecks.reverifyWritten, {})
+      add("W6", "A written block whose passage no longer says it leaves the Wiki at the next compose", r.ok, r.detail)
+    }
+
+    // ---- Budget: the caps in convex/lib/aiBudget.ts ----
+    {
+      const r = await ctx.runMutation(internal.devChecks.budgetCaps, { wikiId: probeId })
+      add("A", "AI caps refuse the next action, ignore failed ones, and the kill switch stops all Wiki AI", r.ok, r.detail)
+    }
+
+    // ---- W2. The Outline survives a rebuild ----
+    {
+      const before = await ctx.runQuery(internal.devChecks.getWiki, { id: probeId })
+      const shape: string[] | null = before?.outline ? await ctx.runMutation(internal.devChecks.reshapeOutline, { wikiId: probeId }) : null
+      if (!shape) {
+        add("W2", "Sections, headings and order survive a rebuild", false, `probe Wiki has no Outline to reshape (status ${before?.status})`)
+      } else {
+        const after = await waitForWiki(ctx, probeId, (w) => w.status !== "generating" && (w.generatedAt ?? 0) > (before?.generatedAt ?? 0), 120000)
+        const got = (after.wiki?.outline?.sections ?? []).map((s) => `${s.id}:${s.heading}`)
+        const same = JSON.stringify(got) === JSON.stringify(shape)
+        add(
+          "W2",
+          "Sections, headings and order survive a rebuild",
+          same && after.wiki?.status === "ready",
+          `${shape.length} sections (one added with an instruction, one renamed, two swapped); after Rebuild: ${same ? "identical" : `changed to ${got.join(" | ")}`}, status ${after.wiki?.status}${after.wiki?.error ? ` (${after.wiki.error})` : ""}`,
+        )
+      }
+    }
+
     // ---- 6. Regeneration on publish ----
     // ---- F. The Consistency check found every planted contradiction ----
     // Runs before check 6, which publishes a new version and re-checks.
@@ -680,6 +1168,8 @@ export const run = internalAction({
       const before = await ctx.runQuery(internal.devChecks.getWiki, { id: seeded._id })
       const t0 = Date.now()
       const { version } = await ctx.runMutation(internal.devChecks.publishWorkingDraft, { namingCode: "EXT-OPS-SOP-0001" })
+      // Publish triggers coalesce for 10 minutes (spec 3.8); run the due rebuild now.
+      const due: { scheduled: boolean; dueIn?: number } = await ctx.runMutation(internal.devChecks.runDueRebuild, { wikiId: seeded._id })
       const after = await waitForWiki(
         ctx,
         seeded._id,
@@ -687,17 +1177,20 @@ export const run = internalAction({
           w.status === "ready" &&
           (w.generatedAt ?? 0) > (before?.generatedAt ?? 0) &&
           w.sources.some((s) => s.namingCode === "EXT-OPS-SOP-0001" && s.version === version),
-        60000,
+        BUILD_WAIT_MS,
       )
       const ms = Date.now() - t0
       const nowUses = wikiText(after.wiki).includes("PX-9917")
       add(
         "6",
-        "Wiki rebuilds within a minute after a source is published",
-        Boolean(after.wiki?.sources.some((s) => s.namingCode === "EXT-OPS-SOP-0001" && s.version === version)) && ms < 60000,
-        `published EXT-OPS-SOP-0001 v${version}; Wiki rebuilt from v${after.wiki?.sources.find((s) => s.namingCode === "EXT-OPS-SOP-0001")?.version} in ${ms} ms; new text (PX-9917) now present: ${nowUses ? "yes" : "no"}`,
+        "A publish schedules a coalesced Wiki rebuild that uses the new version",
+        due.scheduled && Boolean(after.wiki?.sources.some((s) => s.namingCode === "EXT-OPS-SOP-0001" && s.version === version)) && ms < BUILD_WAIT_MS,
+        `published EXT-OPS-SOP-0001 v${version}; rebuild ${due.scheduled ? `scheduled in ${Math.round((due.dueIn ?? 0) / 60000)} min, run now` : "NOT scheduled"}; Wiki rebuilt from v${after.wiki?.sources.find((s) => s.namingCode === "EXT-OPS-SOP-0001")?.version} in ${ms} ms; new text (PX-9917) now present: ${nowUses ? "yes" : "no"}`,
       )
     }
+
+    // The probe Wikis are not left in the library.
+    for (const id of [probeId, emptyId]) await ctx.runMutation(internal.devChecks.removeProbe, { wikiId: id })
 
     const failed = checks.filter((c) => !c.pass).length
     return { passed: checks.length - failed, failed, checks }

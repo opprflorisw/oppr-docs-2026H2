@@ -1,13 +1,14 @@
-// Ask on the floor. Three scopes via ?scope=:
+// Ask on the floor. Four scopes via ?scope=:
 //   library      every Published document (the Ask tab)
 //   doc:{id}     one document (from the reader)
 //   asset:{id}   one Asset (from the Asset hub)
+//   wiki:{id}    the documents one Wiki is built from (from the Wiki)
 // The scope shows once, as a chip in the header; tapping it picks another
 // (?pick=1). ?q= asks a question right away (from a search with no match).
 
 import { useMemo, useState } from "react"
 import { useLocation, useSearch } from "wouter"
-import { ChevronDown, Factory, FileText, Globe } from "lucide-react"
+import { BookOpen, ChevronDown, Factory, FileText, Globe } from "lucide-react"
 import { useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
@@ -25,7 +26,7 @@ function parseScope(search: string): AskPanelScope | null {
   if (!raw) return null
   if (raw === "library") return { kind: "library" }
   const [kind, id] = raw.split(":")
-  if ((kind !== "doc" && kind !== "asset") || !id || !looksLikeConvexId(id)) return null
+  if ((kind !== "doc" && kind !== "asset" && kind !== "wiki") || !id || !looksLikeConvexId(id)) return null
   return { kind, id }
 }
 
@@ -43,13 +44,16 @@ export function MobileAskPage() {
 
   const docForScope = useQuery(api.documents.get, scope.kind === "doc" ? { id: scope.id as Id<"documents"> } : "skip")
   const assetForScope = useQuery(api.assets.get, scope.kind === "asset" ? { id: scope.id as Id<"assets"> } : "skip")
+  const wikiForScope = useQuery(api.wikis.get, scope.kind === "wiki" ? { id: scope.id as Id<"wikis"> } : "skip")
 
   const chip =
     scope.kind === "library"
       ? { icon: Globe, text: "All documents" }
       : scope.kind === "doc"
         ? { icon: FileText, text: docForScope ? docForScope.namingCode : "Document" }
-        : { icon: Factory, text: assetForScope ? assetForScope.code : "Asset" }
+        : scope.kind === "wiki"
+          ? { icon: BookOpen, text: wikiForScope ? wikiForScope.title : "Wiki" }
+          : { icon: Factory, text: assetForScope ? assetForScope.code : "Asset" }
   const ChipIcon = chip.icon
 
   if (picking) {

@@ -10,37 +10,9 @@ import { internal } from "../_generated/api"
 import { Id } from "../_generated/dataModel"
 import { requireUser } from "../lib/auth"
 import { requireEngineerOrAdmin } from "../lib/roles"
-import {
-  EMBEDDING_DIM,
-  EMBEDDING_MODEL,
-  EMBEDDING_MODEL_VERSION,
-} from "./constants"
-
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
-
-async function embedOne(text: string, apiKey: string): Promise<number[]> {
-  const url = `${GEMINI_BASE}/models/${EMBEDDING_MODEL}:embedContent?key=${apiKey}`
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      content: { parts: [{ text }] },
-      outputDimensionality: EMBEDDING_DIM,
-    }),
-  })
-  if (!res.ok) {
-    const body = await res.text().catch(() => "")
-    throw new Error(`Gemini embed ${res.status}: ${body.slice(0, 200)}`)
-  }
-  const json = (await res.json()) as {
-    embedding?: { values?: number[] }
-  }
-  const values = json.embedding?.values
-  if (!Array.isArray(values)) {
-    throw new Error("Gemini embed response missing embedding.values")
-  }
-  return values
-}
+import { usageTally } from "../lib/aiMeter"
+import { EMBEDDING_MODEL, EMBEDDING_MODEL_VERSION } from "./constants"
+import { embedText, geminiKey } from "./gemini"
 
 export const listMissingChunks = internalQuery({
   args: { documentId: v.optional(v.id("documents")) },
@@ -154,8 +126,7 @@ export const reembedAll = action({
   ): Promise<{ cleared: number; embedded: number; total: number }> => {
     await requireUser(ctx)
     await ctx.runQuery(internal.ai.embed.checkEditor, { personId: args.personId })
-    const apiKey = process.env.GEMINI_API_KEY
-    if (!apiKey) throw new Error("GEMINI_API_KEY is not set on this deployment")
+    geminiKey()
     const cleared: number = await ctx.runMutation(
       internal.ai.embed.clearAllEmbeddings,
       {},
@@ -171,14 +142,20 @@ export const reembedAll = action({
 export const embedMissingInternal = internalAction({
   args: { documentId: v.optional(v.id("documents")) },
   handler: async (ctx, args): Promise<{ embedded: number; total: number }> => {
-    const apiKey = process.env.GEMINI_API_KEY
-    if (!apiKey) throw new Error("GEMINI_API_KEY is not set on this deployment")
+    geminiKey()
 
     const missing: { _id: Id<"chunks">; text: string }[] = await ctx.runQuery(
       internal.ai.embed.listMissingChunks,
       { documentId: args.documentId },
     )
     if (missing.length === 0) return { embedded: 0, total: 0 }
+    const spec = {
+      ctx,
+      feature: "embed.passage" as const,
+      personId: null,
+      ...(args.documentId ? { target: { kind: "document", id: args.documentId as string } } : {}),
+    }
+    const tally = usageTally(ctx, { ...spec, provider: "google", model: EMBEDDING_MODEL })
 
     const CONCURRENCY = 4
     let next = 0
@@ -189,7 +166,7 @@ export const embedMissingInternal = internalAction({
         const i = next++
         if (i >= missing.length) return
         const row = missing[i]
-        const vector = await embedOne(row.text, apiKey!)
+        const vector = await embedText(spec, row.text, { tally })
         await ctx.runMutation(internal.ai.embed.writeEmbedding, {
           chunkId: row._id,
           embedding: vector,
@@ -198,12 +175,16 @@ export const embedMissingInternal = internalAction({
       }
     }
 
-    await Promise.all(
-      Array.from(
-        { length: Math.min(CONCURRENCY, missing.length) },
-        () => worker(),
-      ),
-    )
+    try {
+      await Promise.all(
+        Array.from(
+          { length: Math.min(CONCURRENCY, missing.length) },
+          () => worker(),
+        ),
+      )
+    } finally {
+      await tally.flush()
+    }
 
     return { embedded: done, total: missing.length }
   },

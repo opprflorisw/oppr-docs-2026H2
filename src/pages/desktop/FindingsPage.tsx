@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery } from "convex/react"
-import { useLocation, useSearch } from "wouter"
+import { Link, useLocation, useSearch } from "wouter"
 import { toast } from "sonner"
 import {
   AlertTriangle,
@@ -8,10 +8,13 @@ import {
   CircleSlash,
   Loader2,
   Play,
+  BookOpenText,
+  X,
   SearchCheck,
   ShieldCheck,
 } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
+import type { Id } from "../../../convex/_generated/dataModel"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { Badge } from "@/components/ui/badge"
@@ -69,8 +72,24 @@ export function FindingsPage() {
 
   const params = new URLSearchParams(search)
   const focusId = params.get("f")
+  // ?wiki=<id> (from a Wiki's trust line): only Findings whose Documents that Wiki is built from.
+  const wikiParam = params.get("wiki")
+  const wiki = useQuery(api.wikis.get, wikiParam ? { id: wikiParam as Id<"wikis"> } : "skip")
+  const wikiDocs = useMemo(
+    () => (wiki === null ? new Set<string>() : wiki ? new Set(wiki.sources.map((s) => String(s.documentId))) : null),
+    [wiki],
+  )
+  const visible = useMemo(
+    () =>
+      wikiParam && findings
+        ? wikiDocs
+          ? findings.filter((f) => wikiDocs.has(String(f.a.documentId)) || wikiDocs.has(String(f.b.documentId)))
+          : undefined
+        : findings,
+    [findings, wikiDocs, wikiParam],
+  )
   const requested = params.get("status") as Tab | null
-  const focused = focusId ? findings?.find((f) => f._id === focusId) : undefined
+  const focused = focusId ? visible?.find((f) => f._id === focusId) : undefined
   const tab: Tab = focused
     ? focused.status
     : requested && TABS.some((t) => t.value === requested)
@@ -79,9 +98,9 @@ export function FindingsPage() {
 
   const byStatus = useMemo(() => {
     const m: Record<Tab, NonNullable<typeof findings>> = { open: [], resolved: [], dismissed: [] }
-    for (const f of findings ?? []) m[f.status].push(f)
+    for (const f of visible ?? []) m[f.status].push(f)
     return m
-  }, [findings])
+  }, [visible])
 
   // Arriving from a banner, Home or Ask: scroll to that Finding.
   useEffect(() => {
@@ -140,13 +159,13 @@ export function FindingsPage() {
         <section className="min-w-0 space-y-4">
           <Tabs
             value={tab}
-            onValueChange={(v) => navigate(`/library/findings?status=${v}`, { replace: true })}
+            onValueChange={(v) => navigate(`/library/findings?status=${v}${wikiParam ? `&wiki=${wikiParam}` : ""}`, { replace: true })}
           >
             <TabsList>
               {TABS.map((t) => (
                 <TabsTrigger key={t.value} value={t.value} className="gap-1.5 text-xs">
                   {t.label}
-                  {findings && (
+                  {visible && (
                     <Badge
                       variant="secondary"
                       className={
@@ -163,7 +182,30 @@ export function FindingsPage() {
             </TabsList>
           </Tabs>
 
-          {findings === undefined ? (
+          {wikiParam && (
+            <p className="flex flex-wrap items-center gap-2 text-sm">
+              <BookOpenText className="h-4 w-4 text-muted-foreground" aria-hidden />
+              <span>
+                Findings on the sources of{" "}
+                {wiki ? (
+                  <Link href={`/wiki/${wikiParam}`} className="font-medium text-primary-strong hover:underline">
+                    {wiki.title}
+                  </Link>
+                ) : wiki === null ? (
+                  "a Wiki that no longer exists"
+                ) : (
+                  "a Wiki"
+                )}
+              </span>
+              <Link
+                href="/library/findings"
+                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3 w-3" aria-hidden /> Show all
+              </Link>
+            </p>
+          )}
+          {visible === undefined ? (
             <div className="space-y-3">
               <Skeleton className="h-48 w-full" />
               <Skeleton className="h-48 w-full" />

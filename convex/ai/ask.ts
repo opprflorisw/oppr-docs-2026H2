@@ -1,5 +1,4 @@
 import { v } from "convex/values"
-import { GoogleGenerativeAI } from "@google/generative-ai"
 import {
   ActionCtx,
   httpAction,
@@ -9,10 +8,10 @@ import {
 } from "../_generated/server"
 import { internal } from "../_generated/api"
 import { Doc, Id } from "../_generated/dataModel"
-import { CHAT_MODEL, EMBEDDING_DIM, EMBEDDING_MODEL } from "./constants"
+import { embedText, geminiStream } from "./gemini"
+import type { MeterSpec } from "../lib/aiMeter"
 import { isPublished, publishedVersion } from "../lib/published"
-
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+import { normaliseContent } from "../lib/wikiTypes"
 
 const SYSTEM_INSTRUCTION = [
   "You are Ask, the question-answering assistant inside Oppr Knowledge, a factory's controlled knowledge base. You only know Published documents.",
@@ -151,27 +150,6 @@ function cleanSection(
   return s
 }
 
-async function embedQuery(text: string, apiKey: string): Promise<number[]> {
-  const url = `${GEMINI_BASE}/models/${EMBEDDING_MODEL}:embedContent?key=${apiKey}`
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      content: { parts: [{ text }] },
-      outputDimensionality: EMBEDDING_DIM,
-    }),
-  })
-  if (!res.ok) {
-    const body = await res.text().catch(() => "")
-    throw new Error(`Gemini embed ${res.status}: ${body.slice(0, 200)}`)
-  }
-  const json = (await res.json()) as { embedding?: { values?: number[] } }
-  const values = json.embedding?.values
-  if (!Array.isArray(values))
-    throw new Error("Gemini embed response missing embedding.values")
-  return values
-}
-
 export const lookupAfterSearch = internalQuery({
   args: {
     chunkIds: v.array(v.id("chunks")),
@@ -247,7 +225,7 @@ export const buildScopeOverview = internalQuery({
         ...w.sources
           .filter((s) => pinned.has(String(s.documentId)))
           .map((s) => `- ${s.namingCode} · ${s.title} · v${s.version}`),
-        `Sections: ${(w.content?.sections ?? []).map((s) => s.heading).join("; ")}`,
+        `Sections: ${(normaliseContent(w.content)?.sections ?? []).filter((s) => s.role !== "intro").map((s) => s.heading).join("; ")}`,
       ]
       return lines.join("\n")
     }
@@ -367,9 +345,9 @@ interface PreparedAsk {
 async function prepareAskContext(
   ctx: ActionCtx,
   args: AskInput,
-  apiKey: string,
+  m: MeterSpec,
 ): Promise<PreparedAsk> {
-  const queryVec = await embedQuery(args.question, apiKey)
+  const queryVec = await embedText(m, args.question)
 
   const k = topKForScope(args.scope)
   const overFetch = args.scope.kind === "library" ? 16 : 30
@@ -695,9 +673,16 @@ export const askStream = httpAction(async (ctx, req) => {
     })
   }
 
+  const scope = payload.scope as ScopeArg | undefined
+  const meterSpec: MeterSpec = {
+    ctx,
+    feature: "ask",
+    personId: (payload.personId as Id<"people"> | null | undefined) ?? null,
+    ...(scope && "id" in scope ? { target: { kind: scope.kind === "doc" ? "document" : scope.kind, id: scope.id } } : {}),
+  }
   let prepared: PreparedAsk
   try {
-    prepared = await prepareAskContext(ctx, payload, apiKey)
+    prepared = await prepareAskContext(ctx, payload, meterSpec)
   } catch (err) {
     return new Response(
       JSON.stringify({
@@ -722,22 +707,14 @@ export const askStream = httpAction(async (ctx, req) => {
       let fullText = ""
 
       try {
-        const client = new GoogleGenerativeAI(apiKey)
-        const model = client.getGenerativeModel({
-          model: CHAT_MODEL,
-          systemInstruction: SYSTEM_INSTRUCTION,
-        })
-        const result = await model.generateContentStream({
-          contents: prepared.contents,
-        })
-        for await (const chunk of result.stream) {
-          const delta = chunk.text()
-          if (delta) {
+        fullText = await geminiStream(
+          meterSpec,
+          { system: SYSTEM_INSTRUCTION, contents: prepared.contents },
+          (delta) => {
             anyText = true
-            fullText += delta
             writeEvent({ type: "delta", text: delta })
-          }
-        }
+          },
+        )
         if (!anyText) {
           writeEvent({ type: "delta", text: "(no response)" })
         }
@@ -811,7 +788,7 @@ export const testWikiScope = internalAction({
     const prepared = await prepareAskContext(
       ctx,
       { scope: { kind: "wiki", id: wiki._id }, question: args.question, history: [] },
-      apiKey,
+      { ctx, feature: "ask", personId: null, target: { kind: "wiki", id: wiki._id } },
     )
     const allowed = new Set(wiki.sourceIds)
     const cited = prepared.citations.map((c) => c.documentId)

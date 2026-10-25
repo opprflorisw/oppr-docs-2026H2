@@ -11,9 +11,9 @@ import { internal } from "../_generated/api"
 import { Id } from "../_generated/dataModel"
 import type { ImageSpec } from "./builders"
 import { allImageSpecs } from "./content"
+import { IMAGE_MODEL } from "../ai/constants"
+import { geminiImage, geminiKey } from "../ai/gemini"
 
-export const IMAGE_MODEL = "gemini-3.1-flash-lite-image"
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 const STYLE = {
   illustration:
@@ -154,49 +154,11 @@ export const upsertMedia = internalMutation({
 
 // ---- Generation -------------------------------------------------------------------
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
 export function decodeBase64(data: string): Uint8Array {
   const bin = atob(data)
   const out = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
   return out
-}
-
-async function generateImage(prompt: string, apiKey: string): Promise<{ bytes: Uint8Array; mime: string }> {
-  const url = `${GEMINI_BASE}/models/${IMAGE_MODEL}:generateContent?key=${apiKey}`
-  let lastError = ""
-  for (let attempt = 0; attempt < 5; attempt++) {
-    if (attempt > 0) await sleep(2000 * 2 ** (attempt - 1) + Math.random() * 500)
-    let res: Response
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-      })
-    } catch (e) {
-      lastError = `network: ${e instanceof Error ? e.message : String(e)}`
-      continue
-    }
-    if (res.status === 429 || res.status >= 500) {
-      lastError = `HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`
-      continue
-    }
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`)
-    const json = (await res.json()) as {
-      candidates?: { content?: { parts?: { inlineData?: { mimeType?: string; data?: string } }[] }; finishReason?: string }[]
-    }
-    const part = json.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)
-    if (!part?.inlineData?.data) {
-      // The model sometimes answers with text only; asking again usually works.
-      lastError = `no image in the response (finishReason ${json.candidates?.[0]?.finishReason ?? "none"})`
-      continue
-    }
-    const bytes = decodeBase64(part.inlineData.data)
-    return { bytes, mime: mimeOf(bytes) ?? part.inlineData.mimeType ?? "image/png" }
-  }
-  throw new Error(lastError || "image generation failed")
 }
 
 export interface MediaEntry {
@@ -235,15 +197,19 @@ export async function ensureMediaImpl(
     }
   }
   if (todo.length > 0) {
-    const apiKey = process.env.GEMINI_API_KEY
-    if (!apiKey) throw new Error("GEMINI_API_KEY is not set on this deployment")
+    geminiKey()
     console.log(`seed media: ${result.reused} cached, generating ${todo.length}`)
     let next = 0
     const worker = async () => {
       while (next < todo.length) {
         const { spec, hash } = todo[next++]
         try {
-          const img = await generateImage(promptFor(spec), apiKey)
+          const drawn = await geminiImage(
+            { ctx, feature: "image.generate", personId: null, target: { kind: "seed", id: spec.key } },
+            promptFor(spec),
+            { attempts: 5, baseDelayMs: 2000 },
+          )
+          const img = { bytes: drawn.bytes, mime: mimeOf(drawn.bytes) ?? drawn.mimeType ?? "image/png" }
           const storageId = await ctx.storage.store(new Blob([img.bytes as BlobPart], { type: img.mime }))
           await ctx.runMutation(internal.seed.media.upsertMedia, {
             key: spec.key,

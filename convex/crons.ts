@@ -23,4 +23,7 @@ crons.daily(S.refreshers.name, at(S.refreshers.at), internal.assignments.createR
 // Captures privacy: media older than the retention under Settings, Floor.
 crons.daily(S.captureRetention.name, at(S.captureRetention.at), internal.settings.retention.purgeCaptureMedia, {})
 
+// AI usage: calls older than 30 days become daily rows (spec 6.7).
+crons.daily(S.aiUsageRollup.name, at(S.aiUsageRollup.at), internal.aiUsage.rollupOld, {})
+
 export default crons

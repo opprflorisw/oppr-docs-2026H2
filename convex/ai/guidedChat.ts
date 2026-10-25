@@ -14,7 +14,7 @@
 // multimodal embedding model, so it lands in the same space as the text.
 import { ConvexError, v } from "convex/values"
 import type { Infer } from "convex/values"
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai"
+import { SchemaType } from "@google/generative-ai"
 import type { ResponseSchema } from "@google/generative-ai"
 import { z } from "zod"
 import { action, internalQuery } from "../_generated/server"
@@ -22,11 +22,11 @@ import type { ActionCtx } from "../_generated/server"
 import { internal } from "../_generated/api"
 import type { Id } from "../_generated/dataModel"
 import { requireUser } from "../lib/auth"
-import { CHAT_MODEL } from "./constants"
 import { embedImageBytes } from "./imageEmbed"
 import { claudeConfigured, claudeJson, describeClaudeError } from "./llm"
 import { aiStubEnabled } from "./wiki"
-import { embedText } from "../mcp/embedding"
+import { embedText, geminiKey, geminiSchemaJson } from "./gemini"
+import type { AiFeature, MeterSpec, MeterTarget } from "../lib/aiMeter"
 import type { Passage } from "../mcp/data"
 
 // ---- Shapes -------------------------------------------------------------------
@@ -256,13 +256,13 @@ async function plantBriefing(ctx: ActionCtx): Promise<string> {
 export type FoundPassage = Passage & { matchedBy: "text" | "image" | "words" }
 
 /** A photo in the same vector space as the chunk text (multimodal embedding). */
-async function embedPhoto(ctx: ActionCtx, storageId: Id<"_storage">): Promise<number[]> {
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not set on this deployment")
+async function embedPhoto(m: MeterSpec & { ctx: ActionCtx }, storageId: Id<"_storage">): Promise<number[]> {
+  geminiKey()
+  const ctx = m.ctx
   const blob = await ctx.storage.get(storageId)
   if (!blob) throw new ConvexError("The photo could not be read. Try adding it again.")
   if (blob.size > 12 * 1024 * 1024) throw new ConvexError("The photo is too large. Use one under 12 MB.")
-  return await embedImageBytes(new Uint8Array(await blob.arrayBuffer()), blob.type || "image/jpeg", apiKey)
+  return await embedImageBytes(m, new Uint8Array(await blob.arrayBuffer()), blob.type || "image/jpeg")
 }
 
 const NAMING_CODE = /[A-Z]{2,4}-[A-Z]{2,4}-[A-Z]+-\d{4}/g
@@ -312,16 +312,27 @@ async function vectorPassages(
     .slice(0, limit)
 }
 
-async function searchPassages(
+export async function searchPassages(
   ctx: ActionCtx,
-  args: { query: string; storageId: Id<"_storage"> | null; areas: string[]; limit: number },
+  args: {
+    query: string
+    storageId: Id<"_storage"> | null
+    areas: string[]
+    limit: number
+    /** For the AI usage tracker; defaults to the guided writer. */
+    feature?: AiFeature
+    personId?: Id<"people"> | null
+    /** The object the search serves, so its cost shows under it (spec 6.7). */
+    target?: MeterTarget
+  },
 ): Promise<{ passages: FoundPassage[]; note: string | null }> {
+  const m = { ctx, feature: args.feature ?? "writer", personId: args.personId ?? null, target: args.target }
   const query = args.query.trim()
   let note: string | null = null
   const out: FoundPassage[] = []
   if (args.storageId) {
     try {
-      out.push(...(await vectorPassages(ctx, await embedPhoto(ctx, args.storageId), args.areas, args.limit, "image")))
+      out.push(...(await vectorPassages(ctx, await embedPhoto(m, args.storageId), args.areas, args.limit, "image")))
     } catch (err) {
       if (err instanceof ConvexError) throw err
       console.warn("photo passage search failed:", err)
@@ -330,7 +341,7 @@ async function searchPassages(
   }
   if (query) {
     try {
-      out.push(...(await vectorPassages(ctx, await embedText(query), args.areas, args.limit, "text")))
+      out.push(...(await vectorPassages(ctx, await embedText(m, query), args.areas, args.limit, "text")))
     } catch (err) {
       console.warn("text passage search fell back to words:", err)
       const rows: Passage[] = await ctx.runQuery(internal.mcp.data.lexicalSearch, {
@@ -371,14 +382,6 @@ export const findPassages = action({
 })
 
 // ---- The guided writer ----------------------------------------------------------
-
-function geminiJson(apiKey: string, system: string) {
-  return new GoogleGenerativeAI(apiKey).getGenerativeModel({
-    model: CHAT_MODEL,
-    systemInstruction: system,
-    generationConfig: { responseMimeType: "application/json", responseSchema: WRITER_SCHEMA, temperature: 0.3 },
-  })
-}
 
 const clean = (s: unknown, max = 400) =>
   String(s ?? "").replace(/\s*[—–]\s*/g, ", ").replace(/\s+/g, " ").trim().slice(0, max)
@@ -468,6 +471,7 @@ export const writerTurn = action({
           schema: WriterOut,
           effort: "low",
           maxTokens: 6000,
+          meter: { ctx, feature: "writer" },
         })
       } else {
         const contents = [
@@ -479,8 +483,12 @@ export const writerTurn = action({
           })),
           { role: "user", parts: [{ text: turn }] },
         ]
-        const result = await geminiJson(apiKey!, WRITER_SYSTEM).generateContent({ contents })
-        out = JSON.parse(result.response.text()) as WriterOutT
+        const text = await geminiSchemaJson(
+          { ctx, feature: "writer" },
+          { system: WRITER_SYSTEM, schema: WRITER_SCHEMA, temperature: 0.3 },
+          { contents },
+        )
+        out = JSON.parse(text) as WriterOutT
       }
     } catch (err) {
       console.error("Guided writer failed:", useClaude ? describeClaudeError(err) : err)

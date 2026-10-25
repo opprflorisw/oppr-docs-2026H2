@@ -9,51 +9,12 @@ import { internal } from "../_generated/api"
 import type { Id } from "../_generated/dataModel"
 import { requireUserId } from "../lib/auth"
 import { requireEngineerOrAdmin } from "../lib/roles"
-import { IMAGE_MODEL, decodeBase64, imageSize, mimeOf, sha256Hex } from "../seed/media"
-
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+import { imageSize, mimeOf, sha256Hex } from "../seed/media"
+import { geminiConfigured, geminiImage } from "./gemini"
 
 // Appended to every prompt so generated images fit a controlled Document.
 const HOUSE_RULES =
   "Industrial manufacturing plant setting. Clear, uncluttered composition that explains one thing. No text, letters, numbers or logos in the image. No recognisable faces. People, if any, wear the correct PPE."
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
-async function drawImage(prompt: string, apiKey: string): Promise<{ bytes: Uint8Array; mime: string }> {
-  const url = `${GEMINI_BASE}/models/${IMAGE_MODEL}:generateContent?key=${apiKey}`
-  let lastError = ""
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) await sleep(1500 * 2 ** (attempt - 1))
-    let res: Response
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-      })
-    } catch (e) {
-      lastError = `network: ${e instanceof Error ? e.message : String(e)}`
-      continue
-    }
-    if (res.status === 429 || res.status >= 500) {
-      lastError = `HTTP ${res.status}`
-      continue
-    }
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`)
-    const json = (await res.json()) as {
-      candidates?: { content?: { parts?: { inlineData?: { mimeType?: string; data?: string } }[] }; finishReason?: string }[]
-    }
-    const part = json.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)
-    if (!part?.inlineData?.data) {
-      // The model sometimes answers with text only; asking again usually works.
-      lastError = `no image in the response (${json.candidates?.[0]?.finishReason ?? "no reason"})`
-      continue
-    }
-    const bytes = decodeBase64(part.inlineData.data)
-    return { bytes, mime: mimeOf(bytes) ?? part.inlineData.mimeType ?? "image/png" }
-  }
-  throw new Error(lastError || "image generation failed")
-}
 
 export const checkAuthor = internalMutation({
   args: { personId: v.id("people") },
@@ -125,12 +86,12 @@ export const generate = action({
     if (prompt.length < 10) throw new ConvexError("Describe the image in a few more words.")
     if (prompt.length > 2000) throw new ConvexError("The prompt is too long. Keep it under 2000 characters.")
     if (!altText) throw new ConvexError("Add a short caption (alt text) for the image.")
-    const apiKey = process.env.GEMINI_API_KEY
-    if (!apiKey) throw new ConvexError("Image generation is not available on this server (no AI key).")
+    if (!geminiConfigured()) throw new ConvexError("Image generation is not available on this server (no AI key).")
 
     let img: { bytes: Uint8Array; mime: string }
     try {
-      img = await drawImage(`${prompt}\n\n${HOUSE_RULES}`, apiKey)
+      const drawn = await geminiImage({ ctx, feature: "image.generate", personId: args.personId }, `${prompt}\n\n${HOUSE_RULES}`)
+      img = { bytes: drawn.bytes, mime: mimeOf(drawn.bytes) ?? drawn.mimeType ?? "image/png" }
     } catch (err) {
       console.error("image generation failed:", err)
       throw new ConvexError("The image could not be created right now. Try again, or change the description.")

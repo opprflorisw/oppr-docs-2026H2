@@ -18,6 +18,8 @@ import { requireUser, requireUserId } from "./lib/auth"
 import { isPublished } from "./lib/published"
 import { bodyChunks } from "./lib/chunking"
 import { openFindingsTouching, stillStands } from "./findings"
+import { requireEngineerOrAdmin } from "./lib/roles"
+import { logWikiEvent } from "./lib/wikiServer"
 
 const DAY = 24 * 60 * 60 * 1000
 
@@ -305,16 +307,45 @@ function statusOf(p: Doc<"proposedRevisions">, doc: Doc<"documents"> | null): Pr
   return "ready"
 }
 
+/** Claim lines in a Wiki check note: "Claim 3: ..." (one per claim, see startFromWikiCheck). */
+const CLAIM_LINE = /^Claim (\d+): /gm
+
+function claimNumbers(note: string): Set<number> {
+  return new Set([...note.matchAll(CLAIM_LINE)].map((m) => Number(m[1])))
+}
+
+async function wikiCheckInfo(ctx: QueryCtx, p: Doc<"proposedRevisions">) {
+  const check = p.source.checkId ? await ctx.db.get(p.source.checkId) : null
+  const person = check ? await ctx.db.get(check.personId) : null
+  const wikiId = p.source.wikiId ?? check?.wikiId ?? null
+  const wiki = wikiId ? await ctx.db.get(wikiId) : null
+  const claims = claimNumbers(p.source.note).size
+  const personName = person?.name ?? null
+  return {
+    wikiId: wiki?._id ?? null,
+    wikiTitle: wiki?.title ?? null,
+    checkId: check?._id ?? null,
+    personName,
+    claims,
+    /** "a Wiki check by Sanne Visser, 3 claims": reads after "From ". */
+    label: `a Wiki check${personName ? ` by ${personName}` : ""}, ${claims} ${claims === 1 ? "claim" : "claims"}`,
+  }
+}
+
 async function sourceInfo(ctx: QueryCtx, p: Doc<"proposedRevisions">) {
+  if (p.source.kind === "wiki_check") {
+    return { kind: p.source.kind, note: p.source.note, finding: null, wikiCheck: await wikiCheckInfo(ctx, p) }
+  }
   if (p.source.kind !== "finding" || !p.source.findingId) {
-    return { kind: p.source.kind, note: p.source.note, finding: null }
+    return { kind: p.source.kind, note: p.source.note, finding: null, wikiCheck: null }
   }
   const f = await ctx.db.get(p.source.findingId)
-  if (!f) return { kind: p.source.kind, note: p.source.note, finding: null }
+  if (!f) return { kind: p.source.kind, note: p.source.note, finding: null, wikiCheck: null }
   const other = f.a.documentId === p.documentId ? f.b : f.a
   return {
     kind: p.source.kind,
     note: p.source.note,
+    wikiCheck: null,
     finding: {
       _id: f._id,
       kind: f.kind,
@@ -430,66 +461,208 @@ export function proposalBlocker(doc: Doc<"documents">): string | null {
   return null
 }
 
+const proposalSourceValidator = v.object({
+  kind: v.union(v.literal("finding"), v.literal("insight"), v.literal("health"), v.literal("wiki_check")),
+  findingId: v.optional(v.id("findings")),
+  wikiId: v.optional(v.id("wikis")),
+  checkId: v.optional(v.id("wikiChecks")),
+  note: v.string(),
+})
+
+/** A Wiki check note lists every claim with its passage, so it may run longer. */
+const NOTE_MAX = { default: 500, wiki_check: 2400 }
+
 /** Called by ai/revision.propose: checks the request and inserts the row. */
 export const start = internalMutation({
   args: {
     documentId: v.id("documents"),
-    source: v.object({
-      kind: v.union(v.literal("finding"), v.literal("insight"), v.literal("health")),
-      findingId: v.optional(v.id("findings")),
-      note: v.string(),
-    }),
+    source: proposalSourceValidator,
     userId: v.union(v.id("users"), v.null()),
   },
-  handler: async (ctx, args): Promise<Id<"proposedRevisions">> => {
+  handler: async (ctx, args): Promise<Id<"proposedRevisions">> => await insertProposal(ctx, args),
+})
+
+async function insertProposal(
+  ctx: MutationCtx,
+  args: {
+    documentId: Id<"documents">
+    source: Doc<"proposedRevisions">["source"]
+    userId: Id<"users"> | null
+  },
+): Promise<Id<"proposedRevisions">> {
+  const doc = await ctx.db.get(args.documentId)
+  if (!doc) throw new ConvexError("This document no longer exists.")
+  const blocker = proposalBlocker(doc)
+  if (blocker) throw new ConvexError(blocker)
+  const live = await ctx.db
+    .query("documentVersions")
+    .withIndex("by_documentId_and_version", (q) =>
+      q.eq("documentId", doc._id).eq("version", doc.liveVersion as number),
+    )
+    .unique()
+  if (!live || live.bodyKind !== "tiptap" || !live.bodyJson) {
+    throw new ConvexError(`${doc.namingCode} has no editable text body to revise.`)
+  }
+  if (args.source.kind === "finding") {
+    if (!args.source.findingId) throw new ConvexError("Pick the Finding this revision should resolve.")
+    const f = await ctx.db.get(args.source.findingId)
+    if (!f) throw new ConvexError("That Finding no longer exists.")
+    if (f.status !== "open") throw new ConvexError("That Finding is already closed.")
+    if (f.documentA !== doc._id && f.documentB !== doc._id) {
+      throw new ConvexError(`That Finding is not about ${doc.namingCode}.`)
+    }
+  }
+  if (args.source.kind === "wiki_check" && !args.source.checkId) {
+    throw new ConvexError("Pick the Wiki check this revision comes from.")
+  }
+  const busy = await ctx.db
+    .query("proposedRevisions")
+    .withIndex("by_documentId", (q) => q.eq("documentId", doc._id))
+    .order("desc")
+    .take(10)
+  if (busy.some((p) => p.state === "generating" && Date.now() - p.createdAt < 10 * 60 * 1000)) {
+    throw new ConvexError(`A Proposed revision for ${doc.namingCode} is already being prepared.`)
+  }
+  const id = await ctx.db.insert("proposedRevisions", {
+    documentId: doc._id,
+    baseVersion: doc.liveVersion as number,
+    draftVersion: null,
+    state: "generating",
+    source: {
+      kind: args.source.kind,
+      ...(args.source.findingId ? { findingId: args.source.findingId } : {}),
+      ...(args.source.wikiId ? { wikiId: args.source.wikiId } : {}),
+      ...(args.source.checkId ? { checkId: args.source.checkId } : {}),
+      note: args.source.note
+        .trim()
+        .slice(0, args.source.kind === "wiki_check" ? NOTE_MAX.wiki_check : NOTE_MAX.default),
+    },
+    summary: "",
+    changes: [],
+    error: null,
+    createdBy: args.userId,
+    createdAt: Date.now(),
+  })
+  await ctx.scheduler.runAfter(0, internal.ai.revision.generate, { proposedRevisionId: id })
+  return id
+}
+
+// ---- From a Wiki check (docs/specs/wiki-upgrade.md 3.5.1) ---------------------------
+
+/** Verdicts whose claim may say the Document is wrong or silent. */
+const REVISABLE = new Set(["differs", "notCovered", "partly", "disputed"])
+
+function claimLine(
+  n: number,
+  claim: Doc<"wikiChecks">["claims"][number],
+  doc: Doc<"documents">,
+): string {
+  const mine = claim.passages.find((p) => p.documentId === doc._id)
+  const said = mine ? `${doc.namingCode} v${mine.version} says: "${mine.quote.slice(0, 260)}"` : `${doc.namingCode} does not say this.`
+  const verdict =
+    claim.verdict === "differs"
+      ? "The check found that it differs from Published Knowledge."
+      : claim.verdict === "disputed"
+        ? `The check found that Published documents disagree on this (an open Finding): ${claim.passages
+            .filter((p) => p.documentId !== doc._id)
+            .map((p) => `${p.namingCode} v${p.version} says "${p.quote.slice(0, 200)}"`)
+            .join("; ") || "another document says otherwise"}.`
+        : claim.verdict === "partly"
+        ? `The check found it only partly supported${claim.supportedPart ? ` (supported: "${claim.supportedPart.slice(0, 120)}")` : ""}.`
+        : "The check found no Published passage that says this."
+  return `Claim ${n}: The Engineer wrote "${claim.text.slice(0, 300)}". ${verdict} ${said}`
+}
+
+/**
+ * One Proposed revision per check per Document. All chosen claims that point
+ * at this Document go into it, and a later press on the same check and
+ * Document adds its new claims to that row instead of creating another.
+ * Returns the row and whether it is new.
+ */
+export const startFromWikiCheck = internalMutation({
+  args: {
+    checkId: v.id("wikiChecks"),
+    documentId: v.id("documents"),
+    claimIndexes: v.array(v.number()),
+    personId: v.id("people"),
+    userId: v.union(v.id("users"), v.null()),
+  },
+  handler: async (ctx, args): Promise<{ proposedRevisionId: Id<"proposedRevisions">; created: boolean }> => {
+    const person = await requireEngineerOrAdmin(ctx, args.personId, "Check in as an Engineer to propose a revision.")
+    const check = await ctx.db.get(args.checkId)
+    if (!check || !check.ok) throw new ConvexError("This check result no longer exists. Check the text again.")
     const doc = await ctx.db.get(args.documentId)
     if (!doc) throw new ConvexError("This document no longer exists.")
-    const blocker = proposalBlocker(doc)
-    if (blocker) throw new ConvexError(blocker)
-    const live = await ctx.db
-      .query("documentVersions")
-      .withIndex("by_documentId_and_version", (q) =>
-        q.eq("documentId", doc._id).eq("version", doc.liveVersion as number),
-      )
-      .unique()
-    if (!live || live.bodyKind !== "tiptap" || !live.bodyJson) {
-      throw new ConvexError(`${doc.namingCode} has no editable text body to revise.`)
+    const picked = [...new Set(args.claimIndexes)]
+      .filter((i) => Number.isInteger(i) && i >= 0 && i < check.claims.length)
+      .filter((i) => REVISABLE.has(check.claims[i].verdict))
+      .sort((a, b) => a - b)
+    if (picked.length === 0) {
+      throw new ConvexError("Pick a claim that differs from Published Knowledge, is disputed, or that no Published passage covers.")
     }
-    if (args.source.kind === "finding") {
-      if (!args.source.findingId) throw new ConvexError("Pick the Finding this revision should resolve.")
-      const f = await ctx.db.get(args.source.findingId)
-      if (!f) throw new ConvexError("That Finding no longer exists.")
-      if (f.status !== "open") throw new ConvexError("That Finding is already closed.")
-      if (f.documentA !== doc._id && f.documentB !== doc._id) {
-        throw new ConvexError(`That Finding is not about ${doc.namingCode}.`)
-      }
-    }
-    const busy = await ctx.db
+
+    const recent = await ctx.db
       .query("proposedRevisions")
       .withIndex("by_documentId", (q) => q.eq("documentId", doc._id))
       .order("desc")
-      .take(10)
-    if (busy.some((p) => p.state === "generating" && Date.now() - p.createdAt < 10 * 60 * 1000)) {
-      throw new ConvexError(`A Proposed revision for ${doc.namingCode} is already being prepared.`)
+      .take(50)
+    const existing = recent.find(
+      (p) =>
+        p.source.kind === "wiki_check" &&
+        p.source.checkId === check._id &&
+        (p.state === "generating" || p.state === "ready"),
+    )
+    if (existing) {
+      const have = claimNumbers(existing.source.note)
+      const add = picked.filter((i) => !have.has(i + 1)).map((i) => claimLine(i + 1, check.claims[i], doc))
+      if (add.length > 0) {
+        await ctx.db.patch(existing._id, {
+          source: {
+            ...existing.source,
+            note: `${existing.source.note}\n${add.join("\n")}`.slice(0, NOTE_MAX.wiki_check),
+          },
+        })
+      }
+      if (check.wikiId && add.length > 0) {
+        await logWikiEvent(
+          ctx,
+          check.wikiId,
+          person._id,
+          "revisionProposed",
+          `Added ${add.length} ${add.length === 1 ? "claim" : "claims"} to the Proposed revision of ${doc.namingCode}`,
+          check.blockId ? { blockId: check.blockId } : {},
+        )
+      }
+      return { proposedRevisionId: existing._id, created: false }
     }
-    const id = await ctx.db.insert("proposedRevisions", {
+
+    const wiki = check.wikiId ? await ctx.db.get(check.wikiId) : null
+    const header =
+      `From a Wiki check by ${person.name}${wiki ? ` on the Wiki "${wiki.title}"` : ""}. ` +
+      `The Engineer thinks ${doc.namingCode} is wrong or silent on the statements below. ` +
+      "Change the document only where it is wrong or silent, and use a bracketed placeholder for any value the documents do not give."
+    const note = [header, ...picked.map((i) => claimLine(i + 1, check.claims[i], doc))].join("\n")
+    const id = await insertProposal(ctx, {
       documentId: doc._id,
-      baseVersion: doc.liveVersion as number,
-      draftVersion: null,
-      state: "generating",
       source: {
-        kind: args.source.kind,
-        ...(args.source.findingId ? { findingId: args.source.findingId } : {}),
-        note: args.source.note.trim().slice(0, 500),
+        kind: "wiki_check",
+        checkId: check._id,
+        ...(check.wikiId ? { wikiId: check.wikiId } : {}),
+        note,
       },
-      summary: "",
-      changes: [],
-      error: null,
-      createdBy: args.userId,
-      createdAt: Date.now(),
+      userId: args.userId,
     })
-    await ctx.scheduler.runAfter(0, internal.ai.revision.generate, { proposedRevisionId: id })
-    return id
+    if (check.wikiId) {
+      await logWikiEvent(
+        ctx,
+        check.wikiId,
+        person._id,
+        "revisionProposed",
+        `Proposed revision of ${doc.namingCode} from a check (${picked.length} ${picked.length === 1 ? "claim" : "claims"})`,
+        check.blockId ? { blockId: check.blockId } : {},
+      )
+    }
+    return { proposedRevisionId: id, created: true }
   },
 })
 
@@ -556,6 +729,18 @@ export const loadForGeneration = internalQuery({
       if (conflicts.length >= 12) break
     }
 
+    // Wiki check: the claims this revision carries, with what this document says.
+    const wikiClaims: { n: number; text: string; verdict: string; quote: string | null }[] = []
+    if (p.source.kind === "wiki_check" && p.source.checkId) {
+      const check = await ctx.db.get(p.source.checkId)
+      for (const n of [...claimNumbers(p.source.note)].sort((a, b) => a - b)) {
+        const c = check?.claims[n - 1]
+        if (!c) continue
+        const mine = c.passages.find((x) => x.documentId === doc._id)
+        wikiClaims.push({ n, text: c.text, verdict: c.verdict, quote: mine?.quote ?? null })
+      }
+    }
+
     // Insight signal: the latest report's themes and recent questions/flags.
     const since = Date.now() - 90 * DAY
     const asks = (
@@ -592,6 +777,7 @@ export const loadForGeneration = internalQuery({
       blocks,
       finding,
       conflicts,
+      wikiClaims,
       themes: report?.state === "ready" ? report.themes : [],
       questions,
       flags: flags.slice(0, 30).map((f) => f.note),
@@ -749,6 +935,33 @@ async function removeDraftVersion(ctx: MutationCtx, doc: Doc<"documents">, versi
     status: "published",
   })
 }
+
+/**
+ * Prepares a failed Proposed revision again with the same signal (used for
+ * Wiki check revisions, whose claims cannot be picked again from the Document).
+ */
+export const retry = mutation({
+  args: { proposedRevisionId: v.id("proposedRevisions") },
+  handler: async (ctx, args): Promise<null> => {
+    await requireUserId(ctx)
+    const p = await ctx.db.get(args.proposedRevisionId)
+    if (!p || p.state !== "failed") throw new ConvexError("Only a Proposed revision that could not be prepared can be tried again.")
+    const doc = await ctx.db.get(p.documentId)
+    if (!doc) throw new ConvexError("This document no longer exists.")
+    const blocker = proposalBlocker(doc)
+    if (blocker) throw new ConvexError(blocker)
+    await ctx.db.patch(p._id, {
+      state: "generating",
+      baseVersion: doc.liveVersion as number,
+      error: null,
+      summary: "",
+      changes: [],
+      createdAt: Date.now(),
+    })
+    await ctx.scheduler.runAfter(0, internal.ai.revision.generate, { proposedRevisionId: p._id })
+    return null
+  },
+})
 
 /**
  * Discard a Proposed revision. When its draft is still exactly as the AI

@@ -15,6 +15,16 @@ import { isPublished } from "./lib/published"
 import { contentStems, normalise, withTableHeaders } from "./ai/grounding"
 import { openFindingsTouching, stillStands } from "./findings"
 import { requireEngineerOrAdmin } from "./lib/roles"
+import {
+  MAX_DROPPED_DETAIL,
+  allPoints,
+  normaliseContent,
+  type ComposedSection,
+  type StoredWikiContent,
+  type WikiContentV2,
+} from "./lib/wikiTypes"
+import { saveGenerationArgs } from "./lib/wikiValidators"
+import { applyGeneration, compactSnapshot, logWikiEvent, recompose, storeBuild } from "./lib/wikiServer"
 
 /** Same chunks, with table rows carrying their column headers. */
 function withHeaders(chunks: Doc<"chunks">[]): Doc<"chunks">[] {
@@ -42,34 +52,6 @@ export const formatValidator = v.union(
 )
 export type WikiFormat = "overview" | "steps" | "reference"
 
-const citationValidator = v.object({
-  chunkId: v.id("chunks"),
-  documentId: v.id("documents"),
-  namingCode: v.string(),
-  version: v.number(),
-  section: v.union(v.string(), v.null()),
-})
-
-export const contentValidator = v.object({
-  intro: v.string(),
-  sections: v.array(
-    v.object({
-      heading: v.string(),
-      kind: v.optional(v.union(v.literal("bullets"), v.literal("steps"), v.literal("table"))),
-      safety: v.optional(v.boolean()),
-      columns: v.optional(v.array(v.string())),
-      points: v.array(
-        v.object({
-          text: v.string(),
-          key: v.optional(v.boolean()),
-          cells: v.optional(v.array(v.string())),
-          citations: v.array(citationValidator),
-        }),
-      ),
-    }),
-  ),
-})
-
 // Cap per generation so a broad Scope stays within one model call.
 export const MAX_WIKI_CHUNKS = 160
 // A small Scope (a handful of documents) is read in full, up to this many
@@ -82,8 +64,10 @@ const SMALL_SCOPE_MAX_CHUNKS = 480
 const MIN_CHUNKS_PER_DOC = 2
 const SAFETY_RE = /\b(?:never|warning|caution|danger|must|lockout|tagout|ppe|gloves|hot|burn|isolat\w*|do not|don't)\b/i
 const FACT_RE = /\d/
-// Builds kept per Wiki for the History drawer and the diff.
+// Builds listed for the History drawer, Restore and the diff. Retention (D3):
+// a build is kept 365 days, and the newest KEEP_BUILDS are kept whatever their age.
 const KEEP_BUILDS = 10
+const KEEP_BUILDS_MS = 365 * 24 * 60 * 60 * 1000
 // A point stays marked "New" this long after the build that added it.
 const NEW_FOR_MS = 14 * 24 * 60 * 60 * 1000
 // At most this many pictures from the source documents on one Wiki.
@@ -185,31 +169,41 @@ async function sourceStatus(ctx: QueryCtx, wiki: Doc<"wikis">) {
   return { stale, publishedAt, docs }
 }
 
-type Content = NonNullable<Doc<"wikis">["content"]>
-type Section = Content["sections"][number]
-
 /**
- * Points whose every citation still points at the Published version of its
- * Document. A point that leans on a superseded, archived or deleted source is
- * withheld until the Wiki is rebuilt, so obsolete text is never shown as
- * truth (ISO 9001 7.5.3.2 d). This also covers a failed rebuild, which keeps
- * the previous content.
+ * The content with only points whose every citation still points at the
+ * Published version of its Document. A point that leans on a superseded,
+ * archived or deleted source is withheld until the Wiki is rebuilt, so
+ * obsolete text is never shown as truth (ISO 9001 7.5.3.2 d). This also
+ * covers a failed rebuild, which keeps the previous content. Gap blocks stay.
  */
 function visiblePoints(wiki: Doc<"wikis">, stale: Map<string, unknown>) {
   let hidden = 0
   let shown = 0
-  const sections = (wiki.content?.sections ?? [])
-    .map((section) => {
-      const points = section.points.filter((p) => {
-        const ok = p.citations.every((c) => !stale.has(String(c.documentId)))
-        if (ok) shown += 1
-        else hidden += 1
-        return ok
-      })
-      return { ...section, points }
-    })
-    .filter((section) => section.points.length > 0)
-  return { sections, hidden, shown }
+  const v2 = normaliseContent(wiki.content, wiki.sources)
+  const sections: ComposedSection[] = (v2?.sections ?? [])
+    .map((section) => ({
+      ...section,
+      blocks: section.blocks
+        .map((block) => ({
+          ...block,
+          points: block.points.filter((p) => {
+            const ok = p.citations.every((c) => !stale.has(String(c.documentId)))
+            if (ok) shown += 1
+            else hidden += 1
+            return ok
+          }),
+        }))
+        .filter((b) => b.points.length > 0 || b.kind === "gap"),
+    }))
+    .filter((section) => section.blocks.length > 0)
+  const content: WikiContentV2 | null = v2 ? { ...v2, sections } : null
+  return { content, sections, hidden, shown }
+}
+
+/** The introduction's sentences as one paragraph (MCP). */
+function introText(content: WikiContentV2 | null): string {
+  const intro = content?.sections.find((s) => s.role === "intro")?.blocks.find((b) => b.kind === "intro")
+  return intro ? intro.points.map((p) => p.text).join(" ") : ""
 }
 
 /** Identity of a point across builds: its wording, or the passages it cites. */
@@ -218,11 +212,19 @@ function pointKeys(p: { text: string; chunkIds: string[] }): string[] {
   return p.chunkIds.length ? [t, `c:${[...p.chunkIds].sort().join(",")}`] : [t]
 }
 
-function snapshot(content: Content | null) {
-  return (content?.sections ?? []).map((s) => ({
-    heading: s.heading,
-    points: s.points.map((p) => ({ text: p.text, chunkIds: p.citations.map((c) => c.chunkId) })),
-  }))
+function snapshot(content: StoredWikiContent | null) {
+  return compactSnapshot(normaliseContent(content))
+}
+
+/** Retention (D3): drop builds older than 365 days beyond the newest KEEP_BUILDS. */
+async function pruneBuilds(ctx: MutationCtx, wikiId: Id<"wikis">) {
+  const cutoff = Date.now() - KEEP_BUILDS_MS
+  const builds = await ctx.db
+    .query("wikiBuilds")
+    .withIndex("by_wikiId", (q) => q.eq("wikiId", wikiId))
+    .order("desc")
+    .take(KEEP_BUILDS + 200)
+  for (const old of builds.slice(KEEP_BUILDS)) if (old.builtAt < cutoff) await ctx.db.delete(old._id)
 }
 
 async function buildsOf(ctx: QueryCtx, wikiId: Id<"wikis">) {
@@ -341,6 +343,7 @@ export const list = query({
     for (const w of wikis) {
       const { stale, docs } = await sourceStatus(ctx, w)
       const visible = visiblePoints(w, stale)
+      const bodySections = visible.sections.filter((s) => s.role !== "intro")
       const builds = await buildsOf(ctx, w._id)
       const diff = diffBuilds(builds[0], builds[1])
       const cov = await coverage(ctx, w, docs, labels)
@@ -351,12 +354,12 @@ export const list = query({
         status: w.status,
         format: (w.format ?? "overview") as WikiFormat,
         sourceCount: w.sources.length,
-        sectionCount: visible.sections.length,
+        sectionCount: bodySections.length,
         pointCount: visible.shown,
         outdatedCount: stale.size,
         generatedAt: w.generatedAt,
         updatedAt: w.updatedAt,
-        headings: visible.sections.map((s) => s.heading),
+        headings: bodySections.map((s) => s.heading),
         sourceCodes: w.sources.map((s) => s.namingCode),
         areas: cov.areas,
         assets: cov.assets,
@@ -404,46 +407,76 @@ export const get = query({
         : [],
     )
 
-    const sections = visible.sections.map((s) => ({
+    const enrich = (p: (typeof visible.sections)[number]["blocks"][number]["points"][number]) => {
+      const f = findingForPoint(p.citations, findings)
+      return {
+        ...p,
+        findingId: f?._id ?? null,
+        findingSummary: f?.summary ?? null,
+        isNew: addedKeys.has(`t:${normalise(p.text)}`),
+      }
+    }
+    const v2Sections = visible.sections.map((s) => ({
       ...s,
-      points: s.points.map((p) => {
-        const f = findingForPoint(p.citations, findings)
-        return {
-          ...p,
-          findingId: f?._id ?? null,
-          findingSummary: f?.summary ?? null,
-          isNew: addedKeys.has(`t:${normalise(p.text)}`),
-        }
-      }),
+      blocks: s.blocks.map((b) => ({ ...b, points: b.points.map(enrich) })),
     }))
+    const contentV2 = visible.content ? { ...visible.content, sections: v2Sections } : null
 
     // The cited passages, for hover previews and for jumping to the spot.
     const excerpts: Record<string, string> = {}
-    for (const section of sections) {
-      for (const point of section.points) {
-        for (const c of point.citations) {
-          if (excerpts[c.chunkId] !== undefined) continue
-          const chunk = await ctx.db.get(c.chunkId)
-          if (chunk) excerpts[c.chunkId] = chunk.text
-        }
+    for (const point of allPoints(contentV2)) {
+      for (const c of point.citations) {
+        if (excerpts[c.chunkId] !== undefined) continue
+        const chunk = await ctx.db.get(c.chunkId)
+        if (chunk) excerpts[c.chunkId] = chunk.text
       }
     }
 
-    const figures = await pickFigures(ctx, sections)
+    // One figure per body section, by section id.
+    const body = v2Sections.filter((s) => s.role !== "intro")
+    const figures = await pickFigures(
+      ctx,
+      body.map((s) => ({ heading: s.heading, points: s.blocks.flatMap((b) => b.points) })),
+    )
+    const figuresBySection: Record<string, (typeof figures)[number]> = {}
+    for (const [i, f] of Object.entries(figures)) figuresBySection[body[Number(i)].id] = f
     const labels = await areaLabels(ctx)
     const cov = await coverage(ctx, wiki, docs, labels)
 
     // Health strip: open contradictions, overdue reviews, points left out.
     const now = Date.now()
-    const reviewsOverdue = wiki.sources.filter((s) => {
-      const d = docs.get(String(s.documentId))
-      return d?.nextReviewAt != null && d.nextReviewAt < now
-    }).length
+    const reviewsOverdueDocs = wiki.sources
+      .filter((s) => {
+        const d = docs.get(String(s.documentId))
+        return d?.nextReviewAt != null && d.nextReviewAt < now
+      })
+      .map((s) => ({ documentId: s.documentId, namingCode: s.namingCode, title: s.title }))
 
     return {
       ...wiki,
       format: (wiki.format ?? "overview") as WikiFormat,
-      content: wiki.content ? { intro: wiki.content.intro, sections } : null,
+      // The stored content is not sent: readers use contentV2.
+      content: undefined,
+      contentV2Pending: undefined,
+      // Unapplied Outline changes are for Engineers only (wikiBlocks.editorState).
+      outlineStaged: undefined,
+      stagedVersion: undefined,
+      outlineUpdatedBy: undefined,
+      outlineUpdatedAt: undefined,
+      // Text the build left out failed its check; readers get only the count (health.leftOut).
+      droppedDetail: undefined,
+      // The composed read model (spec 2.1): read this. Points carry findingId,
+      // findingSummary and isNew; only visible blocks are ever in it.
+      contentV2,
+      figuresBySection,
+      settings: {
+        confirmByAnother: wiki.confirmByAnother ?? wiki.startHere != null,
+        maxDanger: wiki.maxDanger ?? 2,
+        readingLevel: wiki.readingLevel ?? null,
+        length: wiki.length ?? null,
+      },
+      // Built without AI: "Offline stand-in, no AI" in the meta line (spec 5.3).
+      stub: wiki.model === "stub" || (contentV2?.coverage.stub ?? false),
       sources: wiki.sources.map((s) => ({
         ...s,
         publishedAt: publishedAt.get(String(s.documentId)) ?? null,
@@ -454,14 +487,14 @@ export const get = query({
         .map((s) => s.namingCode),
       hiddenPoints: visible.hidden,
       excerpts,
-      figures,
       scopeLabels: await scopeLabels(ctx, wiki.scope),
       areas: cov.areas,
       assets: cov.assets,
       health: {
         openFindings: findings.length,
-        pointsWithFinding: sections.reduce((n, s) => n + s.points.filter((p) => p.findingId).length, 0),
-        reviewsOverdue,
+        pointsWithFinding: v2Sections.flatMap((s) => s.blocks.flatMap((b) => b.points)).filter((p) => p.findingId).length,
+        reviewsOverdue: reviewsOverdueDocs.length,
+        reviewsOverdueDocs,
         leftOut: wiki.droppedPoints,
       },
       findings: findings.map((f) => ({
@@ -584,7 +617,7 @@ function summaryOf(w: Doc<"wikis">) {
   return {
     _id: w._id,
     title: w.title,
-    pointCount: (w.content?.sections ?? []).reduce((n, s) => n + s.points.length, 0),
+    pointCount: allPoints(w.content).length,
     status: w.status,
     builtAt: w.generatedAt,
   }
@@ -600,7 +633,7 @@ export const findingsImpact = query({
     const wikis = await ctx.db.query("wikis").take(500)
     const out = []
     for (const w of wikis) {
-      const points = (w.content?.sections ?? []).flatMap((s) => s.points)
+      const points = allPoints(w.content)
       const n = points.filter((p) => findingForPoint(p.citations, [f]) !== null).length
       if (n > 0) out.push({ _id: w._id, title: w.title, points: n })
     }
@@ -818,7 +851,8 @@ export const create = mutation({
       createdBy: userId,
       updatedAt: now,
     })
-    await requestGeneration(ctx, id, `created by ${person.name}`)
+    await logWikiEvent(ctx, id, person._id, "created", `"${input.title}" created by ${person.name}`)
+    await requestGeneration(ctx, id, `created by ${person.name}`, person._id)
     return id
   },
 })
@@ -843,7 +877,8 @@ export const update = mutation({
       ...(args.format ? { format: args.format } : {}),
       updatedAt: Date.now(),
     })
-    await requestGeneration(ctx, args.id, `scope changed by ${person.name}`)
+    await logWikiEvent(ctx, args.id, person._id, "scopeChanged", `Title, purpose or Scope changed by ${person.name}`)
+    await requestGeneration(ctx, args.id, `scope changed by ${person.name}`, person._id)
   },
 })
 
@@ -853,7 +888,7 @@ export const regenerate = mutation({
     await requireUserId(ctx)
     const person = await requireEngineer(ctx, args.personId)
     if (!(await ctx.db.get(args.id))) throw new ConvexError("Wiki not found")
-    await requestGeneration(ctx, args.id, `rebuilt by ${person.name}`)
+    await requestGeneration(ctx, args.id, `rebuilt by ${person.name}`, person._id)
   },
 })
 
@@ -861,8 +896,17 @@ export const remove = mutation({
   args: { id: v.id("wikis"), personId: v.optional(v.id("people")) },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
-    await requireEngineer(ctx, args.personId)
+    const person = await requireEngineer(ctx, args.personId)
+    const wiki = await ctx.db.get(args.id)
+    if (!wiki) return
+    // The wikiEvents rows stay (spec 5.3): the trail outlives the Wiki.
+    await logWikiEvent(ctx, args.id, person._id, "deleted", `"${wiki.title}" deleted by ${person.name}`)
     for (const b of await buildsOf(ctx, args.id)) await ctx.db.delete(b._id)
+    for (const b of await ctx.db
+      .query("wikiBlocks")
+      .withIndex("by_wikiId_and_state", (q) => q.eq("wikiId", args.id))
+      .take(1000))
+      await ctx.db.delete(b._id)
     await ctx.db.delete(args.id)
   },
 })
@@ -917,11 +961,14 @@ export const recordView = mutation({
 /**
  * Hand out a new generation ticket and schedule a run. Content stays visible
  * while the new run works; only the newest ticket may write its result.
+ * `personId` is who pressed the button; null for system rebuilds (publish,
+ * nightly, migration), which count against the system AI budget.
  */
 export async function requestGeneration(
   ctx: MutationCtx,
   wikiId: Id<"wikis">,
   trigger: string,
+  personId: Id<"people"> | null = null,
 ) {
   const wiki = await ctx.db.get(wikiId)
   if (!wiki) return
@@ -932,9 +979,16 @@ export async function requestGeneration(
     requestedAt: Date.now(),
     lastTrigger: trigger,
     error: null,
+    rebuildScheduledAt: undefined,
   })
-  await ctx.scheduler.runAfter(0, internal.ai.wiki.generate, { wikiId, ticket })
+  await ctx.scheduler.runAfter(0, internal.ai.wiki.generate, { wikiId, ticket, personId })
 }
+
+// Publish triggers coalesce per Wiki (spec 3.8): the rebuild runs this long
+// after the first trigger, and later triggers in that window join it. Until
+// then readers never see stale text: points on a superseded version are
+// withheld (visiblePoints).
+export const REBUILD_COALESCE_MS = 10 * 60 * 1000
 
 /** Called from the Document lifecycle whenever a Document's Published state changes. */
 export async function regenerateWikisForDocument(
@@ -943,6 +997,7 @@ export async function regenerateWikisForDocument(
   trigger: string,
 ) {
   const wikis = await ctx.db.query("wikis").take(500)
+  const now = Date.now()
   for (const w of wikis) {
     const usedBefore = w.sources.some((s) => s.documentId === documentId)
     let inScope = usedBefore
@@ -950,9 +1005,23 @@ export async function regenerateWikisForDocument(
       const { published } = await resolveScope(ctx, w.scope)
       inScope = published.some((d) => d._id === documentId)
     }
-    if (inScope) await requestGeneration(ctx, w._id, trigger)
+    if (!inScope) continue
+    if (w.rebuildScheduledAt && w.rebuildScheduledAt > now) continue
+    await ctx.db.patch(w._id, { rebuildScheduledAt: now + REBUILD_COALESCE_MS })
+    await ctx.scheduler.runAfter(REBUILD_COALESCE_MS, internal.wikis.runScheduledRebuild, { wikiId: w._id, trigger })
   }
 }
+
+/** The coalesced rebuild after a publish. A no-op when it already ran (Rebuild now, or the dev check). */
+export const runScheduledRebuild = internalMutation({
+  args: { wikiId: v.id("wikis"), trigger: v.string() },
+  handler: async (ctx, args) => {
+    const wiki = await ctx.db.get(args.wikiId)
+    if (!wiki?.rebuildScheduledAt) return false
+    await requestGeneration(ctx, args.wikiId, args.trigger)
+    return true
+  },
+})
 
 export const regenerateAll = internalMutation({
   args: {},
@@ -983,7 +1052,9 @@ export const loadForGeneration = internalQuery({
     const wiki = await ctx.db.get(args.wikiId)
     if (!wiki) return null
     const { published } = await resolveScope(ctx, wiki.scope)
-    const topic = new Set(contentStems(`${wiki.title} ${wiki.purpose}`))
+    // The Outline's headings and instructions steer which passages a broad Scope reads.
+    const outlineWords = (wiki.outline?.sections ?? []).map((s) => `${s.heading} ${s.instruction ?? ""}`).join(" ")
+    const topic = new Set(contentStems(`${wiki.title} ${wiki.purpose} ${outlineWords}`))
     // Only the live version's passages: never a draft, never an older edition.
     const all: { d: Doc<"documents">; version: number; chunks: Doc<"chunks">[] }[] = []
     for (const d of published) {
@@ -1035,25 +1106,15 @@ export const loadForGeneration = internalQuery({
   },
 })
 
+/**
+ * A finished build (SaveGenerationArgs, convex/lib/wikiTypes.ts). Mode
+ * "propose" creates the Outline, mode "outline" fills generated blocks by id;
+ * then the Wiki is composed and, when its content changed, the build is stored
+ * whole. A migrated Wiki keeps its old content until its introduction lands
+ * (spec 6.3 step 5), then swaps to the composed content.
+ */
 export const saveGeneration = internalMutation({
-  args: {
-    wikiId: v.id("wikis"),
-    ticket: v.number(),
-    status: v.union(v.literal("ready"), v.literal("empty"), v.literal("failed")),
-    content: v.union(v.null(), contentValidator),
-    sources: v.array(
-      v.object({
-        documentId: v.id("documents"),
-        namingCode: v.string(),
-        title: v.string(),
-        version: v.number(),
-        excerptsUsed: v.optional(v.number()),
-        excerptsTotal: v.optional(v.number()),
-      }),
-    ),
-    droppedPoints: v.number(),
-    error: v.union(v.string(), v.null()),
-  },
+  args: saveGenerationArgs,
   handler: async (ctx, args) => {
     const wiki = await ctx.db.get(args.wikiId)
     // A newer request superseded this run: discard its result.
@@ -1068,35 +1129,70 @@ export const saveGeneration = internalMutation({
       })
       return true
     }
-    // History first, so "what changed" always has this build.
-    if (args.content) {
-      await ctx.db.insert("wikiBuilds", {
-        wikiId: args.wikiId,
-        builtAt: now,
-        trigger: wiki.lastTrigger,
-        sources: args.sources.map((s) => ({
-          documentId: s.documentId,
-          namingCode: s.namingCode,
-          version: s.version,
-        })),
-        content: snapshot(args.content as Content),
-      })
-      const builds = await ctx.db
-        .query("wikiBuilds")
-        .withIndex("by_wikiId", (q) => q.eq("wikiId", args.wikiId))
-        .order("desc")
-        .take(KEEP_BUILDS + 20)
-      for (const old of builds.slice(KEEP_BUILDS)) await ctx.db.delete(old._id)
-    }
-    await ctx.db.patch(args.wikiId, {
-      status: args.status,
-      content: args.content,
+    const meta = {
       sources: args.sources,
       droppedPoints: args.droppedPoints,
+      droppedDetail: (args.droppedDetail ?? []).slice(0, MAX_DROPPED_DETAIL),
+      model: args.model,
+      promptVersion: args.promptVersion,
       generatedAt: now,
       error: null,
       updatedAt: now,
-    })
+    }
+    if (args.status === "empty") {
+      // Nothing Published in Scope (check 7): no content, the Outline stays for later.
+      await ctx.db.patch(args.wikiId, { ...meta, status: "empty", content: null, contentV2Pending: undefined })
+      await logWikiEvent(ctx, args.wikiId, null, "rebuilt", `Nothing Published in Scope (${wiki.lastTrigger ?? "build"})`)
+      return true
+    }
+    const before = compactSnapshot(normaliseContent(wiki.content))
+    await applyGeneration(ctx, wiki, args)
+    await ctx.db.patch(args.wikiId, meta)
+
+    const pending = wiki.contentV2Pending
+    if (pending) {
+      const intro = (
+        await ctx.db
+          .query("wikiBlocks")
+          .withIndex("by_wikiId_and_state", (q) => q.eq("wikiId", args.wikiId).eq("state", "live"))
+          .take(1000)
+      ).find((r) => r.kind === "intro")
+      if (intro && intro.status !== "grounded" && intro.status !== "gap") {
+        // Not ready to swap: readers keep the old content.
+        await recompose(ctx, args.wikiId, "legacy")
+        await ctx.db.patch(args.wikiId, { status: "ready" })
+        return true
+      }
+    }
+    const res = await recompose(ctx, args.wikiId)
+    const content = res?.content ?? null
+    await ctx.db.patch(args.wikiId, { status: content ? "ready" : "empty", contentV2Pending: undefined })
+    const fresh = (await ctx.db.get(args.wikiId))!
+    const changed = JSON.stringify(compactSnapshot(content)) !== JSON.stringify(before)
+    if (changed || args.mode === "propose") {
+      await storeBuild(ctx, fresh, "build", null, content)
+      await pruneBuilds(ctx, args.wikiId)
+    }
+    if (pending && res) {
+      const s = res.stats
+      await logWikiEvent(
+        ctx,
+        args.wikiId,
+        null,
+        "migrated",
+        `Introduction written; now on sections and blocks. Dedupe dropped ${s.deduped} repeated ${s.deduped === 1 ? "point" : "points"}; ` +
+          `${s.withheld} withheld; ${s.turned} danger ${s.turned === 1 ? "callout" : "callouts"} turned into a warning`,
+      )
+    }
+    const rebuilt = (args.blocks?.length ?? 0) + (args.intro ? 1 : 0) + (args.keyPoints ? 1 : 0) + (args.proposed?.length ?? 0)
+    if (rebuilt > 0 || changed)
+      await logWikiEvent(
+        ctx,
+        args.wikiId,
+        null,
+        "rebuilt",
+        `Built from ${args.sources.length} documents (${wiki.lastTrigger ?? "build"}); ${args.droppedPoints} points left out`,
+      )
     return true
   },
 })
@@ -1150,7 +1246,7 @@ export const testBuildHistory = internalMutation({
         builtAt: Date.now(),
         trigger: wiki.lastTrigger,
         sources: sources.map((s) => ({ documentId: s.documentId, namingCode: s.namingCode, version: s.version })),
-        content: snapshot(content as Content).map((s) => ({
+        content: snapshot(content).map((s) => ({
           ...s,
           // Distinct passages per point so the diff matches on wording.
           points: s.points.map((p) => ({ ...p, chunkIds: [] })),
@@ -1194,8 +1290,6 @@ export const testGating = internalMutation({
   },
 })
 
-export type SectionOut = Section
-
 // ---- MCP (read-only, docs/adr/0004): oppr_list_wikis and oppr_get_wiki ----------------
 // Only what a reader sees: Ready Wikis, and only points whose every citation
 // is the Published version of its source. A key limited to areas sees a Wiki
@@ -1226,7 +1320,7 @@ export const mcpList = internalQuery({
         title: w.title,
         purpose: w.purpose,
         format: w.format ?? "overview",
-        sections: visible.sections.map((s) => s.heading),
+        sections: visible.sections.filter((s) => s.role !== "intro").map((s) => s.heading),
         pointCount: visible.shown,
         withheldPoints: visible.hidden,
         builtAt: w.generatedAt,
@@ -1266,20 +1360,35 @@ export const mcpGet = internalQuery({
       title: wiki.title,
       purpose: wiki.purpose,
       format: wiki.format ?? "overview",
-      intro: wiki.content.intro,
+      // Only composed blocks are in content: never staged, unchecked or awaiting text.
+      intro: introText(visible.content),
       builtAt: wiki.generatedAt,
       withheldPoints: visible.hidden,
-      sections: visible.sections.map((s) => ({
-        heading: s.heading,
-        kind: s.kind ?? "bullets",
-        safety: s.safety ?? false,
-        columns: s.columns ?? null,
-        points: s.points.map((p) => ({
-          text: p.text,
-          cells: p.cells ?? null,
-          cites: [...new Set(p.citations.map((c) => `${c.namingCode} v${c.version}${c.section ? `, ${c.section}` : ""}`))],
-        })),
-      })),
+      sections: visible.sections
+        .filter((s) => s.role !== "intro")
+        .map((s) => {
+          const main = s.blocks.find((b) => b.kind === "bullets" || b.kind === "steps" || b.kind === "table")
+          return {
+            heading: s.heading,
+            kind: main?.kind ?? "bullets",
+            safety: s.safety ?? false,
+            columns: main?.columns ?? null,
+            points: s.blocks.flatMap((b) =>
+              b.points.map((p) => ({
+                text: p.text,
+                cells: p.cells ?? null,
+                cites: [...new Set(p.citations.map((c) => `${c.namingCode} v${c.version}${c.section ? `, ${c.section}` : ""}`))],
+                block: b.kind,
+                origin: b.origin,
+                writtenBy: b.authorName ?? null,
+                ...(p.disputed
+                  ? { disputed: `${p.disputed.otherNamingCode} v${p.disputed.otherVersion} says: ${p.disputed.otherQuote}` }
+                  : {}),
+              })),
+            ),
+          }
+        })
+        .filter((s) => s.points.length > 0),
       sources: wiki.sources
         .filter((s) => !stale.has(String(s.documentId)))
         .map((s) => ({ code: s.namingCode, version: s.version, title: s.title, documentId: s.documentId as string })),

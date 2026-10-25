@@ -313,7 +313,9 @@ export function AskPanel({
   )
   const wikiStarters =
     scope.kind === "wiki"
-      ? starterQuestions(wikiForStarters?.content?.sections.map((x) => x.heading) ?? [])
+      ? starterQuestions(
+          wikiForStarters?.contentV2?.sections.filter((s) => s.role !== "intro").map((s) => s.heading) ?? [],
+        )
       : null
   // Whose thread this is: the checked-in person, or the current Anonymous one.
   const who = useAskThreadKey(checkedInPerson?._id ?? null)

@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod"
 import type { z } from "zod"
+import { meter, type MeterSpec } from "../lib/aiMeter"
 
 // Claude for structured generation (Wiki content, Guided creation).
 // Used whenever ANTHROPIC_API_KEY is set on the deployment; otherwise the
@@ -25,7 +26,9 @@ function client(): Anthropic {
 
 /**
  * One Claude call that must return JSON matching `schema`. Throws a readable
- * Error on refusal, truncation or an unparseable answer.
+ * Error on refusal, truncation or an unparseable answer. `meter` records the
+ * call in the AI usage tracker; every caller passes it (the meter check in
+ * scripts/check-ai-meter.mjs fails on a call without it).
  */
 export async function claudeJson<S extends z.ZodType>(opts: {
   system: string
@@ -33,14 +36,32 @@ export async function claudeJson<S extends z.ZodType>(opts: {
   schema: S
   effort: "low" | "medium" | "high"
   maxTokens?: number
+  meter?: MeterSpec
 }): Promise<z.infer<S>> {
-  const response = await client().messages.parse({
-    model: CLAUDE_MODEL,
-    max_tokens: opts.maxTokens ?? 16000,
-    system: opts.system,
-    messages: opts.messages,
-    output_config: { effort: opts.effort, format: zodOutputFormat(opts.schema) },
-  })
+  const call = async () => {
+    const r = await client().messages.parse({
+      model: CLAUDE_MODEL,
+      max_tokens: opts.maxTokens ?? 16000,
+      system: opts.system,
+      messages: opts.messages,
+      output_config: { effort: opts.effort, format: zodOutputFormat(opts.schema) },
+    })
+    const u = r.usage
+    return {
+      value: r,
+      usage: {
+        tokensIn: u.input_tokens + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0),
+        tokensOut: u.output_tokens,
+      },
+    }
+  }
+  let response: Awaited<ReturnType<typeof call>>["value"]
+  if (opts.meter) {
+    response = await meter(opts.meter.ctx, { ...opts.meter, provider: "anthropic", model: CLAUDE_MODEL }, call)
+  } else {
+    console.warn("claudeJson called without a meter; this call is not in the AI usage tracker")
+    response = (await call()).value
+  }
   if (response.stop_reason === "refusal") {
     throw new Error("Claude declined this request.")
   }

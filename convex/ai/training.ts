@@ -15,10 +15,10 @@ import { requireUser } from "../lib/auth"
 import { claudeConfigured, claudeJson, describeClaudeError } from "./llm"
 import { checkPoint, factTokens, normalise, ProvidedExcerpt, support } from "./grounding"
 import { aiStubEnabled } from "./wiki"
-import { CHAT_MODEL, EMBEDDING_DIM, EMBEDDING_MODEL } from "./constants"
+import { embedText, geminiText, toBase64, type GeminiPart } from "./gemini"
+import type { MeterSpec } from "../lib/aiMeter"
 import { getVersion, makeDocCache, resolveObjective, type SampleQuestion } from "../trainings"
 
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 const MAX_GUIDE_DOCS = 5
 const MAX_PASSAGES_PER_DOC = 70
 const MAX_GUIDE_OBJECTIVES = 10
@@ -32,18 +32,6 @@ const quoteIn = (quote: string, text: string) => {
 const codesIn = (text: string) => factTokens(text).filter((t) => /[A-Z]/.test(t) && !t.includes(" "))
 /** Bare numbers in a text, after the grounding normalisation ("fifteen" -> 15, "1,5" -> 1.5). */
 const numbersIn = (text: string) => (normalise(text).match(/\d+(?:\.\d+)?/g) ?? []).map((n) => String(Number(n)))
-
-async function embedText(text: string, apiKey: string): Promise<number[]> {
-  const res = await fetch(`${GEMINI_BASE}/models/${EMBEDDING_MODEL}:embedContent?key=${apiKey}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content: { parts: [{ text }] }, outputDimensionality: EMBEDDING_DIM }),
-  })
-  if (!res.ok) throw new Error(`Gemini embed ${res.status}`)
-  const json = (await res.json()) as { embedding?: { values?: number[] } }
-  if (!Array.isArray(json.embedding?.values)) throw new Error("No embedding returned")
-  return json.embedding!.values!
-}
 
 // ---- Guided creation ------------------------------------------------------------
 
@@ -229,7 +217,7 @@ export const guide = action({
       const apiKey = process.env.GEMINI_API_KEY
       if (apiKey) {
         try {
-          const vector = await embedText(`${draft.title}\n${latest.text}`, apiKey)
+          const vector = await embedText({ ctx, feature: "training" }, `${draft.title}\n${latest.text}`)
           const hits = await ctx.vectorSearch("chunks", "by_embedding", { vector, limit: 40 })
           const docIds: Id<"documents">[] = await ctx.runQuery(internal.trainings.docsForChunks, {
             chunkIds: hits.map((h) => h._id),
@@ -308,6 +296,7 @@ export const guide = action({
         ],
         schema: GuideOut,
         effort: "low",
+        meter: { ctx, feature: "training" },
         maxTokens: 8000,
       })
     } catch (err) {
@@ -791,6 +780,7 @@ function fallbackQuestion(o: GenObjective, pool: GenInput["pool"]): Built | null
 }
 
 async function askModel(
+  m: MeterSpec,
   input: GenInput,
   objectives: GenObjective[],
   perObjective: (o: GenObjective) => number,
@@ -827,6 +817,7 @@ async function askModel(
     schema: QuestionsOut,
     effort: "low",
     maxTokens,
+    meter: m,
   })
 }
 
@@ -840,6 +831,7 @@ const perFor = (input: GenInput) => (o: GenObjective) =>
  * questions, then code-written fallback questions. Every objective is tested.
  */
 async function buildQuestions(
+  m: MeterSpec,
   input: GenInput,
   log: string,
 ): Promise<{ ok: true; built: Built[] } | { ok: false; error: string }> {
@@ -881,7 +873,7 @@ async function buildQuestions(
   if (canUseModel) {
     // 1. Everything in one call.
     try {
-      take(await askModel(input, objectives, per, asked), objectives)
+      take(await askModel(m, input, objectives, per, asked), objectives)
     } catch (err) {
       console.error(`${log}: question generation failed: ${describeClaudeError(err)}`)
       return { ok: false, error: "The questions could not be prepared right now. Try again in a moment." }
@@ -890,7 +882,7 @@ async function buildQuestions(
     for (const o of objectives) {
       if ((byObjective.get(o.id)?.length ?? 0) >= per(o)) continue
       try {
-        take(await askModel(input, [o], per, asked, 4000), [o])
+        take(await askModel(m, input, [o], per, asked, 4000), [o])
       } catch (err) {
         console.log(`${log}: single-objective retry for ${o.id} failed: ${describeClaudeError(err)}`)
       }
@@ -953,7 +945,8 @@ export const generateQuestions = internalAction({
       await ctx.runMutation(internal.attempts.saveQuestions, { attemptId: args.attemptId, questions: [] })
       return
     }
-    const r = await buildQuestions(input, `Attempt ${args.attemptId}`)
+    const m: MeterSpec = { ctx, feature: "training", target: { kind: "trainingAttempt", id: args.attemptId } }
+    const r = await buildQuestions(m, input, `Attempt ${args.attemptId}`)
     if ("error" in r) {
       await fail(r.error)
       return
@@ -988,6 +981,7 @@ export const sampleQuestionsInternal = internalAction({
     if (!c) throw new ConvexError("This Training no longer exists.")
     const objectives = c.objectives.filter((o) => !args.objectiveIds || args.objectiveIds.includes(o.id))
     const r = await buildQuestions(
+      { ctx, feature: "training", target: { kind: "training", id: args.trainingId } },
       {
         personRole: "operator",
         training: c.training,
@@ -1075,34 +1069,6 @@ export const builderInput = internalQuery({
 
 // ---- Open answers: transcribe and grade ---------------------------------------------
 
-function toBase64(bytes: Uint8Array): string {
-  let s = ""
-  const CHUNK = 0x8000
-  for (let i = 0; i < bytes.length; i += CHUNK) s += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
-  return btoa(s)
-}
-
-type GeminiPart = { text: string } | { inlineData: { mimeType: string; data: string } }
-
-/** One Gemini call (the cheap model) for media: transcripts and photo grading. */
-async function gemini(parts: GeminiPart[], json = false): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not set on this deployment.")
-  const res = await fetch(`${GEMINI_BASE}/models/${CHAT_MODEL}:generateContent?key=${apiKey}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 2048, ...(json ? { responseMimeType: "application/json" } : {}) },
-    }),
-  })
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`)
-  const out = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
-  const text = (out.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim()
-  if (!text) throw new Error("Gemini returned no text.")
-  return text
-}
-
 const GradeOut = z.object({
   verdict: z.enum(["good", "partly", "not_yet"]),
   matched: z.array(z.string()),
@@ -1169,6 +1135,9 @@ export const gradeOpenAnswer = internalAction({
     if (!g) return
     const fail = (error: string) => ctx.runMutation(internal.attempts.failGrade, { ...args, error })
     const code = `${g.citation.namingCode} v${g.citation.version}`
+    const m: MeterSpec = { ctx, feature: "training", target: { kind: "trainingAttempt", id: args.attemptId } }
+    const gemini = (parts: GeminiPart[], json = false) =>
+      geminiText(m, parts, { json, temperature: 0.1, maxOutputTokens: 2048 })
     try {
       if (aiStubEnabled()) {
         await fail("Automatic checking is off on this server. A trainer will check this answer.")
@@ -1253,7 +1222,7 @@ export const gradeOpenAnswer = internalAction({
       ].join("\n")
       let out: z.infer<typeof GradeOut>
       if (claudeConfigured()) {
-        out = await claudeJson({ system: GRADE_SYSTEM, messages: [{ role: "user", content: user }], schema: GradeOut, effort: "low", maxTokens: 2000 })
+        out = await claudeJson({ system: GRADE_SYSTEM, messages: [{ role: "user", content: user }], schema: GradeOut, effort: "low", maxTokens: 2000, meter: m })
       } else {
         const raw = await gemini(
           [{ text: `${GRADE_SYSTEM}\n\nReturn JSON with verdict, matched, missing, misconception, feedback.\n\n${user}` }],

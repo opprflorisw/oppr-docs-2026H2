@@ -25,6 +25,7 @@
 // deliberately strict: a
 // wrongly dropped point costs a little coverage, a wrongly kept one can hurt
 // someone on the floor.
+import { pointKey } from "../lib/wikiTypes"
 
 export interface ProvidedExcerpt {
   key: string
@@ -45,10 +46,16 @@ export interface CheckedPoint {
 
 export type DropReason =
   | "no-valid-source"
+  | "no-citation"
   | "unsupported-token"
   | "weak-support"
   | "negation-mismatch"
   | "meaning-mismatch"
+  // Set after grounding, by the page-level steps in convex/ai/wiki.ts.
+  | "duplicate"
+  | "disputed"
+  | "over-length"
+  | "intro-rule"
 
 export interface DroppedPoint {
   text: string
@@ -182,6 +189,23 @@ export function factTokens(text: string): string[] {
   return Array.from(new Set([...f.codes, ...f.quantities.map((q) => q.raw)]))
 }
 
+const DOC_CODE_RE = /\b[A-Z]{2,}-[A-Z]{2,}-[A-Z]{2,}-\d{3,}\b/
+// Periods that name a stage of work ("the first 2 weeks"), not a setting.
+const STAGE_UNITS = new Set(["DAY", "WEEK", "MONTH"])
+
+/**
+ * A heading names a topic and is not checked against Published (ADR 0007),
+ * so it may not carry a fact: returns the Document code or the value with a
+ * unit it carries ("230 °C"), or null.
+ */
+export function headingFact(text: string): string | null {
+  const canon = normalise(text)
+  const code = DOC_CODE_RE.exec(canon)?.[0]
+  if (code) return code
+  const q = extract(canon).quantities.find((x) => x.unit && !x.unit.startsWith("#") && !STAGE_UNITS.has(x.unit))
+  return q ? q.raw : null
+}
+
 // A bare number on either side (a unit in a table header, say) is compatible
 // with any unit; two stated units must be equal.
 const unitOk = (a: string | null, b: string | null) => a === null || b === null || a === b
@@ -194,6 +218,30 @@ function quantitySupported(q: Quantity, cited: Quantity[]): boolean {
   if (q.low === q.high) return hasValue(q.low, q.unit, cited)
   const sameRange = cited.some((c) => c.low === q.low && c.high === q.high && unitOk(q.unit, c.unit))
   return sameRange || (hasValue(q.low, q.unit, cited) && hasValue(q.high, q.unit, cited))
+}
+
+// ---- Protective equipment -------------------------------------------------------
+
+// One group per kind of protection; any spelling in a group names that kind.
+// A point that names a kind must cite a passage that names the same kind.
+const PPE_GROUPS: [string, RegExp][] = [
+  ["FACE SHIELD", /\b(?:FACE ?SHIELDS?|VISORS?|GELAATSSCHERM(?:EN)?|SPATSCHERM(?:EN)?)\b/],
+  ["SAFETY GLASSES", /\b(?:SAFETY GLASSES|SAFETY SPECTACLES|GOGGLES|EYE PROTECTION|VEILIGHEIDSBRIL(?:LEN)?|OOGBESCHERMING)\b/],
+  ["GLOVES", /\b(?:GLOVES?|HANDSCHOEN(?:EN)?)\b/],
+  ["LAB COAT", /\b(?:LAB(?:ORATORY)? COATS?|LABJAS(?:SEN)?)\b/],
+  ["APRON", /\b(?:APRONS?|SCHORT(?:EN)?)\b/],
+  ["OVERALLS", /\b(?:OVERALLS?|COVERALLS?)\b/],
+  ["HEARING PROTECTION", /\b(?:HEARING PROTECTION|EAR ?DEFENDERS?|EAR ?PLUGS?|EAR ?MUFFS?|GEHOORBESCHERMING|OORDOPPEN)\b/],
+  ["HARD HAT", /\b(?:HARD HATS?|HELMETS?|BUMP CAPS?|VEILIGHEIDSHELM(?:EN)?|HELM(?:EN)?)\b/],
+  ["SAFETY SHOES", /\b(?:SAFETY (?:SHOES|BOOTS|FOOTWEAR)|STEEL-TOE(?:D|CAPPED)?|VEILIGHEIDSSCHOENEN)\b/],
+  ["RESPIRATOR", /\b(?:RESPIRATORS?|DUST MASKS?|FFP[123]|RESPIRATORY PROTECTION|ADEMBESCHERMING|STOFMASKERS?)\b/],
+  ["HARNESS", /\b(?:HARNESS(?:ES)?|FALL ARREST|VALBEVEILIGING|VALHARNAS)\b/],
+  ["HIGH-VISIBILITY CLOTHING", /\b(?:HIGH-VISIBILITY|HI-VIS|REFLECTIVE VESTS?|SIGNAALKLEDING)\b/],
+]
+
+/** Kinds of protective equipment a canonical text names. */
+function ppeItems(canon: string): Set<string> {
+  return new Set(PPE_GROUPS.filter(([, re]) => re.test(canon)).map(([name]) => name))
 }
 
 // ---- Wording support and polarity ---------------------------------------------
@@ -277,6 +325,15 @@ export function checkPoint(
     }
   }
 
+  // Protective equipment is named, not paraphrased: "face shield" is never
+  // supported by a passage that only says "safety glasses".
+  const citedCanon = normalise(citedText)
+  for (const item of ppeItems(normalise(text))) {
+    if (!ppeItems(citedCanon).has(item)) {
+      return { ok: false, dropped: { text, reason: "unsupported-token", detail: item.toLowerCase() } }
+    }
+  }
+
   const share = support(text, citedText)
   if (share < MIN_SUPPORT) {
     return {
@@ -329,6 +386,118 @@ export function checkPoint(
   }
 
   return { ok: true, point: { text, sources } }
+}
+
+// ---- Prose ----------------------------------------------------------------------
+
+/** Splits running text into sentences; a decimal point or "e.g." does not end one. */
+export function splitSentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?])\s+(?=["'(\p{Lu}\d])/u)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+/**
+ * Prose (intro and prose blocks): every sentence is its own point, checked by
+ * checkPoint against only the citations it carries itself. A sentence without
+ * a citation is dropped (`no-citation`), and an item the model wrote as two
+ * sentences is split first, so a supported sentence cannot carry an
+ * unsupported neighbour.
+ */
+export function checkProse(
+  sentences: RawPoint[],
+  provided: Map<string, ProvidedExcerpt>,
+): { kept: (CheckedPoint & { pointKey: string })[]; dropped: DroppedPoint[] } {
+  const kept: (CheckedPoint & { pointKey: string })[] = []
+  const dropped: DroppedPoint[] = []
+  for (const item of sentences) {
+    const sources = (item.sources ?? []).map((s) => s.trim()).filter(Boolean)
+    for (const text of splitSentences(String(item.text ?? ""))) {
+      if (sources.length === 0) {
+        dropped.push({ text, reason: "no-citation" })
+        continue
+      }
+      const checked = checkPoint({ text, sources }, provided)
+      if (checked.ok) kept.push({ ...checked.point, pointKey: pointKey(checked.point.text) })
+      else dropped.push((checked as { dropped: DroppedPoint }).dropped)
+    }
+  }
+  return { kept, dropped }
+}
+
+/**
+ * Runs (spec 4.5): the page shows one marker per run of up to 3 sentences
+ * with the same sources. A sentence whose sources are a subset of its
+ * neighbour's takes the neighbour's list when checkPoint still passes on it,
+ * so the run shares one marker. Sources are only ever widened to a set the
+ * sentence already passes against; nothing is dropped here.
+ */
+const RUN_MIN_SUPPORT = 0.2
+
+export function shareRunSources<T extends { text: string; sources: string[] }>(
+  points: T[],
+  provided: Map<string, ProvidedExcerpt>,
+): T[] {
+  const key = (p: { sources: string[] }) => [...new Set(p.sources)].sort().join("|")
+  // Widen only to passages about the same thing, so a marker never lists a
+  // passage unrelated to a sentence of its run.
+  const widens = (p: { text: string; sources: string[] }, to: string[]) =>
+    p.sources.every((x) => to.includes(x)) &&
+    to.every((k) => p.sources.includes(k) || support(p.text, provided.get(k)?.text ?? "") >= RUN_MIN_SUPPORT) &&
+    checkPoint({ text: p.text, sources: to }, provided).ok
+  const out = points.map((p) => ({ ...p, sources: [...p.sources] }))
+  for (let i = 1; i < out.length; i++) {
+    const prev = out[i - 1]
+    const cur = out[i]
+    if (key(prev) === key(cur)) continue
+    let run = 1
+    while (i - 1 - run >= 0 && key(out[i - 1 - run]) === key(prev)) run++
+    if (run < 3 && widens(cur, prev.sources)) {
+      cur.sources = [...prev.sources]
+    } else if (run === 1 && widens(prev, cur.sources)) {
+      prev.sources = [...cur.sources]
+    }
+  }
+  return out
+}
+
+// ---- Introduction rubric (spec 4.9; also used by the browser checks) --------------
+
+export const INTRO_MAX_WORDS = 90
+export const INTRO_MAX_SENTENCES = 4
+const INTRO_OPENER = /^(?:this|in this)\s+(?:wiki|guide|overview|page|document)\b/i
+
+export function wordCount(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length
+}
+
+/** Share of the sentence's content words that are in the heading (0..1). */
+export function headingOverlap(sentence: string, heading: string): number {
+  const s = contentStems(sentence)
+  if (s.length === 0) return 0
+  const h = new Set(contentStems(heading))
+  return s.filter((x) => h.has(x)).length / s.length
+}
+
+/** Why an intro sentence breaks the rubric (restates a heading, "This Wiki" opener), or null. */
+export function introSentenceProblem(sentence: string, headings: string[]): string | null {
+  if (INTRO_OPENER.test(sentence.trim())) return "opens with \"This Wiki\" or similar"
+  const h = headings.find((x) => headingOverlap(sentence, x) >= 0.6)
+  return h ? `restates the heading "${h}"` : null
+}
+
+/** Rubric items 1 to 3 for a whole intro; an empty list means it passes. */
+export function introProblems(sentences: string[], headings: string[]): string[] {
+  const out: string[] = []
+  if (sentences.length < 2 || sentences.length > INTRO_MAX_SENTENCES) out.push(`${sentences.length} sentences, not 2 to 4`)
+  const words = sentences.reduce((n, s) => n + wordCount(s), 0)
+  if (words >= INTRO_MAX_WORDS) out.push(`${words} words, not under ${INTRO_MAX_WORDS}`)
+  for (const s of sentences) {
+    const p = introSentenceProblem(s, headings)
+    if (p) out.push(`"${s.slice(0, 50)}" ${p}`)
+  }
+  return out
 }
 
 // Opposites: a point using one side needs a supporting sentence that uses

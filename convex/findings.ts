@@ -23,6 +23,7 @@ import { internal } from "./_generated/api"
 import { Doc, Id } from "./_generated/dataModel"
 import type { PublishEvent } from "./lib/onPublish"
 import { publishedVersion } from "./lib/published"
+import { allPoints, isContentV2 } from "./lib/wikiTypes"
 import { requireUser, requireUserId } from "./lib/auth"
 import { requireEngineer } from "./documents"
 import { factTokens, normalise, withTableHeaders } from "./ai/grounding"
@@ -370,6 +371,7 @@ export const saveFindings = internalMutation({
   },
   handler: async (ctx, args) => {
     let inserted = 0
+    const contradicted = new Set<Id<"documents">>()
     const now = Date.now()
     for (const f of args.findings) {
       const [a, b] = orderSides(f.a, f.b)
@@ -422,6 +424,20 @@ export const saveFindings = internalMutation({
         dismissedBy: null,
       })
       inserted += 1
+      if (f.kind === "contradiction") {
+        contradicted.add(a.documentId)
+        contradicted.add(b.documentId)
+      }
+    }
+    // A Wiki built before this contradiction was found must now show both
+    // sides: recompose (code only, no AI) every Wiki citing either Document.
+    if (contradicted.size > 0) {
+      for (const w of await ctx.db.query("wikis").take(200)) {
+        if (!isContentV2(w.content)) continue
+        if (allPoints(w.content).some((p) => p.citations.some((c) => contradicted.has(c.documentId)))) {
+          await ctx.scheduler.runAfter(0, internal.wikiBlocks.compose, { wikiId: w._id, mode: "normal" })
+        }
+      }
     }
     return inserted
   },

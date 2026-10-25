@@ -25,7 +25,7 @@ import {
   toolByName,
 } from "./tools"
 import { validate } from "./validate"
-import { embedText } from "./embedding"
+import { embedText } from "../ai/gemini"
 import type { Passage } from "./data"
 import type { ImportBlock } from "./render"
 
@@ -245,7 +245,7 @@ const HANDLERS: Record<ToolName, (ctx: ActionCtx, key: Key, args: Args) => Promi
     let mode: "semantic" | "keyword" = "semantic"
     let results: Passage[]
     try {
-      const vector = await embedText(query)
+      const vector = await embedText({ ctx, feature: "mcp", personId: null, target: { kind: "mcpKey", id: key._id } }, query)
       const hits = await vectorChunks(ctx, vector, scoped.areas, 40)
       const found: Omit<Passage, "score">[] = await ctx.runQuery(internal.mcp.data.passages, {
         chunkIds: hits.map((h) => h._id),
@@ -354,7 +354,8 @@ const HANDLERS: Record<ToolName, (ctx: ActionCtx, key: Key, args: Args) => Promi
     let passageCount = 0
     try {
       const inputs = [`${title}\n${text.slice(0, 1500)}`, ...samplePassages(text)]
-      const vectors = await Promise.all(inputs.map(embedText))
+      const spec = { ctx, feature: "mcp" as const, personId: null, target: { kind: "mcpKey", id: key._id as string } }
+      const vectors = await Promise.all(inputs.map((t) => embedText(spec, t)))
       const hitsPer = await Promise.all(vectors.map((vec) => vectorChunks(ctx, vec, areas, 40)))
       const allIds = [...new Set(hitsPer.flat().map((h) => h._id))]
       const found: Omit<Passage, "score">[] = await ctx.runQuery(internal.mcp.data.passages, {

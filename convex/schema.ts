@@ -5,6 +5,20 @@ import { captureTables } from "./captures/schema"
 import { peopleTables } from "./people/schema"
 import { plantTables } from "./plant/schema"
 import { settingsTables } from "./settings/schema"
+import {
+  claimResultValidator,
+  contentV2Validator,
+  droppedDetailValidator,
+  legacyContentValidator,
+  lengthValidator,
+  outlineValidator,
+  readingLevelValidator,
+  searchStatsValidator,
+  storedContentValidator,
+  wikiBlockFields,
+  wikiBlockSnapshotValidator,
+  wikiEventKindValidator,
+} from "./lib/wikiValidators"
 
 const CITATION = v.object({
   documentId: v.id("documents"),
@@ -12,6 +26,15 @@ const CITATION = v.object({
   version: v.number(),
   chunkId: v.union(v.id("chunks"), v.null()),
   quote: v.string(),
+})
+
+const wikiScopeValidator = v.object({
+  areas: v.array(v.string()),
+  disciplines: v.array(v.string()),
+  assetIds: v.array(v.id("assets")),
+  documentIds: v.array(v.id("documents")),
+  // Documents the Engineer took out of the Scope by hand (wiki lane).
+  excludedDocumentIds: v.optional(v.array(v.id("documents"))),
 })
 
 export default defineSchema({
@@ -543,19 +566,13 @@ export default defineSchema({
   }),
 
   // ---- Wikis -----------------------------------------------------------------
-  // AI-generated overviews of Published Knowledge inside a Scope. Never written
-  // by hand; regenerated on a schedule and when an in-scope Document publishes.
+  // Overviews of Published Knowledge inside a Scope. People shape the Outline;
+  // every claim cites a live Published passage (docs/adr/0007). Regenerated on
+  // a schedule and when an in-scope Document publishes.
   wikis: defineTable({
     title: v.string(),
     purpose: v.string(),
-    scope: v.object({
-      areas: v.array(v.string()),
-      disciplines: v.array(v.string()),
-      assetIds: v.array(v.id("assets")),
-      documentIds: v.array(v.id("documents")),
-      // Documents the Engineer took out of the Scope by hand (wiki lane).
-      excludedDocumentIds: v.optional(v.array(v.id("documents"))),
-    }),
+    scope: wikiScopeValidator,
     // How the Wiki reads (wiki lane). Absent means "overview".
     format: v.optional(
       v.union(v.literal("overview"), v.literal("steps"), v.literal("reference")),
@@ -573,43 +590,9 @@ export default defineSchema({
       v.literal("empty"),
       v.literal("failed"),
     ),
-    content: v.union(
-      v.null(),
-      v.object({
-        intro: v.string(),
-        sections: v.array(
-          v.object({
-            heading: v.string(),
-            // Layout of the section (wiki lane). Absent means "bullets".
-            kind: v.optional(
-              v.union(v.literal("bullets"), v.literal("steps"), v.literal("table")),
-            ),
-            // A safety section renders as a callout (wiki lane).
-            safety: v.optional(v.boolean()),
-            // Column headings of a table section; each point is one row.
-            columns: v.optional(v.array(v.string())),
-            points: v.array(
-              v.object({
-                text: v.string(),
-                // Shown in "At a glance" (wiki lane).
-                key: v.optional(v.boolean()),
-                // Table row cells, in column order (wiki lane).
-                cells: v.optional(v.array(v.string())),
-                citations: v.array(
-                  v.object({
-                    chunkId: v.id("chunks"),
-                    documentId: v.id("documents"),
-                    namingCode: v.string(),
-                    version: v.number(),
-                    section: v.union(v.string(), v.null()),
-                  }),
-                ),
-              }),
-            ),
-          }),
-        ),
-      }),
-    ),
+    // Legacy shape until migrated, then WikiContentV2 (convex/lib/wikiTypes.ts).
+    // Always read it through normaliseContent.
+    content: v.union(v.null(), storedContentValidator),
     // The exact Published versions this content was built from.
     sources: v.array(
       v.object({
@@ -633,7 +616,33 @@ export default defineSchema({
     error: v.union(v.string(), v.null()),
     createdBy: v.union(v.id("users"), v.null()),
     updatedAt: v.number(),
-  }),
+    // ---- Wiki upgrade (docs/specs/wiki-upgrade.md 6.2, docs/adr/0007) ----
+    // The Outline people shape; its blocks live in wikiBlocks. Survives rebuilds.
+    outline: v.optional(outlineValidator),
+    // Unapplied changes to the Outline; absent when there are none.
+    outlineStaged: v.optional(outlineValidator),
+    // Bumped on every staged change; Apply carries the version it was shown.
+    stagedVersion: v.optional(v.number()),
+    outlineUpdatedAt: v.optional(v.number()),
+    outlineUpdatedBy: v.optional(v.id("people")),
+    // Second Engineer for written blocks (D2), danger cap (D5, default 2),
+    // reading level and length for the full rebuild.
+    confirmByAnother: v.optional(v.boolean()),
+    maxDanger: v.optional(v.number()),
+    readingLevel: v.optional(readingLevelValidator),
+    length: v.optional(lengthValidator),
+    // The first 20 points the last build dropped, with reasons (shown in 1.5).
+    droppedDetail: v.optional(v.array(droppedDetailValidator)),
+    // Model ("claude" / "gemini" / "stub") and prompt version of the last build.
+    model: v.optional(v.string()),
+    promptVersion: v.optional(v.string()),
+    // Publish triggers coalesce per Wiki: the rebuild due at this time (3.8).
+    rebuildScheduledAt: v.optional(v.number()),
+    // Migration (6.3): v2 content composed in legacy mode, until the swap.
+    contentV2Pending: v.optional(contentV2Validator),
+  })
+    .index("by_status", ["status"])
+    .index("by_startHere", ["startHere"]),
 
   // One row per successful Wiki build (wiki lane), the last 10 per Wiki, for
   // "what changed since the last build" and the History drawer.
@@ -655,7 +664,166 @@ export default defineSchema({
         points: v.array(v.object({ text: v.string(), chunkIds: v.array(v.id("chunks")) })),
       }),
     ),
+    // Lossless build (spec 5.3): Restore and migration rollback use these.
+    reason: v.optional(
+      v.union(v.literal("build"), v.literal("apply"), v.literal("confirm"), v.literal("restore"), v.literal("preMigration")),
+    ),
+    personId: v.optional(v.union(v.id("people"), v.null())),
+    contentV2: v.optional(contentV2Validator),
+    // The stored content before migration, unchanged (reason "preMigration").
+    legacyContent: v.optional(legacyContentValidator),
+    outline: v.optional(outlineValidator),
+    blocks: v.optional(v.array(wikiBlockSnapshotValidator)),
+    scope: v.optional(wikiScopeValidator),
+    title: v.optional(v.string()),
+    purpose: v.optional(v.string()),
+    model: v.optional(v.string()),
+    promptVersion: v.optional(v.string()),
   }).index("by_wikiId", ["wikiId"]),
+
+  // The blocks of a Wiki's Outline (spec 6.2). Live rows reach readers when
+  // their status is visible; staged rows are unapplied changes.
+  wikiBlocks: defineTable(wikiBlockFields)
+    .index("by_wikiId_and_state", ["wikiId", "state"])
+    .index("by_wikiId_and_blockId", ["wikiId", "blockId"])
+    .index("by_wikiId_and_status", ["wikiId", "status"]),
+
+  // The evidence of one Check against Published (spec 3.5). No blockId for a
+  // standalone check (Phase 1.5).
+  wikiChecks: defineTable({
+    wikiId: v.optional(v.id("wikis")),
+    blockId: v.optional(v.string()),
+    personId: v.id("people"),
+    text: v.string(),
+    claims: v.array(claimResultValidator),
+    stats: searchStatsValidator,
+    cacheKey: v.string(),
+    model: v.string(),
+    ok: v.boolean(),
+    error: v.optional(v.string()),
+    at: v.number(),
+  })
+    .index("by_cacheKey", ["cacheKey"])
+    .index("by_wikiId", ["wikiId"]),
+
+  // Append-only audit trail of every Wiki change (spec 5.3).
+  wikiEvents: defineTable({
+    wikiId: v.id("wikis"),
+    at: v.number(),
+    personId: v.union(v.id("people"), v.null()),
+    kind: wikiEventKindValidator,
+    blockId: v.optional(v.string()),
+    sectionId: v.optional(v.string()),
+    detail: v.string(),
+  }).index("by_wikiId_and_at", ["wikiId", "at"]),
+
+  // Read depth and fold use (spec 7.5). No person id, no text.
+  wikiReads: defineTable({
+    wikiId: v.id("wikis"),
+    at: v.number(),
+    surface: v.union(v.literal("desktop"), v.literal("phone")),
+    maxSectionIndex: v.number(),
+    sectionCount: v.number(),
+    foldToggles: v.number(),
+    checkedIn: v.boolean(),
+  }).index("by_wikiId_and_at", ["wikiId", "at"]),
+
+  // ---- AI usage and cost tracker (spec 6.6, 6.7; CONTEXT.md: AI usage) ---------
+  // kind "call": one row per model call, written by convex/lib/aiMeter.ts.
+  // kind "action": one row per budgeted AI action (Generate, Check, Find
+  // sources...), written by convex/lib/aiBudget.ts; the caps count these.
+  // Never any prompt or answer text.
+  aiUsage: defineTable({
+    kind: v.union(v.literal("call"), v.literal("action")),
+    time: v.number(),
+    // UTC day "2026-10-25", for daily totals and rollups.
+    day: v.string(),
+    // wiki.build, wiki.block, wiki.check, ask, writer, image.generate,
+    // embed.passage... (AI_FEATURES in convex/lib/aiMeter.ts)
+    feature: v.string(),
+    // anthropic, google, stub; "none" on action rows.
+    provider: v.string(),
+    model: v.string(),
+    tokensIn: v.number(),
+    tokensOut: v.number(),
+    // Images generated or items embedded; 0 for chat calls.
+    units: v.number(),
+    latencyMs: v.number(),
+    // Absent on an action row that is still running (it counts against caps).
+    ok: v.optional(v.boolean()),
+    error: v.optional(v.string()),
+    personId: v.union(v.id("people"), v.null()),
+    // What the call served: "wiki", "document", "training", "capture"...
+    targetKind: v.optional(v.string()),
+    targetId: v.optional(v.string()),
+    // Estimated cost in USD from the aiPrices row valid at `time`.
+    estCost: v.optional(v.number()),
+    // Action rows: the budgeted action ("wikiBlock", "wikiCheck"...).
+    action: v.optional(v.string()),
+    // A daily rollup (calls older than 30 days, one row per day, feature,
+    // model, person, target and outcome): how many calls it stands for, with
+    // tokens, units, latency and cost summed. Absent: one call.
+    calls: v.optional(v.number()),
+  })
+    .index("by_time", ["time"])
+    .index("by_day_and_feature", ["day", "feature"])
+    .index("by_feature_and_time", ["feature", "time"])
+    .index("by_kind_and_time", ["kind", "time"])
+    .index("by_personId_and_kind_and_time", ["personId", "kind", "time"])
+    .index("by_targetId_and_kind_and_time", ["targetId", "kind", "time"]),
+
+  // Price table (CONTEXT.md). One row per model per effective date; the row
+  // valid at a call's time prices it, so a change never rewrites history.
+  aiPrices: defineTable({
+    provider: v.string(),
+    model: v.string(),
+    kind: v.union(v.literal("tokens"), v.literal("image"), v.literal("embedding")),
+    // USD per 1M tokens (kind "tokens").
+    inPerMTok: v.optional(v.number()),
+    outPerMTok: v.optional(v.number()),
+    // USD per image (kind "image").
+    perImage: v.optional(v.number()),
+    // USD per 1k embedded items (kind "embedding").
+    perKItems: v.optional(v.number()),
+    effectiveFrom: v.number(),
+    note: v.optional(v.string()),
+    updatedAt: v.number(),
+    updatedBy: v.optional(v.id("people")),
+  }).index("by_model_and_effectiveFrom", ["model", "effectiveFrom"]),
+
+  // AI limits and the Plan (CONTEXT.md). One row; a missing value uses the
+  // default in convex/lib/aiBudget.ts. Edited in the tracker's settings.
+  aiSettings: defineTable({
+    // Switches every Wiki AI action off, like OPPR_WIKI_AI_OFF=1.
+    wikiAiOff: v.optional(v.boolean()),
+    deploymentDailyCap: v.optional(v.number()),
+    wikiDailyCap: v.optional(v.number()),
+    systemDailyCap: v.optional(v.number()),
+    systemPerWikiDaily: v.optional(v.number()),
+    personHourly: v.optional(
+      v.object({
+        wikiBlock: v.optional(v.number()),
+        wikiCheck: v.optional(v.number()),
+        wikiFind: v.optional(v.number()),
+      }),
+    ),
+    // Off until enabled. Amounts and plan names are the user's decision.
+    plan: v.optional(
+      v.object({
+        enabled: v.boolean(),
+        name: v.optional(v.string()),
+        monthlyActions: v.optional(v.number()),
+        monthlyCredits: v.optional(v.number()),
+        featureLimits: v.optional(v.array(v.object({ feature: v.string(), monthly: v.number() }))),
+        overage: v.optional(v.boolean()),
+        atLimit: v.optional(v.union(v.literal("warn"), v.literal("stop"))),
+      }),
+    ),
+    // The last UTC day whose AI calls are rolled up into daily rows (aiUsage.rollupOld).
+    usageRolledThrough: v.optional(v.string()),
+    updatedAt: v.number(),
+    updatedBy: v.optional(v.id("people")),
+  }),
 
   // ---- Seed media cache --------------------------------------------------------
   // AI-generated seed images and supplier PDFs, keyed by a stable key. Never
@@ -757,8 +925,12 @@ export default defineSchema({
         v.literal("finding"),
         v.literal("insight"),
         v.literal("health"),
+        v.literal("wiki_check"),
       ),
       findingId: v.optional(v.id("findings")),
+      // kind "wiki_check": the Wiki and the check whose claims it carries.
+      wikiId: v.optional(v.id("wikis")),
+      checkId: v.optional(v.id("wikiChecks")),
       note: v.string(),
     }),
     summary: v.string(),

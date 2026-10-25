@@ -158,8 +158,24 @@ _Avoid_: major version, breaking change
 ### Wikis
 
 **Wiki**:
-An AI-generated overview of the Published Knowledge that is relevant to a particular audience, bounded by its Scope. People never write a Wiki by hand. It is regenerated on a schedule, and whenever one of its sources gets a new Published version, so it stays correct without a human author. It is not a status card for an Asset.
+An AI-generated overview of the Published Knowledge that is relevant to a particular audience, bounded by its Scope. People shape a Wiki (its sections, blocks and sources) and may phrase a block by hand, but every claim in it cites and is verified against Published Knowledge (docs/adr/0007). It is regenerated on a schedule, and whenever one of its sources gets a new Published version, so it stays correct without a human author. It is a reading aid, a snapshot and not a controlled document. It is not a status card for an Asset.
 _Avoid_: page, article, record card
+
+**Outline**:
+The ordered sections and blocks of a Wiki that Engineers shape. It survives rebuilds.
+_Avoid_: structure, template, table of contents
+
+**Wiki block**:
+One unit of a Wiki section: introduction, prose, key points, steps, table, callout and so on. Generated or written by an Engineer, always cited.
+_Avoid_: note, comment, card
+
+**Unapplied changes**:
+Edits to a Wiki's Outline and blocks that an Engineer has made but not yet applied. Readers keep seeing the live Wiki until they are applied.
+_Avoid_: draft (that word belongs to Guided creation and Documents), pending edits
+
+**Check against Published**:
+Checking a person's statement, claim by claim, against Published passages. Each claim comes out Supported, Differs, Not covered, Partly supported or Already disputed. It is evidence, never approval: a claim only the AI judge supports needs a second Engineer's confirm.
+_Avoid_: validate, fact check, verify (on its own)
 
 **Scope**:
 The boundary that says which Knowledge something draws from: any combination of disciplines, areas, Assets and Documents. Ask already uses a simple Scope (one Document, one Asset or the whole library). A Wiki's Scope is the generalised version of that.
@@ -203,6 +219,18 @@ _Avoid_: issue, alert, conflict
 
 **Usage**:
 How people actually use Knowledge: Scans, views, questions asked and Trainings done.
+
+**AI usage**:
+Every call the app makes to an AI model (Claude, Gemini chat, image generation, embeddings), one record per call: when, for which feature, which model, how many tokens or items, how long it took, whether it worked, who started it (none for system jobs) and what it served. Never the prompt or the answer. Each record gets an estimated cost from the price table.
+_Avoid_: AI log, telemetry, Usage (on its own; that is how people use Knowledge)
+
+**Price table**:
+The Admin-edited list of model prices (per million tokens in and out, per image, per thousand embeddings), each with the date it applies from. A price change never rewrites the cost of earlier AI usage. Every amount is an estimate.
+_Avoid_: rate card, tariff
+
+**Plan**:
+The AI allowance one customer organisation has bought: included AI actions or credits per month, limits per feature, and what happens at the limit (warn or stop). Off until set; without a Plan only the deployment's AI limits apply.
+_Avoid_: subscription, tier, licence
 
 ### Connecting outside models
 
@@ -248,7 +276,8 @@ A place where Captures in a Capture set do the same step differently, skip it, o
 - A **Skill** level is held by one person. A passed **Training** raises it to level 1, and an Engineer's sign-off raises it to levels 2 and 3.
 - A **Skill** is linked to Published **Documents**. Publishing a **Significant change** to one of them flags every holder as "re-train needed".
 - A **Skill profile** lists target levels per **Skill**. Gaps against it drive which **Trainings** a person is offered.
-- A **Wiki** has exactly one **Scope**, and is derived from the Published **Documents** and **Trainings** inside it.
+- A **Wiki** has exactly one **Scope**, and is derived from the Published **Documents** inside it.
+- A **Wiki** has one **Outline** of sections and **Wiki blocks**. Engineers shape it through **unapplied changes**; a block they phrase by hand reaches readers only after a **Check against Published** proves every claim, or a second Engineer confirms what only the AI judge supports. A claim that differs from or is missing in Published Knowledge becomes a **Proposed revision**, never Wiki text.
 - A **Wiki** is made through **Guided creation**: conversation, then **Draft**, then confirm.
 - A **Consistency check** runs on every publish (the new version against existing Published Knowledge) and once a week across everything. Its **Findings** go to the Engineers' list and appear as a banner on both Documents.
 - **Ask** keeps answering when a source has an open contradiction **Finding**, but it warns the person and names both sources.

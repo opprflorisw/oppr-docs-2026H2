@@ -16,7 +16,7 @@ import { internal } from "../_generated/api"
 import { Doc, Id } from "../_generated/dataModel"
 import { requireUser } from "../lib/auth"
 import { isPublished, publishedVersion } from "../lib/published"
-import { embedText } from "../mcp/embedding"
+import { embedText } from "../ai/gemini"
 import { EMBEDDING_MODEL_VERSION } from "../ai/constants"
 
 const MAX_SAMPLE = 300
@@ -103,7 +103,7 @@ export const geminiSearch = action({
     const query = args.query.trim().slice(0, 500)
     if (!query) return { hits: [], model: EMBEDDING_MODEL_VERSION, embedMs: 0, searchMs: 0 }
     const t0 = Date.now()
-    const vector = await embedText(query)
+    const vector = await embedText({ ctx, feature: "embed.query" }, query)
     const t1 = Date.now()
     const results = await ctx.vectorSearch("chunks", "by_embedding", { vector, limit: 256 })
     const score = new Map(results.map((r) => [String(r._id), r._score]))

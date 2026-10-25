@@ -4,9 +4,8 @@
 // one is set.
 import { query } from "../_generated/server"
 import { requireUser } from "../lib/auth"
-import { CHAT_MODEL, EMBEDDING_DIM, EMBEDDING_MODEL, IMAGE_EMBEDDING_MODEL } from "../ai/constants"
+import { CHAT_MODEL, EMBEDDING_DIM, EMBEDDING_MODEL, IMAGE_EMBEDDING_MODEL, IMAGE_MODEL } from "../ai/constants"
 import { CLAUDE_MODEL } from "../ai/llm"
-import { IMAGE_MODEL } from "../seed/media"
 import { SCHEDULES, scheduleText } from "./schedules"
 
 export const overview = query({

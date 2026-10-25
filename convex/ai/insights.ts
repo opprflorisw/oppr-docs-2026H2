@@ -131,6 +131,7 @@ export const generate = internalAction({
     let out: z.infer<typeof Out>
     try {
       out = await claudeJson({
+        meter: { ctx, feature: "insights", personId: null, target: { kind: "document", id: args.documentId } },
         system: SYSTEM,
         messages: [{ role: "user", content: prompt }],
         schema: Out,

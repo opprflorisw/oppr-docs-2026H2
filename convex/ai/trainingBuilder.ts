@@ -195,6 +195,7 @@ export const draftBreakdown = action({
     if (canUseModel()) {
       try {
         const out = await claudeJson({
+          meter: { ctx, feature: "training" },
           system: BREAKDOWN_SYSTEM,
           messages: [
             {
@@ -393,6 +394,7 @@ export const draftQuestions = action({
     if (canUseModel()) {
       try {
         const out = await claudeJson({
+          meter: { ctx, feature: "training" },
           system: QUESTION_SYSTEM,
           messages: [
             {
@@ -644,6 +646,7 @@ export const refreshSignals = action({
           const objKey = new Map(input.objectives.map((o, i) => [o.id, `O${i + 1}`]))
           const keyObj = new Map(input.objectives.map((o, i) => [`O${i + 1}`, o.id]))
           const out = await claudeJson({
+            meter: { ctx, feature: "training" },
             system: SIGNALS_SYSTEM,
             messages: [
               {

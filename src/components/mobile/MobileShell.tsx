@@ -405,7 +405,7 @@ const TABS: Tab[] = [
     to: "/m/find",
     label: "Find",
     icon: Search,
-    match: (p) => /^\/m\/(find|assets|docs|scan|wiki)(\/|$)/.test(p),
+    match: (p) => /^\/m\/(find|assets|docs|scan)(\/|$)/.test(p),
   },
   { to: "/m/capture", label: "Capture", icon: CircleDot, match: (p) => /^\/m\/capture(\/|$)/.test(p) },
   { to: "/m/ask", label: "Ask", icon: MessageSquare, match: (p) => p === "/m/ask" },

@@ -42,6 +42,12 @@ export const SCHEDULES = {
     what: "Removes photos, video and voice notes of handed-in Captures older than the retention set under Floor. Does nothing while no retention is set.",
     at: { kind: "daily", hourUTC: 5, minuteUTC: 0 },
   },
+  aiUsageRollup: {
+    name: "ai usage rollup",
+    label: "AI usage rollup",
+    what: "AI calls older than 30 days are rolled up into one row per day and kind of call, so the usage table stays small. Totals and costs stay the same.",
+    at: { kind: "daily", hourUTC: 1, minuteUTC: 30 },
+  },
 } satisfies Record<string, Schedule>
 
 export function scheduleText(at: Daily | Weekly): string {

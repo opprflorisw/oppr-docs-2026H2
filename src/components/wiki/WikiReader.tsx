@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react"
-import { Link } from "wouter"
-import { AlertOctagon, AlertTriangle, ChevronDown, FileText, ListChecks, ShieldAlert } from "lucide-react"
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react"
+import { ChevronDown, ChevronsDownUp, ChevronsUpDown, ShieldAlert } from "lucide-react"
+import type { WikiEditRenderers } from "./edit/WikiEditLayer"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -10,268 +9,284 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+import { SectionSources } from "./Citations"
+import { BlockContext, useBlockCtx, type BlockCtx } from "./blocks/context"
+import { CalloutBlock } from "./blocks/CalloutBlock"
+import { GapBlock } from "./blocks/GapBlock"
+import { ImagesBlock } from "./blocks/ImagesBlock"
+import { CoverageLine, IntroBlock } from "./blocks/IntroBlock"
+import { KeyPointsBlock } from "./blocks/KeyPointsBlock"
+import { ListBlock } from "./blocks/ListBlock"
+import { OriginMark } from "./blocks/OriginMark"
+import { ProseBlock } from "./blocks/ProseBlock"
+import { TableBlock } from "./blocks/TableBlock"
+import type { Fold } from "./useFold"
 import {
-  groupByDocument,
-  isWarning,
-  passageHref,
-  WikiText,
-  type CitationGroup,
-  type WikiPointView,
+  dangerOverCap,
+  factCount,
+  sectionDocuments,
+  sectionNotes,
+  type SourceNote,
+  type WikiBlockView,
+  type WikiCitation,
+  type WikiContentView,
   type WikiSectionView,
   type WikiView,
 } from "./wikiShared"
 
-// The desktop Wiki reader: At a glance, sections (bullets, steps, tables,
-// safety callouts, pictures), unobtrusive source chips and the on-page table
-// of contents. Body text keeps a reading measure; tables, step lists and
-// pictures may use more of the width.
+// The Wiki reader (spec 4): the introduction with its coverage line, Key
+// points, then the sections in outline order, each folding, each block laid
+// out by its kind. Desktop and phone share it; print has its own layout.
+// The edit layer draws through renderBlockChrome and renderInsert only.
 
-const READING = "max-w-[70ch]"
-const WIDE = "max-w-[88ch]"
-const TABLE = "max-w-[120ch]"
+/** One content width for every text block (spec 4.2); tables may use the article width. */
+const TEXT = "max-w-[68ch]"
 
-function bodyWidth(kind: string, fallback: string): string {
-  if (kind === "table") return TABLE
-  if (kind === "steps") return WIDE
-  return fallback
-}
-
-/** Small, quiet source marker. Hover shows the passage; click opens it. */
-export function SourceChip({ wikiId, group, excerpts }: { wikiId: string; group: CitationGroup; excerpts: Record<string, string> }) {
-  const first = group.items[0]
-  const href = passageHref(group.documentId, group.version, excerpts[first.chunkId], { wikiId })
-  const many = group.items.length > 1
-  return (
-    <HoverCard openDelay={150}>
-      <HoverCardTrigger asChild>
-        <Link
-          href={href}
-          className="wiki-source ml-1 inline-flex items-center gap-1 whitespace-nowrap rounded px-1 align-baseline font-mono text-xs text-muted-foreground/80 transition-colors [@media(hover:hover)]:hover:bg-primary/5 [@media(hover:hover)]:hover:text-primary-strong"
-        >
-          <FileText className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
-          {group.namingCode}
-          {many && <span className="font-sans">×{group.items.length}</span>}
-        </Link>
-      </HoverCardTrigger>
-      <HoverCardContent className="max-h-96 w-80 space-y-2 overflow-y-auto text-xs" align="start">
-        <p className="font-mono text-xs text-muted-foreground">
-          {group.namingCode} · v{group.version}
-          {!many && first.section ? ` · ${first.section}` : ""}
-        </p>
-        {group.items.map((c, i) => (
-          <div key={i} className="space-y-0.5">
-            {many && c.section && <p className="text-xs font-medium text-muted-foreground">{c.section}</p>}
-            <p className="leading-relaxed">{excerpts[c.chunkId] ?? "This passage is no longer in the published version."}</p>
-          </div>
-        ))}
-        <p className="text-xs text-primary-strong">Click to open {many ? "the first passage" : "it"} in the document</p>
-      </HoverCardContent>
-    </HoverCard>
-  )
-}
-
-/** "Open finding" and "New" markers on a point. */
-export function PointMarks({ point }: { point: WikiPointView }) {
-  return (
-    <>
-      {point.isNew && (
-        <span className="ml-1.5 inline-flex items-center rounded-full bg-emerald-100 px-1.5 py-px align-middle text-xs font-medium text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200">
-          New
-        </span>
-      )}
-      {point.findingId && (
-        <Link
-          href={`/library/findings?id=${point.findingId}`}
-          title={point.findingSummary ?? "Open contradiction between the sources"}
-          className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-red-100 px-1.5 py-px align-middle text-xs font-medium text-red-800 [@media(hover:hover)]:hover:bg-red-200 dark:bg-red-500/15 dark:text-red-200"
-        >
-          <AlertOctagon className="h-3 w-3" aria-hidden />
-          Open finding
-        </Link>
-      )}
-    </>
-  )
-}
-
-function Sources({ wiki, point }: { wiki: WikiView; point: WikiPointView }) {
-  return (
-    <>
-      {groupByDocument(point.citations).map((g) => (
-        <SourceChip key={g.documentId} wikiId={wiki._id} group={g} excerpts={wiki.excerpts} />
-      ))}
-    </>
-  )
-}
-
-/** The 3 to 5 facts to remember, at the top. */
-export function AtAGlance({ wiki }: { wiki: WikiView }) {
-  const points = (wiki.content?.sections ?? []).flatMap((s) => s.points.filter((p) => p.key && !p.cells))
-  if (points.length === 0) return null
-  return (
-    <section aria-labelledby="wiki-glance" className={cn("wiki-glance rounded-xl border border-primary/25 bg-primary/[0.04] p-5", WIDE)}>
-      <h2 id="wiki-glance" className="flex items-center gap-2 text-sm font-semibold text-primary-strong">
-        <ListChecks className="h-4 w-4" aria-hidden />
-        At a glance
-      </h2>
-      <ul className="mt-3 space-y-2.5">
-        {points.map((p, i) => (
-          <li key={i} className="flex gap-3 text-[15px] leading-7">
-            <span className="mt-[11px] h-1.5 w-1.5 shrink-0 rounded-full bg-primary-strong" aria-hidden />
-            <span className="min-w-0">
-              <span className="font-medium">
-                <WikiText text={p.text} />
-              </span>
-              <Sources wiki={wiki} point={p} />
-              <PointMarks point={p} />
-            </span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
-}
-
-/** One section, laid out by its kind. */
-export function WikiSectionBlock({
+export function WikiBlocksProvider({
   wiki,
-  section,
-  index,
-  slug,
+  content,
+  surface,
+  showCodes = false,
+  slugs,
+  jumpTo,
+  openSources = () => {},
+  children,
 }: {
   wiki: WikiView
-  section: WikiSectionView
-  index: number
-  slug: string
+  content: WikiContentView
+  surface: BlockCtx["surface"]
+  showCodes?: boolean
+  slugs: Record<string, string>
+  jumpTo: (sectionId: string) => void
+  openSources?: (c: WikiCitation[]) => void
+  children: ReactNode
 }) {
-  const figure = wiki.figures[index]
-  const kind = section.kind ?? "bullets"
-  const heading = (
-    <h2 id={slug} className="scroll-mt-36 text-lg font-semibold leading-snug tracking-tight">
-      <a href={`#${slug}`} className="group inline-flex items-center gap-2 no-underline">
-        {section.safety && <ShieldAlert className="h-5 w-5 shrink-0 text-amber-600" aria-hidden />}
-        {section.heading}
-        <span className="text-sm font-normal text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" aria-hidden>
-          #
-        </span>
-      </a>
-    </h2>
+  const notes = useMemo(() => {
+    const all = new Map<string, SourceNote>()
+    for (const s of content.sections) for (const [k, n] of sectionNotes(s.blocks).at) all.set(k, n)
+    return all
+  }, [content])
+  const dangerOver = useMemo(() => dangerOverCap(content, wiki.settings.maxDanger), [content, wiki.settings.maxDanger])
+  const value = useMemo<BlockCtx>(
+    () => ({ wiki, content, surface, showCodes, notes, dangerOver, slugs, jumpTo, openSources }),
+    [wiki, content, surface, showCodes, notes, dangerOver, slugs, jumpTo, openSources],
   )
+  return <BlockContext.Provider value={value}>{children}</BlockContext.Provider>
+}
 
-  const body =
-    kind === "table" && section.columns ? (
-      <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full border-collapse text-sm">
-          <thead className="bg-muted/50 text-left">
-            <tr>
-              {section.columns.map((c) => (
-                <th key={c} scope="col" className="px-3 py-2 font-semibold">
-                  {c}
-                </th>
-              ))}
-              <th scope="col" className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">
-                Source
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {section.points.map((p, i) => (
-              <tr key={i} className="border-t align-top">
-                {section.columns!.map((_, j) => (
-                  <td key={j} className={cn("px-3 py-2 leading-6", j === 0 && "font-medium")}>
-                    <WikiText text={p.cells?.[j] ?? ""} />
-                    {j === 0 && <PointMarks point={p} />}
-                  </td>
-                ))}
-                <td className="whitespace-nowrap px-3 py-2 text-right">
-                  <Sources wiki={wiki} point={p} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    ) : kind === "steps" ? (
-      <ol className="space-y-3">
-        {section.points.map((p, i) => (
-          <li key={i} className="flex gap-3 text-[15px] leading-7">
-            <span
-              className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary-strong"
-              aria-hidden
-            >
-              {i + 1}
-            </span>
-            <span className="min-w-0">
-              {!section.safety && isWarning(p.text) && (
-                <AlertTriangle className="mr-1 inline h-4 w-4 -translate-y-px text-amber-600" aria-label="Warning" />
-              )}
-              <WikiText text={p.text} />
-              <Sources wiki={wiki} point={p} />
-              <PointMarks point={p} />
-            </span>
-          </li>
-        ))}
-      </ol>
-    ) : (
-      <ul className="space-y-2.5">
-        {section.points.map((p, i) => (
-          <li key={i} className="flex gap-3 text-[15px] leading-7">
-            {!section.safety && isWarning(p.text) ? (
-              <AlertTriangle className="mt-1.5 h-4 w-4 shrink-0 text-amber-600" aria-label="Warning" />
-            ) : (
-              <span className={cn("mt-[11px] h-1.5 w-1.5 shrink-0 rounded-full", section.safety ? "bg-amber-600" : "bg-foreground/40")} aria-hidden />
-            )}
-            <span className="min-w-0">
-              <WikiText text={p.text} />
-              <Sources wiki={wiki} point={p} />
-              <PointMarks point={p} />
-            </span>
-          </li>
-        ))}
-      </ul>
-    )
+/** One block, by its kind. */
+export function BlockView({ block, safety }: { block: WikiBlockView; safety?: boolean }) {
+  switch (block.kind) {
+    case "intro":
+      return <IntroBlock block={block} />
+    case "prose":
+      return <ProseBlock block={block} />
+    case "bullets":
+    case "steps":
+      return <ListBlock block={block} safety={safety} />
+    case "table":
+      return <TableBlock block={block} />
+    case "callout":
+      return <CalloutBlock block={block} />
+    case "gap":
+      return <GapBlock />
+    default:
+      // keyPoints render in the introduction; images come from figuresBySection.
+      return null
+  }
+}
 
-  const fig = figure && (
-    <figure className="wiki-figure overflow-hidden rounded-lg border bg-muted/30">
-      <img src={figure.url} alt={figure.alt} loading="lazy" className="max-h-80 w-full object-cover" />
-      <figcaption className="flex items-start gap-2 px-3 py-2 text-xs leading-5 text-muted-foreground">
-        <span className="min-w-0 flex-1">{figure.alt}</span>
-        <Link href={`/docs/${figure.documentId}?wiki=${wiki._id}`} className="shrink-0 font-mono [@media(hover:hover)]:hover:text-primary-strong">
-          {figure.namingCode}
-        </Link>
-      </figcaption>
-    </figure>
-  )
-
-  if (section.safety) {
-    return (
-      <section
-        aria-labelledby={slug}
-        data-safety="true"
+/** A block marked to fold, as a fold-out group inside its section ("12 limits"). */
+function FoldedBlock({ block, fold, children }: { block: WikiBlockView; fold: Fold; children: ReactNode }) {
+  const { surface } = useBlockCtx()
+  if (!block.fold?.closed) return <>{children}</>
+  const open = fold.isOpen(block.id, false)
+  const id = `fb-${block.id}`
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => fold.toggle(block.id, false)}
         className={cn(
-          "wiki-section space-y-3 rounded-xl border border-amber-300 bg-amber-50/70 p-5 dark:border-amber-500/40 dark:bg-amber-500/10",
-          bodyWidth(kind, WIDE),
+          "flex items-center gap-1.5 rounded font-medium text-primary-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          surface === "phone" ? "min-h-10 text-base" : "text-sm",
         )}
       >
-        {heading}
-        {body}
-        {fig}
-      </section>
-    )
-  }
+        <ChevronDown className={cn("h-4 w-4 transition-transform", !open && "-rotate-90")} aria-hidden />
+        {block.fold.summary || "Show more"}
+      </button>
+      <div id={id} hidden={!open}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function BlockWithMarks({ block, safety }: { block: WikiBlockView; safety?: boolean }) {
+  const { surface } = useBlockCtx()
+  const wide = block.kind === "table"
   return (
-    <section aria-labelledby={slug} data-full-only="true" className="wiki-section space-y-3">
-      <div className={READING}>{heading}</div>
-      <div className={bodyWidth(kind, READING)}>{body}</div>
-      {fig && <div className={WIDE}>{fig}</div>}
+    <div className={cn("space-y-1.5", !wide && surface === "desktop" && TEXT)}>
+      <BlockView block={block} safety={safety} />
+      <OriginMark block={block} />
+    </div>
+  )
+}
+
+/** The introduction, its coverage line and Key points (spec 4.1 items 4 and 5). */
+export function WikiIntro({ section, fold }: { section: WikiSectionView | null; fold: Fold }) {
+  const { content, surface } = useBlockCtx()
+  const intro = section?.blocks.find((b) => b.kind === "intro" && b.points.length > 0)
+  const keyPoints = section?.blocks.find((b) => b.kind === "keyPoints" && b.points.length > 0)
+  if (!intro && !keyPoints) return null
+  return (
+    <div className="space-y-5">
+      {intro && (
+        <section aria-label="Introduction" className={cn("space-y-2", surface === "desktop" && TEXT)}>
+          <BlockView block={intro} />
+          <OriginMark block={intro} />
+          <CoverageLine coverage={content.coverage} />
+        </section>
+      )}
+      {keyPoints && (
+        <KeyPointsBlock block={keyPoints} open={fold.isOpen(keyPoints.id, true)} onToggle={() => fold.toggle(keyPoints.id, true)} />
+      )}
+    </div>
+  )
+}
+
+/**
+ * One section: a heading with a fold chevron, its blocks, the figure after the
+ * text, and one "Sources:" line (desktop). Safety sections get a quiet amber
+ * left border and a shield; folded, they still show their first callout.
+ */
+export function WikiSection({
+  section,
+  index,
+  fold,
+  defaultOpen,
+  renderBlockChrome,
+  renderInsert,
+}: {
+  section: WikiSectionView
+  /** Position among body sections, for the stagger of the phone layout. */
+  index?: number
+  fold: Fold
+  defaultOpen: boolean
+  /** Edit layer mount point (WikiEditRenderers.renderBlockChrome). */
+  renderBlockChrome?: WikiEditRenderers["renderBlockChrome"]
+  /** Edit layer mount point (WikiEditRenderers.renderInsert). */
+  renderInsert?: WikiEditRenderers["renderInsert"]
+}) {
+  const { wiki, surface, slugs } = useBlockCtx()
+  const phone = surface === "phone"
+  const slug = slugs[section.id]
+  const open = fold.isOpen(section.id, defaultOpen)
+  const bodyId = `sec-${section.id}`
+  const facts = factCount(section)
+  const figure = wiki.figuresBySection[section.id]
+  const firstCallout = section.safety ? section.blocks.find((b) => b.kind === "callout") : undefined
+
+  return (
+    <section
+      aria-labelledby={slug}
+      data-section={section.id}
+      data-index={index}
+      data-safety={section.safety || undefined}
+      data-full-only={section.safety ? undefined : "true"}
+      className={cn(
+        "wiki-section",
+        phone ? "space-y-2" : "space-y-3",
+        section.safety && cn("border-l-[3px] border-amber-500", phone ? "pl-3" : "pl-4"),
+      )}
+    >
+      <h2 id={slug} className={cn("text-lg font-semibold leading-snug tracking-tight", phone ? "scroll-mt-32" : cn("scroll-mt-20", TEXT))}>
+        <span className="group flex items-start gap-1">
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={bodyId}
+            onClick={() => fold.toggle(section.id, defaultOpen)}
+            className={cn(
+              "-ml-1 flex min-w-0 flex-1 items-start gap-2 rounded px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              phone && "min-h-11 items-center",
+            )}
+          >
+            <ChevronDown
+              className={cn("mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform", phone && "mt-0", !open && "-rotate-90")}
+              aria-hidden
+            />
+            {section.safety && <ShieldAlert className={cn("mt-0.5 h-5 w-5 shrink-0 text-amber-600", phone && "mt-0")} aria-label="Safety" />}
+            <span className="min-w-0">
+              {section.heading}
+              {!open && (
+                <span className="ml-2 text-sm font-normal text-muted-foreground">
+                  · {facts} {facts === 1 ? "fact" : "facts"}
+                </span>
+              )}
+            </span>
+          </button>
+          {!phone && (
+            <a
+              href={`#${slug}`}
+              aria-label={`Link to ${section.heading}`}
+              className="mt-0.5 shrink-0 rounded px-1 text-sm font-normal text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+            >
+              #
+            </a>
+          )}
+        </span>
+      </h2>
+
+      {!open && firstCallout && <BlockWithMarks block={firstCallout} safety />}
+
+      <div id={bodyId} hidden={!open} className={phone ? "space-y-3" : "space-y-4"}>
+        {renderInsert?.(section.id, null)}
+        {section.blocks.map((b) => {
+          const chrome = renderBlockChrome?.(b, section.id)
+          return (
+            <Fragment key={b.id}>
+              {chrome}
+              <FoldedBlock block={b} fold={fold}>
+                <BlockWithMarks block={b} safety={section.safety} />
+              </FoldedBlock>
+              {renderInsert?.(section.id, b.id)}
+            </Fragment>
+          )
+        })}
+        {figure && (
+          <div className={cn(!phone && "max-w-[88ch]")}>
+            <ImagesBlock figure={figure} />
+          </div>
+        )}
+        {!phone && <SectionSources wiki={wiki} docs={sectionDocuments(section)} className={TEXT} />}
+      </div>
     </section>
   )
 }
 
-/** The table of contents rail, with scroll-spy. */
-export function WikiToc({ sections, slugs }: { sections: WikiSectionView[]; slugs: string[] }) {
-  const [active, setActive] = useState<string | null>(slugs[0] ?? null)
+/** The table of contents rail, with scroll-spy and Expand all / Collapse all. */
+export function WikiToc({
+  sections,
+  slugs,
+  onExpandAll,
+  onCollapseAll,
+}: {
+  sections: WikiSectionView[]
+  slugs: Record<string, string>
+  onExpandAll: () => void
+  onCollapseAll: () => void
+}) {
+  const ids = sections.map((s) => slugs[s.id])
+  const [active, setActive] = useState<string | null>(ids[0] ?? null)
+  const idKey = ids.join("|")
   useEffect(() => {
-    const els = slugs.map((s) => document.getElementById(s)).filter((e): e is HTMLElement => e !== null)
+    const els = idKey
+      .split("|")
+      .map((s) => document.getElementById(s))
+      .filter((e): e is HTMLElement => e !== null)
     if (els.length === 0) return
     const obs = new IntersectionObserver(
       (entries) => {
@@ -282,38 +297,61 @@ export function WikiToc({ sections, slugs }: { sections: WikiSectionView[]; slug
     )
     els.forEach((e) => obs.observe(e))
     return () => obs.disconnect()
-  }, [slugs])
+  }, [idKey])
   if (sections.length === 0) return null
   return (
     <nav aria-label="On this page" className="space-y-2">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">On this page</p>
+      <div className="flex items-center gap-1">
+        <p className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">On this page</p>
+        <Button size="icon" variant="ghost" className="h-6 w-6" onClick={onExpandAll} aria-label="Expand all sections" title="Expand all">
+          <ChevronsUpDown className="h-3.5 w-3.5" />
+        </Button>
+        <Button size="icon" variant="ghost" className="h-6 w-6" onClick={onCollapseAll} aria-label="Collapse all sections" title="Collapse all">
+          <ChevronsDownUp className="h-3.5 w-3.5" />
+        </Button>
+      </div>
       <ol className="space-y-0.5 border-l">
-        {sections.map((s, i) => (
-          <li key={slugs[i]}>
-            <a
-              href={`#${slugs[i]}`}
-              onClick={() => setActive(slugs[i])}
-              aria-current={active === slugs[i] ? "location" : undefined}
-              className={cn(
-                "-ml-px flex items-start gap-2 border-l-2 py-1 pl-3 pr-1 text-sm leading-snug transition-colors",
-                active === slugs[i]
-                  ? "border-primary-strong font-medium text-foreground"
-                  : "border-transparent text-muted-foreground [@media(hover:hover)]:hover:text-foreground",
-              )}
-            >
-              <span className="min-w-0 flex-1">{s.heading}</span>
-              {s.safety && <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-label="Safety" />}
-              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{s.points.length}</span>
-            </a>
-          </li>
-        ))}
+        {sections.map((s) => {
+          const slug = slugs[s.id]
+          return (
+            <li key={s.id}>
+              <a
+                href={`#${slug}`}
+                onClick={() => setActive(slug)}
+                aria-current={active === slug ? "location" : undefined}
+                className={cn(
+                  "-ml-px flex items-start gap-2 border-l-2 py-1 pl-3 pr-1 text-sm leading-snug transition-colors",
+                  active === slug
+                    ? "border-primary-strong font-medium text-foreground"
+                    : "border-transparent text-muted-foreground [@media(hover:hover)]:hover:text-foreground",
+                )}
+              >
+                <span className="min-w-0 flex-1">{s.heading}</span>
+                {s.safety && <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-label="Safety" />}
+                {factCount(s) > 0 && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{factCount(s)}</span>}
+              </a>
+            </li>
+          )
+        })}
       </ol>
     </nav>
   )
 }
 
 /** The table of contents as a compact "On this page" menu, for narrow widths. */
-export function WikiTocMenu({ sections, slugs }: { sections: WikiSectionView[]; slugs: string[] }) {
+export function WikiTocMenu({
+  sections,
+  slugs,
+  onJump,
+  onExpandAll,
+  onCollapseAll,
+}: {
+  sections: WikiSectionView[]
+  slugs: Record<string, string>
+  onJump: (sectionId: string) => void
+  onExpandAll: () => void
+  onCollapseAll: () => void
+}) {
   if (sections.length === 0) return null
   return (
     <DropdownMenu>
@@ -324,23 +362,45 @@ export function WikiTocMenu({ sections, slugs }: { sections: WikiSectionView[]; 
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-[60vh] w-72 overflow-y-auto">
-        {sections.map((s, i) => (
+        {sections.map((s) => (
           <DropdownMenuItem
-            key={slugs[i]}
+            key={s.id}
             onSelect={() => {
-              const el = document.getElementById(slugs[i])
-              if (!el) return
-              el.scrollIntoView({ block: "start", behavior: "smooth" })
-              window.history.replaceState(null, "", `#${slugs[i]}`)
+              onJump(s.id)
+              window.history.replaceState(null, "", `#${slugs[s.id]}`)
             }}
             className="gap-2 text-sm"
           >
             <span className="min-w-0 flex-1">{s.heading}</span>
             {s.safety && <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-600" aria-label="Safety" />}
-            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{s.points.length}</span>
+            {factCount(s) > 0 && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{factCount(s)}</span>}
           </DropdownMenuItem>
         ))}
+        <DropdownMenuItem onSelect={onExpandAll} className="gap-2 border-t text-sm">
+          <ChevronsUpDown className="h-3.5 w-3.5" aria-hidden /> Expand all
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onCollapseAll} className="gap-2 text-sm">
+          <ChevronsDownUp className="h-3.5 w-3.5" aria-hidden /> Collapse all
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/**
+ * Opens a section, scrolls to it (or to one fact in it) and briefly
+ * highlights the fact. Used by Key points links, the trust line and the TOC menu.
+ */
+export function revealOnPage(fold: Fold, slugs: Record<string, string>, sectionId: string, pointElId?: string) {
+  fold.open(sectionId)
+  window.requestAnimationFrame(() =>
+    window.requestAnimationFrame(() => {
+      const el = document.getElementById(pointElId ?? slugs[sectionId])
+      if (!el) return
+      el.scrollIntoView({ block: pointElId ? "center" : "start", behavior: "smooth" })
+      if (!pointElId) return
+      el.classList.add("rounded", "ring-2", "ring-red-400", "ring-offset-2", "ring-offset-background")
+      window.setTimeout(() => el.classList.remove("rounded", "ring-2", "ring-red-400", "ring-offset-2", "ring-offset-background"), 2400)
+    }),
   )
 }

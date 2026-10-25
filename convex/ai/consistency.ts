@@ -27,6 +27,7 @@ import { ActionCtx, internalAction } from "../_generated/server"
 import { internal } from "../_generated/api"
 import { Id } from "../_generated/dataModel"
 import { claudeConfigured, claudeJson, describeClaudeError } from "./llm"
+import type { MeterSpec } from "../lib/aiMeter"
 import { contentStems, factTokens, normalise } from "./grounding"
 import type { CorpusChunk, CorpusDoc } from "../findings"
 
@@ -60,7 +61,7 @@ const EMBED_WAIT_MS = [15_000, 30_000, 45_000, 60_000, 60_000, 60_000]
 
 // ---- Lexical features --------------------------------------------------------------
 
-interface Features {
+export interface Features {
   stems: Set<string>
   /** Values per canonical unit ("NM" -> {"40"}). */
   quantities: Map<string, Set<string>>
@@ -70,7 +71,7 @@ interface Features {
 
 const NAMING_CODE_RE = /^[A-Z]{2,}-[A-Z]{2,}-[A-Z]{2,}-\d+$/
 
-function features(text: string): Features {
+export function features(text: string): Features {
   const quantities = new Map<string, Set<string>>()
   const codes = new Map<string, Set<string>>()
   for (const t of factTokens(text)) {
@@ -123,7 +124,7 @@ function isHeading(text: string): boolean {
 const sameSet = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every((x) => b.has(x))
 
 /** A fact both passages state in the same unit or code family, with other values. */
-function factConflict(x: Features, y: Features): boolean {
+export function factConflict(x: Features, y: Features): boolean {
   for (const [unit, xs] of x.quantities) {
     const ys = y.quantities.get(unit)
     if (ys && !sameSet(xs, ys)) return true
@@ -444,6 +445,7 @@ function describeSide(p: Passage): string {
 async function judgeBatch(
   batch: Candidate[],
   offset: number,
+  meter: MeterSpec,
 ): Promise<{ verified: Verified[]; dropped: number }> {
   const keyed = batch.map((c, i) => ({ key: `P${offset + i + 1}`, c }))
   const prompt = [
@@ -460,6 +462,7 @@ async function judgeBatch(
   ].join("\n")
 
   const out = await claudeJson({
+    meter,
     system: JUDGE_SYSTEM,
     messages: [{ role: "user", content: prompt }],
     schema: JudgeOut,
@@ -504,7 +507,7 @@ async function judgeBatch(
 }
 
 /** Judges all pairs in bounded batches; a failed batch is logged, not fatal. */
-async function judgeAll(pairs: Candidate[]): Promise<{
+async function judgeAll(pairs: Candidate[], meter: MeterSpec): Promise<{
   verified: Verified[]
   dropped: number
   failedBatches: number
@@ -527,7 +530,7 @@ async function judgeAll(pairs: Candidate[]): Promise<{
     while (next < batches.length) {
       const i = next++
       try {
-        const r = await judgeBatch(batches[i], i * BATCH_SIZE)
+        const r = await judgeBatch(batches[i], i * BATCH_SIZE, meter)
         verified.push(...r.verified)
         dropped += r.dropped
       } catch (err) {
@@ -649,7 +652,12 @@ async function execute(
       return { pairsChecked: 0, findingsNew: 0 }
     }
 
-    const judged = await judgeAll(pairs)
+    const judged = await judgeAll(pairs, {
+      ctx,
+      feature: "consistency",
+      personId: null,
+      ...(opts.documentId ? { target: { kind: "document", id: opts.documentId } } : {}),
+    })
     const findings = collapse(judged.verified)
     const findingsNew: number = await ctx.runMutation(internal.findings.saveFindings, {
       trigger: opts.trigger,
@@ -754,5 +762,141 @@ export const runAll = internalAction({
     return { ...r, skipped: false }
   },
 })
+
+// ---- Claim judge (Check against Published, docs/specs/wiki-upgrade.md 3.5) ----------
+// Used only by convex/ai/wikiCheck.ts; the Consistency check above never calls
+// it. Side A is the Engineer's claim (a pseudo-passage), side B the Published
+// passages retrieved for it. As with Findings, code verifies every quote in
+// its passage (verifyQuote); a quote that cannot be found makes the claim
+// "not addressed", so the judge can never support a claim on words it made up.
+
+export type ClaimLabel = "supported" | "partly" | "contradicted" | "not_addressed"
+
+export interface JudgeClaimInput {
+  claim: string
+  passages: {
+    key: string
+    chunkId: Id<"chunks">
+    namingCode: string
+    title: string
+    version: number
+    section: string | null
+    text: string
+  }[]
+}
+
+export interface JudgedClaim {
+  label: ClaimLabel
+  /** The passage the verdict rests on; null when not addressed. */
+  passageKey: string | null
+  /** Verified, verbatim from that passage. */
+  quote: string | null
+  /** For "partly": the supported part, copied from the claim. */
+  supportedPart: string | null
+  reason: string
+}
+
+const ClaimJudgeOut = z.object({
+  results: z.array(
+    z.object({
+      claim: z.string(),
+      label: z.enum(["supported", "partly", "contradicted", "not_addressed"]),
+      passage: z.string(),
+      quote: z.string(),
+      supportedPart: z.string(),
+      reason: z.string(),
+    }),
+  ),
+})
+
+const CLAIM_JUDGE_SYSTEM = [
+  "You check statements that an Engineer wrote for a Wiki of a plastic pipe extrusion plant against Published passages of its controlled documents (SOPs, work instructions, LMRAs and supplier manuals).",
+  "You get numbered CLAIMS. Each claim comes with its own PASSAGES, keyed like C1.P2. Judge each claim only against its own passages, never against what you know.",
+  "",
+  "Labels:",
+  "- supported: one passage states the same fact, under the same conditions, with the same values and the same polarity. Other words are fine.",
+  "- partly: one passage supports one part of the claim and nothing supports the rest. supportedPart is the supported part, copied exactly from the claim.",
+  "- contradicted: one passage is about the same thing (same equipment, task, parameter and conditions) and a person cannot follow both: another value, another frequency, allowed against forbidden, \"never\" against \"only when\", a skipped step, another order.",
+  "- not_addressed: none of its passages says this or the opposite.",
+  "A value inside the passage's range, or a claim that is stricter than the passage, is not supported unless the passage says that value. Different equipment, sizes, products, lines or phases of work are not_addressed, not contradicted.",
+  "When in doubt, answer not_addressed. A wrong \"supported\" puts an unproven sentence in front of operators.",
+  "",
+  "For every claim return one result:",
+  "- `claim`: the claim key, exactly as given (for example \"C2\").",
+  "- `passage`: the key of the passage the label rests on (for example \"C2.P1\"), or an empty string for not_addressed.",
+  "- `quote`: the shortest span of that passage that shows the support or the contradiction, usually one sentence or one table row. Copy it EXACTLY, character for character. Do not shorten with an ellipsis, do not fix typos, do not combine two places. Code checks every quote and treats the claim as not addressed when the quote cannot be found. Empty for not_addressed.",
+  "- `supportedPart`: for partly only, the supported part of the claim copied exactly from the claim; otherwise an empty string.",
+  "- `reason`: one short sentence for the Engineer in plain words, naming the document by its naming code. No dashes as punctuation, no advice.",
+].join("\n")
+
+const keyOf = (s: string) => s.trim().replace(/^\[|\]$/g, "").toUpperCase()
+
+/**
+ * One Claude call, metered as `meter` says, for all claims the code could not
+ * settle. Returns one verdict per input, in order.
+ */
+export async function judgeClaims(items: JudgeClaimInput[], meter: MeterSpec): Promise<JudgedClaim[]> {
+  const notAddressed = (reason: string): JudgedClaim => ({
+    label: "not_addressed",
+    passageKey: null,
+    quote: null,
+    supportedPart: null,
+    reason,
+  })
+  if (items.length === 0) return []
+  const prompt = [
+    "CLAIMS:",
+    "",
+    ...items.flatMap((it, i) => [
+      `[C${i + 1}] ${it.claim}`,
+      ...it.passages.flatMap((p) => [
+        `  [${p.key}] ${p.namingCode} v${p.version} (${p.title}${p.section && p.section !== p.title ? `, section "${p.section}"` : ""})`,
+        `  TEXT: ${p.text}`,
+      ]),
+      "",
+    ]),
+  ].join("\n")
+
+  const out = await claudeJson({
+    meter,
+    system: CLAIM_JUDGE_SYSTEM,
+    messages: [{ role: "user", content: prompt }],
+    schema: ClaimJudgeOut,
+    effort: "medium",
+    maxTokens: 8000,
+  })
+
+  const results: JudgedClaim[] = items.map(() => notAddressed("The AI judge gave no answer for this claim."))
+  for (const r of out.results) {
+    const m = /^C(\d+)$/.exec(keyOf(r.claim))
+    const i = m ? Number(m[1]) - 1 : -1
+    if (i < 0 || i >= items.length) continue
+    const reason = r.reason.replace(/\s*[—–]\s*/g, ", ").replace(/\s+/g, " ").trim().slice(0, 300)
+    if (r.label === "not_addressed") {
+      results[i] = notAddressed(reason || "None of the passages says this.")
+      continue
+    }
+    const p = items[i].passages.find((x) => x.key.toUpperCase() === keyOf(r.passage))
+    const quote = p
+      ? verifyQuote(r.quote, { chunkId: p.chunkId, seq: 0, raw: p.text, text: p.text, section: p.section, embedded: true })
+      : null
+    if (!p || !quote) {
+      console.log(`Claim judge: C${i + 1} ${r.label} dropped, its quote was not found in ${r.passage || "a passage"}`)
+      results[i] = notAddressed("The AI judge's quote was not found in the passage.")
+      continue
+    }
+    let supportedPart: string | null = null
+    if (r.label === "partly") {
+      const part = stripEnds(r.supportedPart)
+      supportedPart = part.length >= 3 && squash(items[i].claim).includes(squash(part)) ? part : null
+      if (!supportedPart) {
+        results[i] = notAddressed("The AI judge's supported part is not in the claim.")
+        continue
+      }
+    }
+    results[i] = { label: r.label, passageKey: p.key, quote, supportedPart, reason }
+  }
+  return results
+}
 
 

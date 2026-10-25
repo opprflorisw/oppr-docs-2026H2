@@ -1,8 +1,7 @@
 import { useState, type ReactNode } from "react"
 import { useAction, useMutation, useQuery } from "convex/react"
-import { Link } from "wouter"
 import { toast } from "sonner"
-import { ArrowUpRight, BellOff, CalendarClock, Gauge, Loader2, Microscope, RefreshCw } from "lucide-react"
+import { BellOff, CalendarClock, Loader2, RefreshCw } from "lucide-react"
 import { api } from "../../../../convex/_generated/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -23,8 +22,8 @@ import { cn } from "@/lib/utils"
 import { errorText, useSettingsEditor } from "@/components/settings/SettingsBits"
 
 // AI models and jobs (/dev/ai), formerly Settings "AI and connections":
-// which models do what, whether search is up to date, what runs by itself,
-// and where usage shows. The index buttons need an Engineer or Admin check-in
+// which models do what, whether search is up to date and what runs by
+// itself. AI usage, Prices and the Limits and Plan tab live next to this. The index buttons need an Engineer or Admin check-in
 // (the server checks it too).
 
 /** Which model does what. Keys stay on the server. */
@@ -115,73 +114,6 @@ export function SchedulesCard() {
         </CardContent>
       </Card>
     </>
-  )
-}
-
-// The deployment name is the first part of the Convex URL.
-const DEPLOYMENT = /^https:\/\/([^.]+)\./.exec(import.meta.env.VITE_CONVEX_URL ?? "")?.[1] ?? null
-
-/** Where usage shows, and what the Free plan finding was. */
-export function UsageHints() {
-  return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <Gauge className="h-4 w-4 text-muted-foreground" aria-hidden />
-            Where usage shows
-          </CardTitle>
-          <CardDescription className="text-sm">
-            Function calls, database reads, storage and bandwidth are counted by Convex, per team and per billing month.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          {DEPLOYMENT && (
-            <a
-              href={`https://dashboard.convex.dev/d/${DEPLOYMENT}`}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-primary underline-offset-2 hover:underline"
-            >
-              Open {DEPLOYMENT} in the Convex dashboard <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
-            </a>
-          )}
-          <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-            <li>Team usage: in the dashboard, open the team menu, then Usage. It breaks calls and reads down by function.</li>
-            <li>Per deployment: the Logs and Functions pages show which functions run most and which fail.</li>
-            <li>From a terminal: npx convex logs, and npx convex insights for the heaviest readers.</li>
-          </ul>
-        </CardContent>
-      </Card>
-
-      <Card className="border-amber-500/40 bg-amber-500/5">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">The Free plan finding (2026-10-25)</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <ul className="list-disc space-y-1 pl-5 text-xs leading-relaxed">
-            <li>
-              The limit we hit is throughput, not size: the Free plan allows 1M function calls and 1 GB of database
-              reads a month, while the whole database is a few tens of MB.
-            </li>
-            <li>
-              Most of it is development: agent test logins, reseeds, background jobs, and queries that read the inline
-              768-number embeddings they do not need (image search ranking reads about 215 KB per call).
-            </li>
-            <li>
-              The fix is a paid Convex plan plus cutting that waste, not a move to Google Cloud. Moving embeddings into
-              their own tables is likely the biggest single saving.
-            </li>
-          </ul>
-          <Link
-            href="/analysis/backend-gcp-and-gemma"
-            className="inline-flex items-center gap-1.5 text-xs text-primary underline-offset-2 hover:underline"
-          >
-            <Microscope className="h-3.5 w-3.5" aria-hidden /> Read the case file
-          </Link>
-        </CardContent>
-      </Card>
-    </div>
   )
 }
 

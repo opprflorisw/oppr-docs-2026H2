@@ -27,7 +27,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { WikiGuidedCreation } from "@/components/wiki/WikiGuidedCreation"
-import { FORMAT_LABEL } from "@/components/wiki/wikiShared"
 import { useCheckIn } from "@/lib/checkIn"
 import { formatAgo } from "@/lib/time"
 import { cn } from "@/lib/utils"
@@ -394,7 +393,7 @@ function Home({ all, isEngineer }: { all: WikiRow[]; isEngineer: boolean }) {
               ))}
             </div>
           </div>
-          <WikiGrid wikis={rest} showViews={sort === "used"} />
+          <WikiGrid wikis={rest} />
         </section>
       )}
     </>
@@ -428,10 +427,8 @@ function StartHere({ path, suggested, isEngineer }: { path: WikiRow[]; suggested
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 className="text-base font-semibold">Start here</h2>
         <p className="text-sm text-muted-foreground">New on the floor? Read these in order.</p>
-        {suggested && (
-          <p className="text-xs text-muted-foreground">
-            Suggested.{isEngineer ? " Set the path with Add to Start here in a Wiki's menu." : ""}
-          </p>
+        {suggested && isEngineer && (
+          <p className="text-xs text-muted-foreground">Suggested. Set the path with Add to Start here in a Wiki's menu.</p>
         )}
       </div>
       <ol className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
@@ -472,11 +469,11 @@ function StartHere({ path, suggested, isEngineer }: { path: WikiRow[]; suggested
   )
 }
 
-function WikiGrid({ wikis, showViews = false }: { wikis: WikiRow[]; showViews?: boolean }) {
+function WikiGrid({ wikis }: { wikis: WikiRow[] }) {
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {wikis.map((w) => (
-        <WikiCard key={w._id} w={w} showViews={showViews} />
+        <WikiCard key={w._id} w={w} />
       ))}
     </div>
   )
@@ -495,15 +492,12 @@ function summary(purpose: string, max = 180) {
   return out.trim() || text
 }
 
-function WikiCard({ w, showViews = false }: { w: WikiRow; showViews?: boolean }) {
+function WikiCard({ w }: { w: WikiRow }) {
   return (
     <Link href={`/wiki/${w._id}`} className="block h-full">
       <Card className="h-full transition-colors [@media(hover:hover)]:hover:border-primary/50">
         <CardContent className="flex h-full flex-col gap-2 p-4">
-          <div className="flex items-start gap-2">
-            <p className="min-w-0 flex-1 text-sm font-semibold leading-snug">{w.title}</p>
-            <span className="shrink-0 rounded-full border px-2 py-0.5 text-xs text-muted-foreground">{FORMAT_LABEL[w.format]}</span>
-          </div>
+          <p className="text-sm font-semibold leading-snug">{w.title}</p>
           {w.purpose && <p className="text-sm text-muted-foreground">{summary(w.purpose)}</p>}
           <div className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-2 text-xs text-muted-foreground">
             {w.status === "generating" ? (
@@ -516,9 +510,8 @@ function WikiCard({ w, showViews = false }: { w: WikiRow; showViews?: boolean })
               <span className="text-destructive">Build failed</span>
             ) : (
               <span>
-                {w.sectionCount} {w.sectionCount === 1 ? "section" : "sections"} · {w.sourceCount}{" "}
-                {w.sourceCount === 1 ? "document" : "documents"} · updated {formatAgo(w.generatedAt ?? w.updatedAt)}
-                {showViews && w.views > 0 && ` · opened ${w.views} ${w.views === 1 ? "time" : "times"}`}
+                Updated {formatAgo(w.generatedAt ?? w.updatedAt)} · {w.sectionCount} {w.sectionCount === 1 ? "section" : "sections"} ·{" "}
+                {w.sourceCount} {w.sourceCount === 1 ? "document" : "documents"}
               </span>
             )}
             {w.outdatedCount > 0 && w.status !== "generating" && <span className="font-medium text-amber-700">Out of date</span>}

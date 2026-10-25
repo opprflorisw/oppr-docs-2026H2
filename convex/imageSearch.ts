@@ -15,7 +15,8 @@ import { action, internalQuery } from "./_generated/server"
 import { internal } from "./_generated/api"
 import type { Doc, Id } from "./_generated/dataModel"
 import { requireUserId } from "./lib/auth"
-import { embedImageBytes, embedText } from "./ai/imageEmbed"
+import { embedImageBytes } from "./ai/imageEmbed"
+import { embedText, geminiConfigured } from "./ai/gemini"
 
 export type ImageHit = {
   imageId: Id<"images">
@@ -47,6 +48,8 @@ export const search = action({
     limit: v.optional(v.number()),
     areaCodes: v.optional(v.array(v.string())),
     assetIds: v.optional(v.array(v.id("assets"))),
+    /** The checked-in person, so the search's embedding is counted to them, not to system jobs. */
+    personId: v.optional(v.id("people")),
   },
   handler: async (ctx, args): Promise<ImageHit[]> => {
     await requireUserId(ctx)
@@ -59,19 +62,19 @@ export const search = action({
     }
 
     const vectorScores = new Map<string, number>()
-    const apiKey = process.env.GEMINI_API_KEY
-    if (apiKey) {
+    if (geminiConfigured()) {
+      const m = { ctx, feature: "embed.query" as const, personId: args.personId ?? null }
       const vectors: number[][] = []
       try {
         if (args.storageId) {
           const blob = await ctx.storage.get(args.storageId)
           if (blob) {
             vectors.push(
-              await embedImageBytes(new Uint8Array(await blob.arrayBuffer()), blob.type || "image/jpeg", apiKey),
+              await embedImageBytes(m, new Uint8Array(await blob.arrayBuffer()), blob.type || "image/jpeg"),
             )
           }
         }
-        if (query) vectors.push(await embedText(query, apiKey))
+        if (query) vectors.push(await embedText(m, query))
       } catch (e) {
         console.warn("image search embed failed, words only:", e instanceof Error ? e.message : e)
       }

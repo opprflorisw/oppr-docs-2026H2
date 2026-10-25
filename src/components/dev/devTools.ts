@@ -41,7 +41,7 @@ export const DEV_TOOL = {
     label: "AI models and jobs",
     href: "/dev/ai",
     icon: Cpu,
-    lead: "Which model does what, the search index, what runs by itself and where usage shows.",
+    lead: "Which model does what, the search index, what runs by itself and what every AI call costs.",
   },
   analysis: {
     label: "Analysis",

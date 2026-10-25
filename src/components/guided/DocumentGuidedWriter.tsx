@@ -31,6 +31,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import { ImagePickerDialog, type PickedImage } from "@/components/images/ImagePickerDialog"
+import { useCheckIn } from "@/lib/checkIn"
 import { matchReason } from "@/components/images/useImageSearch"
 import { GuidedCreation, type GuidedEntry, type GuidedEntryInfo, type GuidedMessage } from "./GuidedCreation"
 import { CreateImageDialog, type ImageAnswers } from "./CreateImageDialog"
@@ -684,11 +685,12 @@ function StepImageSuggestions({
   onMore: () => void
 }) {
   const search = useAction(api.imageSearch.search)
+  const personId = useCheckIn().person?._id
   const [hits, setHits] = useState<ImageHit[] | null>(suggestionCache.get(step.text) ?? null)
   useEffect(() => {
     if (suggestionCache.has(step.text)) return
     let live = true
-    search({ query: step.text, limit: 3 })
+    search({ query: step.text, limit: 3, ...(personId ? { personId } : {}) })
       .then((r) => {
         // Weak matches would only distract.
         const good = r.filter((h) => h.url && matchReason(h, { query: step.text }) !== null)
@@ -699,7 +701,7 @@ function StepImageSuggestions({
     return () => {
       live = false
     }
-  }, [search, step.text])
+  }, [search, step.text, personId])
 
   return (
     <div className="flex items-center gap-2">

@@ -7,10 +7,9 @@ import { internalAction, internalMutation, internalQuery, mutation } from "../_g
 import { internal } from "../_generated/api"
 import { requireUser } from "../lib/auth"
 import { requireEngineerOrAdmin } from "../lib/roles"
-import { CHAT_MODEL } from "./constants"
-import { embeddableMime, loadImageBytes, toBase64 } from "./imageEmbed"
+import { embeddableMime, loadImageBytes } from "./imageEmbed"
+import { geminiConfigured, geminiText, toBase64 } from "./gemini"
 
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 const KINDS = ["photo", "illustration", "diagram", "safety", "generated"] as const
 type Kind = (typeof KINDS)[number]
 
@@ -78,9 +77,8 @@ export function normTag(t: string): string {
 export const describe = internalAction({
   args: { imageId: v.id("images"), overwrite: v.optional(v.boolean()), thenEmbed: v.optional(v.boolean()) },
   handler: async (ctx, args): Promise<{ ok: boolean; error?: string }> => {
-    const apiKey = process.env.GEMINI_API_KEY
     let result: { ok: boolean; error?: string } = { ok: false, error: "GEMINI_API_KEY is not set" }
-    if (apiKey) {
+    if (geminiConfigured()) {
       try {
         const row = await ctx.runQuery(internal.ai.imageDescribe.getForDescribe, { imageId: args.imageId })
         if (!row) return { ok: false, error: "not found" }
@@ -93,25 +91,11 @@ export const describe = internalAction({
         ]
           .filter(Boolean)
           .join("\n")
-        const res = await fetch(`${GEMINI_BASE}/models/${CHAT_MODEL}:generateContent?key=${apiKey}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  { inline_data: { mime_type: loaded.mime, data: toBase64(loaded.bytes) } },
-                  { text: `${PROMPT}\n\n${context}` },
-                ],
-              },
-            ],
-            generationConfig: { temperature: 0.2, maxOutputTokens: 800, responseMimeType: "application/json" },
-          }),
-        })
-        if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`)
-        const json = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
-        const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? ""
+        const text = await geminiText(
+          { ctx, feature: "image.describe", personId: null, target: { kind: "image", id: args.imageId } },
+          [{ inline_data: { mime_type: loaded.mime, data: toBase64(loaded.bytes) } }, { text: `${PROMPT}\n\n${context}` }],
+          { json: true, maxOutputTokens: 800 },
+        )
         const parsed = JSON.parse(text) as { altText?: string; description?: string; tags?: string[]; kind?: string }
         const kind = KINDS.includes(parsed.kind as Kind) ? (parsed.kind as Kind) : undefined
         await ctx.runMutation(internal.ai.imageDescribe.applyDescription, {
