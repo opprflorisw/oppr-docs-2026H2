@@ -118,7 +118,7 @@ export const rounds = query({
         for (const t of p?.targets ?? []) targetSkills.add(String(t.skillId))
       }
     }
-    const skills = await ctx.db.query("skills").take(500)
+    const skills = await ctx.db.query("skills").take(500).then((r) => r.filter((s) => !s.archived))
     const rows = list.map((r) => {
       const open = mine.find(
         (a) =>

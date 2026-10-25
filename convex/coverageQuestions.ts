@@ -1,6 +1,6 @@
 // Coverage questions: the questions a shift lead asks every day, such as
 // "Who can run line 2 tonight?". Each one is a Skill profile plus an
-// optional shift. An Engineer manages them in Learn, Skills setup. The Skill
+// optional shift. An Engineer manages them in the Skills workspace. The Skill
 // matrix shows one button per question; Home shows the ones marked
 // showOnHome as quick answers. The answer itself comes from skills.coverage.
 import { v } from "convex/values"
@@ -9,7 +9,7 @@ import type { MutationCtx } from "./_generated/server"
 import type { Id } from "./_generated/dataModel"
 import { requireUser, requireUserId } from "./lib/auth"
 import { requireEngineerOrAdmin } from "./lib/roles"
-import { loadShifts } from "./people/shifts"
+import { checkShiftKey, loadShifts } from "./people/shifts"
 
 // A shift key from the shifts table (Settings, People and roles).
 const shiftValidator = v.string()
@@ -43,12 +43,6 @@ async function engineerFor(ctx: MutationCtx, personId: Id<"people">) {
   return await requireEngineerOrAdmin(ctx, personId, "Check in as an Engineer to change coverage questions.")
 }
 
-/** The shift key when it exists; null means every shift. */
-async function checkShift(ctx: MutationCtx, shift: string | null | undefined) {
-  if (!shift) return undefined
-  if (!(await loadShifts(ctx)).some((s) => s.key === shift)) throw new Error("That shift no longer exists.")
-  return shift
-}
 
 function cleanLabel(label: string) {
   const out = label.trim().replace(/\s+/g, " ")
@@ -78,7 +72,7 @@ export const create = mutation({
     return await ctx.db.insert("coverageQuestions", {
       label: cleanLabel(args.label),
       profileId: args.profileId,
-      shift: await checkShift(ctx, args.shift),
+      shift: await checkShiftKey(ctx, args.shift),
       order,
       showOnHome: args.showOnHome ?? false,
       createdBy: engineer._id,
@@ -111,7 +105,7 @@ export const update = mutation({
       await checkProfile(ctx, args.profileId)
       patch.profileId = args.profileId
     }
-    if (args.shift !== undefined) patch.shift = await checkShift(ctx, args.shift)
+    if (args.shift !== undefined) patch.shift = await checkShiftKey(ctx, args.shift)
     if (args.showOnHome !== undefined) patch.showOnHome = args.showOnHome
     await ctx.db.patch(row._id, patch)
   },
@@ -160,6 +154,6 @@ export const setPersonShift = mutation({
     if (!person) throw new Error("This person no longer exists.")
     const team = args.team?.trim().replace(/\s+/g, " ") || undefined
     if (team && team.length > 60) throw new Error("Keep the team name under 60 characters.")
-    await ctx.db.patch(person._id, { shift: await checkShift(ctx, args.shift), team })
+    await ctx.db.patch(person._id, { shift: await checkShiftKey(ctx, args.shift), team })
   },
 })

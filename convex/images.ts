@@ -13,16 +13,9 @@ import { internal } from "./_generated/api"
 import { requireUser, requireUserId } from "./lib/auth"
 import { requireEngineerOrAdmin } from "./lib/roles"
 import { walkBodyDiagrams, walkBodyImages } from "./lib/imageWalker"
-import { normTag } from "./ai/imageDescribe"
+import { imageKindValidator as kindValidator, normTag } from "./ai/imageDescribe"
 
 const sourceValidator = v.union(v.literal("upload"), v.literal("url"))
-export const kindValidator = v.union(
-  v.literal("photo"),
-  v.literal("illustration"),
-  v.literal("diagram"),
-  v.literal("safety"),
-  v.literal("generated"),
-)
 const personArg = { personId: v.optional(v.id("people")) }
 const EDIT_MESSAGE = "Check in as an Engineer to change the image library."
 
@@ -38,7 +31,7 @@ function publicRow(img: Doc<"images">) {
   const { embedding, ...rest } = img
   return { ...rest, embedded: Boolean(embedding) }
 }
-export type LibraryImage = ReturnType<typeof publicRow> & {
+type LibraryImage = ReturnType<typeof publicRow> & {
   usageCount: number
   documentRefs: ImageDocRef[]
   assets: { _id: Id<"assets">; code: string; name: string }[]
@@ -141,12 +134,13 @@ export const facets = query({
     let favorites = 0
     let unembedded = 0
     let undescribed = 0
+    const bump = (counts: Map<string, number>, key: string) => counts.set(key, (counts.get(key) ?? 0) + 1)
     for (const r of rows) {
-      for (const t of r.tags ?? []) tags.set(t, (tags.get(t) ?? 0) + 1)
-      kinds.set(r.kind ?? "unsorted", (kinds.get(r.kind ?? "unsorted") ?? 0) + 1)
-      for (const a of r.areaCodes ?? []) areas.set(a, (areas.get(a) ?? 0) + 1)
-      for (const a of r.assetIds ?? []) assets.set(a, (assets.get(a) ?? 0) + 1)
-      for (const c of r.collectionIds ?? []) collections.set(c, (collections.get(c) ?? 0) + 1)
+      for (const t of r.tags ?? []) bump(tags, t)
+      bump(kinds, r.kind ?? "unsorted")
+      for (const a of r.areaCodes ?? []) bump(areas, a)
+      for (const a of r.assetIds ?? []) bump(assets, a)
+      for (const c of r.collectionIds ?? []) bump(collections, c)
       if (r.favorite) favorites++
       if (!r.embedding) unembedded++
       if (!r.description) undescribed++

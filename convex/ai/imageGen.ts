@@ -9,7 +9,7 @@ import { internal } from "../_generated/api"
 import type { Id } from "../_generated/dataModel"
 import { requireUserId } from "../lib/auth"
 import { requireEngineerOrAdmin } from "../lib/roles"
-import { IMAGE_MODEL, imageSize, mimeOf, sha256Hex } from "../seed/media"
+import { IMAGE_MODEL, decodeBase64, imageSize, mimeOf, sha256Hex } from "../seed/media"
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -18,13 +18,6 @@ const HOUSE_RULES =
   "Industrial manufacturing plant setting. Clear, uncluttered composition that explains one thing. No text, letters, numbers or logos in the image. No recognisable faces. People, if any, wear the correct PPE."
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
-function decodeBase64(data: string): Uint8Array {
-  const bin = atob(data)
-  const out = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
-  return out
-}
 
 async function drawImage(prompt: string, apiKey: string): Promise<{ bytes: Uint8Array; mime: string }> {
   const url = `${GEMINI_BASE}/models/${IMAGE_MODEL}:generateContent?key=${apiKey}`

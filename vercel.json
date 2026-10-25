@@ -4,6 +4,14 @@
   "buildCommand": "npx convex deploy --cmd 'tsc -b && vite build'",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "feature/knowledge-polish": false
+    }
+  }
 }

@@ -194,12 +194,12 @@ export function SkillMatrixTab() {
           <Grid3x3 className="h-8 w-8 text-muted-foreground" />
           <p className="text-sm font-medium">No Skills yet</p>
           <p className="max-w-sm text-xs text-muted-foreground">
-            Add Skills and Skill profiles in Skills setup. The matrix then shows everyone's level against their
+            Add Skills and Skill profiles in the Skills workspace. The matrix then shows everyone's level against their
             target, with gaps, expiring Skills and re-training needs.
           </p>
           {engineer && (
             <Button size="sm" variant="outline" className="mt-1" asChild>
-              <Link href="/learn?tab=setup">Set up Skills</Link>
+              <Link href="/learn/skills">Set up Skills</Link>
             </Button>
           )}
         </CardContent>
@@ -243,7 +243,7 @@ export function SkillMatrixTab() {
           {engineer && (
             <Button size="sm" variant="outline" className="h-8 min-w-8 gap-1 px-2 text-xs" asChild>
               <Link
-                href="/learn?tab=setup#coverage-title"
+                href="/learn/skills/coverage"
                 aria-label="Add or edit coverage questions"
                 title="Add or edit coverage questions"
               >
@@ -432,7 +432,7 @@ export function SkillMatrixTab() {
             <p className="max-w-sm text-xs text-muted-foreground">
               {data.skills.length === 0
                 ? "Pick another Skill profile or area."
-                : "Assign a Skill profile to people in Skills setup to measure them against it."}
+                : "Assign a Skill profile to people in the Skills workspace to measure them against it."}
             </p>
             <Button
               size="sm"
@@ -777,7 +777,7 @@ function CoverPanel({
       <Card>
         <CardContent className="flex items-center gap-3 p-4 text-xs text-muted-foreground">
           <Settings2 className="h-4 w-4" />
-          {profileName} has no target levels yet. Add them in Skills setup.
+          {profileName} has no target levels yet. Add them in the Skills workspace.
           <Button size="icon" variant="ghost" className="ml-auto h-7 w-7" aria-label="Close the answer" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>

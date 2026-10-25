@@ -312,7 +312,7 @@ export const workContext = query({
       )
         trainingIds.add(String(t._id))
     }
-    const skills = (await ctx.db.query("skills").take(500)).filter(
+    const skills = (await ctx.db.query("skills").take(500).then((r) => r.filter((s) => !s.archived))).filter(
       (s) =>
         s.documentIds.some((d) => docIds.has(String(d))) ||
         s.trainingIds.some((t) => trainingIds.has(String(t))),

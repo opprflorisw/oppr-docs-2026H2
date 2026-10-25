@@ -99,7 +99,7 @@ export function MakeDraftDialog({
                 <GraduationCap className="mt-0.5 h-4 w-4 shrink-0 text-[#6E59A5]" />
                 <p>
                   The Training comes next. Trainings are made only from Published documents, so once {made.namingCode} is
-                  reviewed and Published, open it and choose "Make a Training from this document".
+                  reviewed and Published, open it and choose "Make a Training" under Trainings.
                 </p>
               </div>
             )}

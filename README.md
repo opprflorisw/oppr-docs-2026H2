@@ -157,7 +157,7 @@ oppr-docs/
 │   │   ├── layout/              DesktopShell, TopBar, PageHeader
 │   │   ├── mobile/              MobileShell + mobile widgets
 │   │   ├── docs/                Editor, read view, custom nodes, dialogs
-│   │   └── ai/                  AskPanel, AskIdaSheet, SourcesBlock, etc.
+│   │   └── ai/                  AskPanel, AskDock (the one Ask side panel), SourcesBlock, etc.
 │   ├── pages/
 │   │   ├── desktop/             /, /library, /assets/*, /docs/*, /templates,
 │   │   │                        /images, /import, /settings, /analysis/*

@@ -16,7 +16,7 @@ import type { PublishEvent } from "./lib/onPublish"
 import { bodyChunks } from "./lib/chunking"
 import { createAssignments } from "./assignments"
 import { readOrgSettings } from "./orgSettings"
-import { isEngineerOrAdmin } from "./lib/roles"
+import { isEngineerOrAdmin, requireEngineerOrAdmin } from "./lib/roles"
 
 const DAY = 24 * 60 * 60 * 1000
 export const DEFAULT_PASS_MARK = 80
@@ -133,11 +133,8 @@ export function isTrainingLive(t: Doc<"trainings">): boolean {
   return t.liveVersion != null && t.status !== "archived"
 }
 
-export async function requireEngineerPerson(ctx: Ctx, personId: Id<"people">) {
-  const person = await ctx.db.get(personId)
-  if (!person || !isEngineerOrAdmin(person))
-    throw new ConvexError("Check in as an Engineer to sign this off.")
-  return person
+export function requireEngineerPerson(ctx: Ctx, personId: Id<"people">) {
+  return requireEngineerOrAdmin(ctx, personId, "Check in as an Engineer to sign this off.")
 }
 
 export async function getVersion(ctx: Ctx, trainingId: Id<"trainings">, version: number) {
@@ -693,7 +690,7 @@ export const submitForReview = mutation({
     await assertFindingsAcked(ctx, row)
     if (args.reviewerPersonId) {
       const reviewer = await ctx.db.get(args.reviewerPersonId)
-      if (!reviewer || !isEngineerOrAdmin(reviewer)) throw new ConvexError("The reviewer must be an Engineer.")
+      if (!isEngineerOrAdmin(reviewer)) throw new ConvexError("The reviewer must be an Engineer.")
       if (authorsOf(row).has(String(reviewer._id)) || reviewer._id === args.personId)
         throw new ConvexError("The reviewer cannot be an author of this version. Pick another Engineer.")
     }
@@ -1051,7 +1048,7 @@ export const impactOfPublish = query({
     }
     const holders = new Set<string>()
     const skills: { _id: Id<"skills">; name: string; holders: number }[] = []
-    for (const s of await ctx.db.query("skills").take(500)) {
+    for (const s of await ctx.db.query("skills").take(500).then((r) => r.filter((s) => !s.archived))) {
       if (!s.documentIds.includes(args.documentId)) continue
       const rows = await ctx.db
         .query("skillLevels")
@@ -1547,7 +1544,7 @@ export const skillsForDocument = query({
   handler: async (ctx, args) => {
     await requireUserId(ctx)
     const out = []
-    for (const s of await ctx.db.query("skills").take(500)) {
+    for (const s of await ctx.db.query("skills").take(500).then((r) => r.filter((s) => !s.archived))) {
       if (!s.documentIds.includes(args.documentId)) continue
       const holders = await ctx.db
         .query("skillLevels")

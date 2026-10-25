@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="156" viewBox="0 42 760 156" role="img" aria-labelledby="t">
+  <title id="t">Pijpwerk Noord</title>
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2B7BC4"/>
+      <stop offset="0.45" stop-color="#1A5C9C"/>
+      <stop offset="1" stop-color="#0B3D6B"/>
+    </linearGradient>
+    <linearGradient id="bore" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#06233F"/>
+      <stop offset="1" stop-color="#174E86"/>
+    </linearGradient>
+  </defs>
+  <!-- Mark: an extruded pipe seen at an angle, with a orange marking stripe -->
+  <g transform="translate(18 34)">
+    <path d="M44 22 H150 A26 56 0 0 1 150 134 H44 Z" fill="url(#body)"/>
+    <path d="M60 36 H148" stroke="#ffffff" stroke-opacity="0.35" stroke-width="6" stroke-linecap="round"/>
+    <path d="M58 98 H172 A26 56 0 0 1 170 112 H56 Z" fill="#F28C28"/>
+    <ellipse cx="44" cy="78" rx="26" ry="56" fill="#0B3D6B"/>
+    <ellipse cx="44" cy="78" rx="18" ry="41" fill="url(#bore)"/>
+    <ellipse cx="44" cy="78" rx="26" ry="56" fill="none" stroke="#ffffff" stroke-width="3"/>
+  </g>
+  <!-- Wordmark -->
+  <text x="222" y="100" font-family="'Arial Black', 'Helvetica Neue', Arial, sans-serif" font-weight="900" font-size="64" letter-spacing="1" fill="#0B3D6B">PIJPWERK</text>
+  <text x="224" y="148" font-family="'Helvetica Neue', Arial, sans-serif" font-weight="700" font-size="38" letter-spacing="16" fill="#F28C28">NOORD</text>
+  <text x="224" y="182" font-family="'Helvetica Neue', Arial, sans-serif" font-size="18" letter-spacing="2" fill="#4A5B6E">KUNSTSTOF LEIDINGSYSTEMEN · SINDS 1987</text>
+</svg>

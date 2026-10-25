@@ -2,7 +2,7 @@
 // the source document. We try to extract a 1-based page number from the
 // chunk's page_or_section label so PDFs deep-link to that page.
 
-import { FileText, ExternalLink } from "lucide-react"
+import { FileText, ArrowRight } from "lucide-react"
 import {
   HoverCard,
   HoverCardContent,
@@ -54,7 +54,13 @@ export function CitationPill({
           )}
         </button>
       </HoverCardTrigger>
-      <HoverCardContent align="start" sideOffset={6} className="w-96 p-3">
+      <HoverCardContent
+        align="start"
+        sideOffset={6}
+        // Keep clear of the question box at the bottom of the Ask panel.
+        collisionPadding={{ top: 8, right: 8, bottom: 104, left: 8 }}
+        className="w-[min(24rem,calc(100vw-2rem))] p-3"
+      >
         <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           <span>Source [{index}]</span>
           {citation.page_or_section && <span>{citation.page_or_section}</span>}
@@ -74,7 +80,7 @@ export function CitationPill({
             onClick={() => onOpen(citation, page)}
           >
             Open at this location
-            <ExternalLink className="h-3 w-3" />
+            <ArrowRight className="h-3 w-3" />
           </Button>
         </div>
       </HoverCardContent>

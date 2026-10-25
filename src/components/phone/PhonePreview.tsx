@@ -18,6 +18,7 @@ import { MobileRoutes } from "@/components/mobile/MobileRoutes"
 import { CheckInDevice, PHONE_CHECK_IN_KEY } from "@/lib/checkIn"
 import { cn, isMobilePath } from "@/lib/utils"
 import {
+  PHONE_DOCK_W as DOCK_W,
   phoneLocation,
   phonePath,
   rememberPhonePath,
@@ -26,7 +27,6 @@ import {
   type PhoneMode,
 } from "./phoneStore"
 
-const DOCK_W = 440
 
 /** The phone button in the desktop top bar. */
 export function PhoneButton() {

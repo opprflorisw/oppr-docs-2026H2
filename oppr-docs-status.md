@@ -85,7 +85,7 @@ Three visible surfaces:
 - `convex/ai/embed.ts` — embeddings written onto `chunks.embedding` (768-dim Convex `vectorIndex`, filterable by `documentId`), idempotent on `chunkId + modelVersion`, auto-scheduled on publish; `embedStatus` drives the Settings AI panel; `embedMissing` / `reembedAll` actions.
 - `convex/ai/ask.ts` — `askStream` HTTP action (NDJSON streaming) registered in `convex/http.ts` at `/ai/askStream` (browser hits `VITE_CONVEX_SITE_URL`). The non-streaming `askQuestion` action was removed (no callers).
 - Scopes: doc / asset / library. Q&A persists per-user in `qaSessions` + `qaMessages` with typed citations.
-- Chat UI: `AskPanel` + `AskIdaSheet` slide-in; markdown rendering, citation pills, `SourcesBlock`, `RelatedRail`, `ScopeChip`, starter prompts, copy/regenerate/stop. Mobile parity via `/m/ask`.
+- Chat UI: `AskPanel` inside `AskDock`, one side panel docked on the right (pushes the page, resizable, follows the page scope; overlay below 1024px free width); markdown rendering, citation pills, `SourcesBlock`, `RelatedRail`, `ScopeChip`, starter prompts, copy/regenerate/stop. Mobile parity via `/m/ask`.
 
 ### Mobile
 - `MobileShell` with bottom nav; home, simulated QR scan, asset list/detail, doc list/reader, ask. Global search, doc summary with PPE + asset chips above the fold.
@@ -153,7 +153,7 @@ oppr-docs/
     │   ├── layout/              ← DesktopShell, TopBar, PageHeader, UserMenu
     │   ├── mobile/              ← MobileShell + mobile widgets
     │   ├── docs/                ← editor, read view, custom nodes, dialogs, chunking.ts
-    │   └── ai/                  ← AskPanel, AskIdaSheet, SourcesBlock, …
+    │   └── ai/                  ← AskPanel, AskDock, SourcesBlock, …
     ├── pages/
     │   ├── desktop/             ← dashboard, library, assets, docs, templates,
     │   │                          images, import, settings, naming, analysis/
@@ -267,6 +267,11 @@ Production: Vercel (static Vite bundle) + Convex prod deployment. See README for
 - **`peekNextCode` can be stale by one** if a concurrent create lands first — cosmetic only; the real code is allocated inside the create mutation.
 - **Naming code immutability** means a mis-filed document can't be renamed — `documents.refile` creates a new document (new Convex id, new code). Inbound links to the old id keep pointing at the archived doc.
 - **Analysis pages** under `/analysis` are dev-facing case files, not product surface.
+- **Convex Free plan limits exceeded (2026-10-25).** Throughput (function calls, database I/O), not data size. See `/analysis/backend-gcp-and-gemma` and `docs/research/backend-gcp-and-gemma.md`.
+
+## Later
+
+- **Backend on Google Cloud and EmbeddingGemma**: investigation only. Recommendation is to stay on Convex (upgrade now, cut waste; spend caps are documented for Pro only) and set up a GCP project only if the browser lab and a Dutch eval show EmbeddingGemma is worth hosting (then CPU-only Cloud Run first). The lab embeds in a Web Worker; its WebGPU route is still untested. Follow-ups are in `docs/todo.md` (2026-10-25). The in-browser Embedding lab lives on `/analysis/backend-gcp-and-gemma` and uses the read-only `convex/lab/embeddings.ts`.
 
 ---
 

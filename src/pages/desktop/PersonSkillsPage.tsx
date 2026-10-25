@@ -125,8 +125,11 @@ export function PersonSkillsPage() {
           {/* Profiles */}
           {data.profiles.length === 0 ? (
             <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-              No Skill profile assigned, so there are no targets to measure against. Assign one in Settings,
-              on the Skills tab.
+              No Skill profile assigned, so there are no targets to measure against. Assign one in the{" "}
+              <Link href="/learn/skills/people" className="font-medium text-foreground underline underline-offset-2">
+                Skills workspace
+              </Link>
+              .
             </p>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">

@@ -10,8 +10,7 @@ import { requireEngineerOrAdmin } from "../lib/roles"
 import { isPublished } from "../lib/published"
 import { plantItemKind, plantLinks, plantRelationType } from "./schema"
 
-export type PlantItemKind = Doc<"plantItems">["kind"]
-export type PlantRelationType = Doc<"plantRelations">["type"]
+type PlantItemKind = Doc<"plantItems">["kind"]
 
 const EMPTY_LINKS = { documentIds: [], assetIds: [], trainingIds: [], skillIds: [] }
 
@@ -134,7 +133,7 @@ export const linkOptions = query({
       ctx.db.query("documents").take(1000),
       ctx.db.query("assets").take(500),
       ctx.db.query("trainings").take(500),
-      ctx.db.query("skills").take(500),
+      ctx.db.query("skills").take(500).then((r) => r.filter((s) => !s.archived)),
     ])
     return {
       documents: docs
@@ -435,6 +434,10 @@ async function acceptOne(
   return itemId
 }
 
+function rejectOne(ctx: MutationCtx, p: Doc<"plantProposals">, personId: Id<"people">) {
+  return ctx.db.patch(p._id, { status: "rejected", decidedAt: Date.now(), decidedByPersonId: personId })
+}
+
 export const acceptProposal = mutation({
   args: {
     personId: v.id("people"),
@@ -457,7 +460,7 @@ export const rejectProposal = mutation({
     await requirePlantEditor(ctx, args.personId)
     const p = await ctx.db.get(args.id)
     if (!p || p.status !== "pending") return
-    await ctx.db.patch(p._id, { status: "rejected", decidedAt: Date.now(), decidedByPersonId: args.personId })
+    await rejectOne(ctx, p, args.personId)
   },
 })
 
@@ -478,7 +481,7 @@ export const decideAllProposals = mutation({
     ).filter((p) => !args.kind || p.kind === args.kind)
     for (const p of rows) {
       if (args.decision === "accept") await acceptOne(ctx, p, args.personId)
-      else await ctx.db.patch(p._id, { status: "rejected", decidedAt: Date.now(), decidedByPersonId: args.personId })
+      else await rejectOne(ctx, p, args.personId)
     }
     return rows.length
   },

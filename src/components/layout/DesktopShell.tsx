@@ -13,7 +13,7 @@ import {
   Smartphone,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { FloatingAskIda } from "@/components/ai/FloatingAskIda"
+import { AskDock, useAskFoldsSidebar } from "@/components/ai/AskDock"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Tooltip,
@@ -132,7 +132,9 @@ export function DesktopShell({
   loading?: boolean
 }) {
   const [location] = useLocation()
-  const rail = !useIsWide()
+  // An open Ask beside the docked phone folds the sidebar to make room.
+  const askFolds = useAskFoldsSidebar()
+  const rail = !useIsWide() || askFolds
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -247,7 +249,7 @@ export function DesktopShell({
         >
           {loading ? <ShellSkeleton /> : <CheckInGate>{children}</CheckInGate>}
         </main>
-        {!loading && <FloatingAskIda />}
+        {!loading && <AskDock />}
         {!loading && <CommandSearch />}
       </div>
     </TooltipProvider>

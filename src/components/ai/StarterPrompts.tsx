@@ -60,6 +60,20 @@ function getStarters(scope: AskPanelScope): string[] {
       "Which documents cover the EXL-201 extruder?",
     ]
   }
+  if (scope.kind === "skills") {
+    return [
+      "Who can run line 2 on the night shift?",
+      "Who is below the target of their Skill profile?",
+      "Which Skills expire in the next 30 days?",
+    ]
+  }
+  if (scope.kind === "training") {
+    return [
+      "What does this Training test?",
+      "What are the critical steps I must get right?",
+      "Which safety points does this Training cover?",
+    ]
+  }
   if (scope.kind === "asset") {
     return [
       "Which documents apply to this Asset?",

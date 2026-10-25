@@ -36,6 +36,7 @@ import { KnowledgeHealthPage } from "@/pages/desktop/KnowledgeHealthPage"
 import { TrainingPage } from "@/pages/desktop/TrainingPage"
 import { AttemptPage } from "@/pages/desktop/AttemptPage"
 import { PersonSkillsPage } from "@/pages/desktop/PersonSkillsPage"
+import { SkillsWorkspacePage } from "@/pages/desktop/SkillsWorkspacePage"
 import { McpPage } from "@/pages/desktop/McpPage"
 import { Iso9001Page } from "@/pages/desktop/Iso9001Page"
 import { PhonePreviewHost } from "@/components/phone/PhonePreview"
@@ -109,6 +110,8 @@ function DesktopRoutes() {
       <Route path="/learn/trainings/:id" component={TrainingPage} />
       <Route path="/learn/attempts/:id" component={AttemptPage} />
       <Route path="/learn/people/:id" component={PersonSkillsPage} />
+      <Route path="/learn/skills" component={SkillsWorkspacePage} />
+      <Route path="/learn/skills/:tab" component={SkillsWorkspacePage} />
       <Route path="/wiki" component={WikiListPage} />
       <Route path="/wiki/:id" component={WikiPage} />
       <Route path="/plant" component={PlantPage} />
@@ -159,9 +162,10 @@ function DesktopApp() {
   if (!isLoading && !isAuthenticated) return <SignInForm />
   return (
     <NarrowViewportGuard>
-      {/* Toasts sit bottom right, above the floating Ask button. The phone
-          app mounts its own (top centre) in MobileShell. */}
-      <Toaster richColors position="bottom-right" offset={{ bottom: 96, right: 24 }} />
+      {/* Toasts sit bottom right, left of a docked Ask panel or phone
+          (AskDock sets --dock-right). The phone app mounts its own (top
+          centre) in MobileShell. */}
+      <Toaster richColors position="bottom-right" offset={{ bottom: 24, right: "calc(var(--dock-right, 0px) + 24px)" }} />
       <DesktopShell loading={isLoading}>
         {!isLoading && (
           <>

@@ -129,7 +129,7 @@ export const CLAUSES: IsoClause[] = [
         ],
         yours: "Your organisation chart and job descriptions.",
         status: "supported",
-        link: { href: "/settings?tab=skills", label: "Open Skill profiles" },
+        link: { href: "/learn/skills/profiles", label: "Open Skill profiles" },
       },
     ],
   },

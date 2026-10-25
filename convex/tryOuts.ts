@@ -23,7 +23,7 @@ type Ctx = QueryCtx | MutationCtx
 
 /** Skills that prove this Training: explicit links only (skills.trainingIds). */
 export async function skillsForTraining(ctx: Ctx, trainingId: Id<"trainings">) {
-  const skills = await ctx.db.query("skills").take(500)
+  const skills = await ctx.db.query("skills").take(500).then((r) => r.filter((s) => !s.archived))
   return skills.filter((s) => s.trainingIds.includes(trainingId))
 }
 

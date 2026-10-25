@@ -8,6 +8,7 @@ import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/s
 import { requireUserId } from "./lib/auth"
 import { requireEngineerOrAdmin } from "./lib/roles"
 import { ORG_LIMITS } from "./settings/limits"
+import { orgSettingsGroups } from "./settings/schema"
 
 export { ORG_LIMITS }
 
@@ -71,36 +72,7 @@ function check(label: string, value: number, [min, max]: readonly [number, numbe
 export const update = mutation({
   args: {
     personId: v.optional(v.id("people")),
-    company: v.optional(
-      v.object({
-        documentLanguages: v.optional(v.array(v.union(v.literal("en"), v.literal("nl")))),
-      }),
-    ),
-    documents: v.optional(
-      v.object({
-        reviewIntervalMonths: v.optional(v.number()),
-        dueSoonDays: v.optional(v.number()),
-        requireChangeNote: v.optional(v.boolean()),
-        fourEyes: v.optional(v.boolean()),
-      }),
-    ),
-    training: v.optional(
-      v.object({
-        passMark: v.optional(v.number()),
-        dueDays: v.optional(v.number()),
-        refreshMonths: v.optional(v.union(v.number(), v.null())),
-        questionsPerObjective: v.optional(v.number()),
-        tryOutForSafety: v.optional(v.boolean()),
-        failsBeforeWalkthrough: v.optional(v.number()),
-      }),
-    ),
-    floor: v.optional(
-      v.object({
-        checkInIdleMinutes: v.optional(v.number()),
-        captureRetentionDays: v.optional(v.union(v.number(), v.null())),
-        captureNotice: v.optional(v.union(v.string(), v.null())),
-      }),
-    ),
+    ...orgSettingsGroups,
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)

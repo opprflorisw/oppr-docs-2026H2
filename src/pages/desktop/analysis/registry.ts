@@ -28,6 +28,7 @@ import { AskIdaScopingAnalysis } from "./AskIdaScopingAnalysis"
 import { KnowledgeSlice01Analysis } from "./KnowledgeSlice01Analysis"
 import { FunctionalityGuideAnalysis } from "./FunctionalityGuideAnalysis"
 import { StatusTypesPpePlanAnalysis } from "./StatusTypesPpePlanAnalysis"
+import { BackendGcpGemmaAnalysis } from "./BackendGcpGemmaAnalysis"
 
 export type AnalysisStatus = "done" | "in_progress" | "outstanding"
 
@@ -50,6 +51,16 @@ export interface AnalysisMeta {
 }
 
 export const ANALYSES: AnalysisMeta[] = [
+  {
+    slug: "backend-gcp-and-gemma",
+    title: "Backend on Google Cloud and Gemma embeddings",
+    area: "Architecture",
+    status: "outstanding",
+    updatedAt: "2026-10-25",
+    summary:
+      "Convex Free plan limits are throughput (function calls, database reads), not data size: stay on Convex on a paid plan, cut the waste (inline embeddings, agent test logins, publish fan-out), and use a Google Cloud project only for AI experiments. Options compared (Convex, self-hosted Convex on GCP, native GCP rewrite, hybrid, Firebase) with effort, cost and risk. Includes a live Embedding lab that runs EmbeddingGemma in the browser and compares it with gemini-embedding-2 on Published passages.",
+    Component: BackendGcpGemmaAnalysis,
+  },
   {
     slug: "knowledge-slice-0-1",
     title: "Oppr Knowledge: foundation and Wiki via Guided creation",

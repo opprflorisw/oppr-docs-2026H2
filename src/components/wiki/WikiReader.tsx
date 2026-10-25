@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react"
 import { Link } from "wouter"
-import { AlertOctagon, AlertTriangle, FileText, ListChecks, ShieldAlert } from "lucide-react"
+import { AlertOctagon, AlertTriangle, ChevronDown, FileText, ListChecks, ShieldAlert } from "lucide-react"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import {
   groupByDocument,
@@ -16,9 +23,18 @@ import {
 
 // The desktop Wiki reader: At a glance, sections (bullets, steps, tables,
 // safety callouts, pictures), unobtrusive source chips and the on-page table
-// of contents. Also what the print layout shows.
+// of contents. Body text keeps a reading measure; tables, step lists and
+// pictures may use more of the width.
 
 const READING = "max-w-[70ch]"
+const WIDE = "max-w-[88ch]"
+const TABLE = "max-w-[120ch]"
+
+function bodyWidth(kind: string, fallback: string): string {
+  if (kind === "table") return TABLE
+  if (kind === "steps") return WIDE
+  return fallback
+}
 
 /** Small, quiet source marker. Hover shows the passage; click opens it. */
 export function SourceChip({ wikiId, group, excerpts }: { wikiId: string; group: CitationGroup; excerpts: Record<string, string> }) {
@@ -92,7 +108,7 @@ export function AtAGlance({ wiki }: { wiki: WikiView }) {
   const points = (wiki.content?.sections ?? []).flatMap((s) => s.points.filter((p) => p.key && !p.cells))
   if (points.length === 0) return null
   return (
-    <section aria-labelledby="wiki-glance" className={cn("wiki-glance rounded-xl border border-primary/25 bg-primary/[0.04] p-5", READING)}>
+    <section aria-labelledby="wiki-glance" className={cn("wiki-glance rounded-xl border border-primary/25 bg-primary/[0.04] p-5", WIDE)}>
       <h2 id="wiki-glance" className="flex items-center gap-2 text-sm font-semibold text-primary-strong">
         <ListChecks className="h-4 w-4" aria-hidden />
         At a glance
@@ -231,7 +247,10 @@ export function WikiSectionBlock({
       <section
         aria-labelledby={slug}
         data-safety="true"
-        className={cn("wiki-section space-y-3 rounded-xl border border-amber-300 bg-amber-50/70 p-5 dark:border-amber-500/40 dark:bg-amber-500/10", READING)}
+        className={cn(
+          "wiki-section space-y-3 rounded-xl border border-amber-300 bg-amber-50/70 p-5 dark:border-amber-500/40 dark:bg-amber-500/10",
+          bodyWidth(kind, WIDE),
+        )}
       >
         {heading}
         {body}
@@ -240,15 +259,15 @@ export function WikiSectionBlock({
     )
   }
   return (
-    <section aria-labelledby={slug} data-full-only="true" className={cn("wiki-section space-y-3", kind === "table" ? "max-w-[88ch]" : READING)}>
-      {heading}
-      {body}
-      {fig}
+    <section aria-labelledby={slug} data-full-only="true" className="wiki-section space-y-3">
+      <div className={READING}>{heading}</div>
+      <div className={bodyWidth(kind, READING)}>{body}</div>
+      {fig && <div className={WIDE}>{fig}</div>}
     </section>
   )
 }
 
-/** Right-rail table of contents with scroll-spy. */
+/** The table of contents rail, with scroll-spy. */
 export function WikiToc({ sections, slugs }: { sections: WikiSectionView[]; slugs: string[] }) {
   const [active, setActive] = useState<string | null>(slugs[0] ?? null)
   useEffect(() => {
@@ -290,5 +309,38 @@ export function WikiToc({ sections, slugs }: { sections: WikiSectionView[]; slug
         ))}
       </ol>
     </nav>
+  )
+}
+
+/** The table of contents as a compact "On this page" menu, for narrow widths. */
+export function WikiTocMenu({ sections, slugs }: { sections: WikiSectionView[]; slugs: string[] }) {
+  if (sections.length === 0) return null
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
+          On this page
+          <ChevronDown className="h-3 w-3 opacity-60" aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-[60vh] w-72 overflow-y-auto">
+        {sections.map((s, i) => (
+          <DropdownMenuItem
+            key={slugs[i]}
+            onSelect={() => {
+              const el = document.getElementById(slugs[i])
+              if (!el) return
+              el.scrollIntoView({ block: "start", behavior: "smooth" })
+              window.history.replaceState(null, "", `#${slugs[i]}`)
+            }}
+            className="gap-2 text-sm"
+          >
+            <span className="min-w-0 flex-1">{s.heading}</span>
+            {s.safety && <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-600" aria-label="Safety" />}
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{s.points.length}</span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

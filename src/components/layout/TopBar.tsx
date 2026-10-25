@@ -4,7 +4,7 @@ import { UserMenu } from "./UserMenu"
 import { CheckInChip } from "@/components/people/CheckInChip"
 import { PhoneButton } from "@/components/phone/PhonePreview"
 import { cn } from "@/lib/utils"
-import { AskTopBarButton } from "@/components/ai/FloatingAskIda"
+import { AskTopBarButton } from "@/components/ai/AskDock"
 
 export interface BreadcrumbItem {
   label: string

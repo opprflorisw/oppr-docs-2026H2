@@ -68,9 +68,15 @@ export function DocumentTrainingsCard({
         </ul>
       )}
       {canMake && (
-        <Button size="sm" variant="outline" className="w-full" onClick={() => setCreating(true)}>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-auto min-h-8 w-full whitespace-normal py-1.5"
+          title="Make a Training from this document"
+          onClick={() => setCreating(true)}
+        >
           <Plus />
-          Make a Training from this document
+          Make a Training
         </Button>
       )}
       {skills && skills.length > 0 && (

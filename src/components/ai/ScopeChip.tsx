@@ -6,7 +6,9 @@ import {
   FileText,
   Files,
   Globe,
+  GraduationCap,
   Search,
+  UsersRound,
 } from "lucide-react"
 import {
   Popover,
@@ -21,8 +23,33 @@ import type { Id } from "../../../convex/_generated/dataModel"
 import type { AskPanelScope } from "./AskPanel"
 import { cn } from "@/lib/utils"
 
-/** Every Ask scope, including "This Wiki" (Ask this Wiki, wiki lane). */
-export type AnyAskScope = AskPanelScope | { kind: "wiki"; id: string }
+/** Every Ask scope. */
+export type AnyAskScope = AskPanelScope
+
+/** A scope that only its own page sets: a Wiki, a Training, the Skills pages. */
+type PageScope = Extract<AskPanelScope, { kind: "wiki" | "training" | "skills" }>
+
+function pageScopeOf(scope: AnyAskScope): PageScope | null {
+  return scope.kind === "wiki" || scope.kind === "training" || scope.kind === "skills" ? scope : null
+}
+
+const PAGE_SCOPE_UI: Record<PageScope["kind"], { tab: string; icon: typeof Globe; note: string }> = {
+  wiki: {
+    tab: "Wiki",
+    icon: BookOpenText,
+    note: "Answers come only from the documents this Wiki is built from, at the versions it cites.",
+  },
+  training: {
+    tab: "Training",
+    icon: GraduationCap,
+    note: "Answers come only from the documents this Training's Learning objectives come from.",
+  },
+  skills: {
+    tab: "Skills",
+    icon: UsersRound,
+    note: "Answers about people come from the Skill matrix as it is now. Steps and settings still come only from Published documents.",
+  },
+}
 
 interface ScopeChipProps {
   scope: AnyAskScope
@@ -35,14 +62,14 @@ export function ScopeChip({ scope, onChange, className }: ScopeChipProps) {
   const [open, setOpen] = useState(false)
   const label = useScopeLabel(scope)
 
-  const Icon =
-    scope.kind === "library"
+  const page = pageScopeOf(scope)
+  const Icon = page
+    ? PAGE_SCOPE_UI[page.kind].icon
+    : scope.kind === "library"
       ? Globe
       : scope.kind === "asset"
         ? Factory
-        : scope.kind === "wiki"
-          ? BookOpenText
-          : FileText
+        : FileText
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -99,7 +126,21 @@ export function useScopeLabel(scope: AnyAskScope) {
     api.wikis.get,
     scope.kind === "wiki" ? { id: scope.id as Id<"wikis"> } : "skip",
   )
+  const training = useQuery(
+    api.trainings.get,
+    scope.kind === "training" ? { id: scope.id as Id<"trainings"> } : "skip",
+  )
   return useMemo(() => {
+    if (scope.kind === "skills") {
+      return { kindLabel: "Skills", code: null, title: "Skill matrix and documents" }
+    }
+    if (scope.kind === "training") {
+      return {
+        kindLabel: "Training",
+        code: training?.training.code ?? null,
+        title: training?.training.title ?? null,
+      }
+    }
     if (scope.kind === "library") {
       return { kindLabel: "Library", code: null, title: "All documents" }
     }
@@ -118,7 +159,7 @@ export function useScopeLabel(scope: AnyAskScope) {
       code: asset?.code ?? null,
       title: asset?.name ?? null,
     }
-  }, [scope, doc, asset, wiki])
+  }, [scope, doc, asset, wiki, training])
 }
 
 interface DocPick {
@@ -139,8 +180,10 @@ function ScopeSwitcher({
   scope: AnyAskScope
   onPick: (next: AnyAskScope) => void
 }) {
-  const wikiScope = scope.kind === "wiki" ? scope : null
-  const [tab, setTab] = useState<"library" | "doc" | "asset" | "wiki">(scope.kind)
+  const pageScope = pageScopeOf(scope)
+  const pageUi = pageScope ? PAGE_SCOPE_UI[pageScope.kind] : null
+  const PageIcon = pageUi?.icon
+  const [tab, setTab] = useState<"library" | "doc" | "asset" | "page">(pageScope ? "page" : (scope.kind as "library" | "doc" | "asset"))
   const [query, setQuery] = useState("")
 
   const docs = useQuery(api.documents.list, { publishedOnly: true }) ?? []
@@ -185,14 +228,14 @@ function ScopeSwitcher({
             setTab(v as typeof tab)
             // Library needs no further choice: apply it straight away.
             if (v === "library") onPick({ kind: "library" })
-            if (v === "wiki" && wikiScope) onPick(wikiScope)
+            if (v === "page" && pageScope) onPick(pageScope)
           }}
         >
-          <TabsList className={cn("grid h-8 w-full", wikiScope ? "grid-cols-4" : "grid-cols-3")}>
-            {wikiScope && (
-              <TabsTrigger value="wiki" className="text-xs">
-                <BookOpenText className="mr-1 h-3 w-3" />
-                Wiki
+          <TabsList className={cn("grid h-8 w-full", pageScope ? "grid-cols-4" : "grid-cols-3")}>
+            {pageUi && PageIcon && (
+              <TabsTrigger value="page" className="text-xs">
+                <PageIcon className="mr-1 h-3 w-3" />
+                {pageUi.tab}
               </TabsTrigger>
             )}
             <TabsTrigger value="library" className="text-xs">
@@ -211,11 +254,8 @@ function ScopeSwitcher({
         </Tabs>
       </div>
 
-      {tab === "wiki" ? (
-        <p className="p-3 text-xs text-muted-foreground">
-          Answers come only from the documents this Wiki is built from, at
-          the versions it cites.
-        </p>
+      {tab === "page" && pageUi ? (
+        <p className="p-3 text-xs text-muted-foreground">{pageUi.note}</p>
       ) : tab === "library" ? (
         <div className="space-y-2 p-3">
           <p className="text-xs text-muted-foreground">

@@ -30,7 +30,7 @@ function parseScope(search: string): AskPanelScope | null {
 }
 
 function scopeToQuery(scope: AskPanelScope): string {
-  return scope.kind === "library" ? "library" : `${scope.kind}:${scope.id}`
+  return scope.kind === "library" || scope.kind === "skills" ? "library" : `${scope.kind}:${scope.id}`
 }
 
 export function MobileAskPage() {

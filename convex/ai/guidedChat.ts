@@ -13,6 +13,7 @@
 // chunk vector index as Ask and the MCP server. A photo is embedded with the
 // multimodal embedding model, so it lands in the same space as the text.
 import { ConvexError, v } from "convex/values"
+import type { Infer } from "convex/values"
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai"
 import type { ResponseSchema } from "@google/generative-ai"
 import { z } from "zod"
@@ -21,13 +22,12 @@ import type { ActionCtx } from "../_generated/server"
 import { internal } from "../_generated/api"
 import type { Id } from "../_generated/dataModel"
 import { requireUser } from "../lib/auth"
-import { CHAT_MODEL, EMBEDDING_DIM, IMAGE_EMBEDDING_MODEL } from "./constants"
+import { CHAT_MODEL } from "./constants"
+import { embedImageBytes } from "./imageEmbed"
 import { claudeConfigured, claudeJson, describeClaudeError } from "./llm"
 import { aiStubEnabled } from "./wiki"
 import { embedText } from "../mcp/embedding"
 import type { Passage } from "../mcp/data"
-
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 // ---- Shapes -------------------------------------------------------------------
 
@@ -240,9 +240,10 @@ export const writerContext = internalQuery({
   },
 })
 
-async function plantBriefing(ctx: ActionCtx, areaCodes: string[]): Promise<string> {
+/** The briefing for the whole plant: the open document's area need not be the topic. */
+async function plantBriefing(ctx: ActionCtx): Promise<string> {
   try {
-    const text: string = await ctx.runQuery(internal.plant.context.forAi, areaCodes.length ? { areaCodes } : {})
+    const text: string = await ctx.runQuery(internal.plant.context.forAi, {})
     return text.slice(0, 4000)
   } catch (err) {
     console.warn("plant briefing unavailable:", err)
@@ -254,15 +255,6 @@ async function plantBriefing(ctx: ActionCtx, areaCodes: string[]): Promise<strin
 
 export type FoundPassage = Passage & { matchedBy: "text" | "image" | "words" }
 
-function toBase64(bytes: Uint8Array): string {
-  let bin = ""
-  const step = 0x8000
-  for (let i = 0; i < bytes.length; i += step) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + step))
-  }
-  return btoa(bin)
-}
-
 /** A photo in the same vector space as the chunk text (multimodal embedding). */
 async function embedPhoto(ctx: ActionCtx, storageId: Id<"_storage">): Promise<number[]> {
   const apiKey = process.env.GEMINI_API_KEY
@@ -270,20 +262,7 @@ async function embedPhoto(ctx: ActionCtx, storageId: Id<"_storage">): Promise<nu
   const blob = await ctx.storage.get(storageId)
   if (!blob) throw new ConvexError("The photo could not be read. Try adding it again.")
   if (blob.size > 12 * 1024 * 1024) throw new ConvexError("The photo is too large. Use one under 12 MB.")
-  const bytes = new Uint8Array(await blob.arrayBuffer())
-  const res = await fetch(`${GEMINI_BASE}/models/${IMAGE_EMBEDDING_MODEL}:embedContent?key=${apiKey}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      content: { parts: [{ inlineData: { mimeType: blob.type || "image/jpeg", data: toBase64(bytes) } }] },
-      outputDimensionality: EMBEDDING_DIM,
-    }),
-  })
-  if (!res.ok) throw new Error(`Gemini image embed ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  const json = (await res.json()) as { embedding?: { values?: number[] } }
-  const values = json.embedding?.values
-  if (!Array.isArray(values)) throw new Error("Gemini image embed response missing embedding.values")
-  return values
+  return await embedImageBytes(new Uint8Array(await blob.arrayBuffer()), blob.type || "image/jpeg", apiKey)
 }
 
 const NAMING_CODE = /[A-Z]{2,4}-[A-Z]{2,4}-[A-Z]+-\d{4}/g
@@ -444,11 +423,9 @@ export const writerTurn = action({
       throw new ConvexError("The assistant is not available on this server (no AI key). Fill in the draft yourself.")
     }
 
-    // The whole plant: the open document's area need not be the topic.
-    const areaCodes: string[] = []
     const searchText = [args.context.title, args.draft.purpose, latest.text].filter(Boolean).join(". ")
     const [briefing, found] = await Promise.all([
-      plantBriefing(ctx, areaCodes),
+      plantBriefing(ctx),
       searchPassages(ctx, { query: searchText, storageId: null, areas: [], limit: 6 }).catch(() => ({
         passages: [] as FoundPassage[],
         note: null,
@@ -514,20 +491,13 @@ export const writerTurn = action({
   },
 })
 
-type DraftIn = {
-  title?: string
-  purpose: string
-  ppe: string[]
-  hazards: WriterHazard[]
-  steps: { id: string; text: string; hasImage: boolean }[]
-  terms: WriterTerm[]
-}
+type DraftIn = Infer<typeof writerDraftV>
 
 /** The passage a proposal names, or the Plant; null when it names nothing it was given. */
 function sourceOf(raw: unknown, passages: FoundPassage[]): ProposalSource | null {
   const s = String(raw ?? "").trim()
   if (!s) return null
-  const code = s.match(/[A-Z]{2,4}-[A-Z]{2,4}-[A-Z]+-\d{4}/)?.[0]
+  const code = s.match(NAMING_CODE)?.[0]
   if (code) {
     const p = passages.find((x) => x.namingCode === code)
     return p ? { kind: "document", documentId: p.documentId, namingCode: p.namingCode, title: p.title } : null

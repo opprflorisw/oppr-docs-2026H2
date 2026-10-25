@@ -107,11 +107,6 @@ export function isEditor(person: Person | null | undefined): boolean {
   return isEngineerOrAdmin(person)
 }
 
-export function linkCount(i: PlantItem): number {
-  const l = i.links
-  return l.documentIds.length + l.assetIds.length + l.trainingIds.length + l.skillIds.length
-}
-
 export function itemMatches(i: PlantItem, needle: string): boolean {
   if (!needle) return true
   const n = needle.toLowerCase()

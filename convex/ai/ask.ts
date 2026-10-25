@@ -20,6 +20,7 @@ const SYSTEM_INSTRUCTION = [
   "  • SCOPE OVERVIEW: a deterministic, factual summary of what exists in the current scope (only when relevant).",
   "  • PLANT BRIEFING: background about the organization, its areas, processes and the words people use (with Dutch synonyms). Use it to understand the question and the plant's words. Never cite it and never take steps, settings or limits from it; those come from EXCERPTS only.",
   "  • EXCERPTS: the chunks that are most semantically similar to the question, numbered [1], [2], …",
+  "  • SKILL MATRIX (only on the Skills pages): who holds which Skill at which level now, their shift and their Skill profiles. Answer questions about people, cover and gaps from it, naming the people. Never cite it, and never take steps or settings from it.",
   "Hard rules:",
   "  • Answer the user's question directly. Be concise. Operators are on the floor.",
   "  • Never use em dashes. Use a comma, a colon or a full stop instead.",
@@ -35,26 +36,52 @@ const SYSTEM_INSTRUCTION = [
   "  • For 'how long', 'how much', 'how hot' or 'how often' questions, give every condition the excerpt states with the value: temperature, time, pressure, dew point, quantity, frequency. 'At least 4 hours' is wrong when the excerpt says 'at 80 °C for at least 4 hours, dew point -40 °C or lower'.",
   "  • If neither block has the answer, say so plainly in one sentence. Do not invent facts.",
   "  • Never apologize. Never refer to 'the excerpts' or 'the scope overview'. Just answer.",
+  "  • Cite only with excerpt numbers such as [1]. Square brackets hold only excerpt numbers: never write [SCOPE OVERVIEW], [SKILL MATRIX], [Training objective] or any other label. Facts from the other blocks carry no citation.",
 ].join("\n")
 
 export type AskScope =
   | { kind: "doc"; id: Id<"documents"> }
   | { kind: "asset"; id: Id<"assets"> }
   | { kind: "wiki"; id: Id<"wikis"> }
+  | { kind: "training"; id: Id<"trainings"> }
+  | { kind: "skills" }
   | { kind: "library" }
 
 export type ScopeArg =
   | { kind: "doc"; id: string }
   | { kind: "asset"; id: string }
   | { kind: "wiki"; id: string }
+  | { kind: "training"; id: string }
+  | { kind: "skills" }
   | { kind: "library" }
 
 const askScopeValidator = v.union(
   v.object({ kind: v.literal("doc"), id: v.id("documents") }),
   v.object({ kind: v.literal("asset"), id: v.id("assets") }),
   v.object({ kind: v.literal("wiki"), id: v.id("wikis") }),
+  v.object({ kind: v.literal("training"), id: v.id("trainings") }),
+  v.object({ kind: v.literal("skills") }),
   v.object({ kind: v.literal("library") }),
 )
+
+/**
+ * Ask about a Training: the Documents its Learning objectives come from, in
+ * the version people do now (the live one, else the one being written).
+ */
+async function trainingDocIds(
+  ctx: { db: QueryCtx["db"] },
+  trainingId: Id<"trainings">,
+): Promise<{ training: Doc<"trainings"> | null; version: Doc<"trainingVersions"> | null; docIds: Id<"documents">[] }> {
+  const training = await ctx.db.get(trainingId)
+  if (!training) return { training: null, version: null, docIds: [] }
+  const ver = training.liveVersion ?? training.currentVersion
+  const version = await ctx.db
+    .query("trainingVersions")
+    .withIndex("by_trainingId_and_version", (q) => q.eq("trainingId", trainingId).eq("version", ver))
+    .unique()
+  const docIds = [...new Set((version?.objectives ?? []).map((o) => o.documentId))]
+  return { training, version, docIds }
+}
 
 /**
  * Ask this Wiki: the Wiki's source documents at the versions it was built
@@ -95,6 +122,7 @@ const INVENTORY_QUESTION_RE =
   /\b(list|every|all\s+(?:doc|sop|manual|asset|log|file)|how\s+many|which\s+(?:doc|sop|asset|log)|what\s+(?:doc|sop|asset|log|files?)\s+(?:do|are|exist)|inventory|catalog|summary|overview)\b/i
 
 function shouldIncludeScopeOverview(scope: ScopeArg, question: string) {
+  if (scope.kind === "skills") return false
   if (scope.kind !== "library") return true
   return INVENTORY_QUESTION_RE.test(question)
 }
@@ -158,6 +186,8 @@ export const lookupAfterSearch = internalQuery({
     if (args.scope.kind === "wiki") {
       const pinned = await wikiSourceVersions(ctx, args.scope.id)
       allowedDocIds = new Set(pinned.keys())
+    } else if (args.scope.kind === "training") {
+      allowedDocIds = new Set((await trainingDocIds(ctx, args.scope.id)).docIds)
     } else if (args.scope.kind === "doc") {
       allowedDocIds = new Set([args.scope.id])
     } else if (args.scope.kind === "asset") {
@@ -221,6 +251,24 @@ export const buildScopeOverview = internalQuery({
       ]
       return lines.join("\n")
     }
+    if (args.scope.kind === "training") {
+      const { training, version, docIds } = await trainingDocIds(ctx, args.scope.id)
+      if (!training) return "TRAINING not found."
+      const docs = (await Promise.all(docIds.map((id) => ctx.db.get(id)))).filter(
+        (d): d is Doc<"documents"> => d !== null && isPublished(d),
+      )
+      return [
+        `TRAINING: ${training.code} · ${training.title} (${training.kind === "round" ? "a Round, walked in the plant" : "a course"})`,
+        version?.purpose ? `Purpose: ${version.purpose}` : null,
+        `Learning objectives:`,
+        ...(version?.objectives ?? []).map((o) => `- ${o.text} (${o.namingCode})`),
+        `Answer only from the documents this Training is built from (${docs.length}):`,
+        ...docs.map((d) => `- ${d.namingCode} · ${d.title} · v${d.liveVersion}`),
+      ]
+        .filter((l): l is string => l !== null)
+        .join("\n")
+    }
+    if (args.scope.kind === "skills") return ""
     if (args.scope.kind === "library") {
       const docs = (await ctx.db.query("documents").take(500)).filter(
         isPublished,
@@ -343,6 +391,10 @@ async function prepareAskContext(
       { wikiId: args.scope.id },
     )
     linkedDocIds = sources.map((d) => d._id)
+  } else if (args.scope.kind === "training") {
+    linkedDocIds = await ctx.runQuery(internal.ai.ask.lookupTrainingDocs, {
+      trainingId: args.scope.id,
+    })
   }
 
   let vectorResults: { _id: Id<"chunks">; _score: number }[] = []
@@ -494,6 +546,10 @@ async function prepareAskContext(
   if (overviewText) {
     promptParts.push(`SCOPE OVERVIEW:\n${overviewText}`, "")
   }
+  if (args.scope.kind === "skills") {
+    const matrix: string = await ctx.runQuery(internal.ai.askSkills.skillMatrixBrief, {})
+    promptParts.push(`SKILL MATRIX:\n${matrix}`, "")
+  }
   if (conflicts.length > 0) {
     promptParts.push(
       "KNOWN CONFLICT (open Findings of the Consistency check):",
@@ -558,6 +614,12 @@ export const lookupWikiDocs = internalQuery({
     const pinned = await wikiSourceVersions(ctx, args.wikiId)
     return [...pinned.keys()].map((id) => ({ _id: id as Id<"documents"> }))
   },
+})
+
+export const lookupTrainingDocs = internalQuery({
+  args: { trainingId: v.id("trainings") },
+  handler: async (ctx, args): Promise<Id<"documents">[]> =>
+    (await trainingDocIds(ctx, args.trainingId)).docIds,
 })
 
 export const lookupAssetDocs = internalQuery({
@@ -679,9 +741,13 @@ export const askStream = httpAction(async (ctx, req) => {
         if (!anyText) {
           writeEvent({ type: "delta", text: "(no response)" })
         }
+        // On the Skills pages an answer about people comes from the Skill
+        // matrix and cites nothing; then the documents it looked at are noise.
+        const shownCitations =
+          payload.scope.kind === "skills" && !/\[\d+\]/.test(fullText) ? [] : prepared.citations
         writeEvent({
           type: "done",
-          citations: prepared.citations,
+          citations: shownCitations,
           conflicts: prepared.conflicts,
         })
         // Append-only signal for Document insights and Knowledge health.
@@ -689,13 +755,16 @@ export const askStream = httpAction(async (ctx, req) => {
         // people cannot delete it with their chat history.
         try {
           await ctx.runMutation(internal.usage.logAsk, {
-            // The Ask log knows documents, Assets and the library; a Wiki
-            // question is logged by the documents it cited.
-            scope: payload.scope.kind === "wiki" ? { kind: "library" } : payload.scope,
+            // The Ask log knows documents, Assets and the library; a Wiki,
+            // Training or Skills question is logged by the documents it cited.
+            scope:
+              payload.scope.kind === "doc" || payload.scope.kind === "asset"
+                ? payload.scope
+                : { kind: "library" },
             question: payload.question.slice(0, 1000),
             answerFound:
-              prepared.citations.length > 0 && !NOT_FOUND_RE.test(fullText.slice(0, 600)),
-            citedDocumentIds: prepared.citations.map((c) => c.documentId as Id<"documents">),
+              shownCitations.length > 0 && !NOT_FOUND_RE.test(fullText.slice(0, 600)),
+            citedDocumentIds: shownCitations.map((c) => c.documentId as Id<"documents">),
             personId: payload.personId ?? null,
             surface: payload.surface === "floor" ? "floor" : "desktop",
           })

@@ -147,6 +147,10 @@ _Avoid_: job description, curriculum
 The grid of people against Skills that shows current against target level, gaps, expiring Skills and re-training needs.
 _Avoid_: competency grid
 
+**Skills workspace**:
+The page inside Learn where Engineers set up Skills: the Skills, the Skill profiles and their levels, who is on which profile, which Training proves which Skill, the level names and the coverage questions. Everyone else can look. It is the only place this is edited.
+_Avoid_: Skills setup, skill settings
+
 **Significant change**:
 A mark the author puts on a new Document version. It means the change affects how the work is done. Only a Significant change flags "re-train needed" on the linked Skills. Typo fixes do not.
 _Avoid_: major version, breaking change
@@ -174,7 +178,7 @@ _Avoid_: preview, suggestion
 ### Assistance and insight
 
 **Ask**:
-Asking a question in natural language and getting an answer drawn only from Published Knowledge, with sources. Anonymous on the floor.
+Asking a question in natural language and getting an answer drawn only from Published Knowledge, with sources. Anonymous on the floor. On the desktop it follows the page (a Document, Asset, Wiki, Training or the library); on the Skills pages it also knows the Skill matrix, so it can say who holds which Skill, but steps and settings still come only from Published Documents.
 _Avoid_: chat, search, Ask IDA (that is the wider platform's name)
 
 **Document insights**:

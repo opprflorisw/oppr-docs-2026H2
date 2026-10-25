@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server"
+import { internalMutation, mutation, query, type MutationCtx } from "./_generated/server"
 import { v } from "convex/values"
 import { requireUser, requireUserId } from "./lib/auth"
 import { requireEngineerOrAdmin } from "./lib/roles"
@@ -46,6 +46,36 @@ export const seedIfEmpty = mutation({
     }
     return { ok: true, seeded: true }
   },
+})
+
+// Adds factory types missing from an existing vocabulary (seedIfEmpty only
+// runs on an empty table), so a built-in template's type gets its own token
+// instead of the "DOC" fallback. Skips a type whose token is already taken.
+export async function addMissingFactoryTypes(ctx: MutationCtx): Promise<string[]> {
+  const rows = await ctx.db.query("namingTypes").take(200)
+  if (rows.length === 0) return []
+  let order = rows.reduce((m, t) => Math.max(m, t.sortOrder), -1)
+  const added: string[] = []
+  for (const t of FACTORY_TYPES) {
+    if (rows.some((r) => r.slug === t.slug || r.token === t.token)) continue
+    await ctx.db.insert("namingTypes", {
+      slug: t.slug,
+      token: t.token,
+      label: t.label,
+      icon: t.icon,
+      color: t.color,
+      active: true,
+      builtIn: true,
+      sortOrder: ++order,
+    })
+    added.push(t.slug)
+  }
+  return added
+}
+
+export const ensureFactoryTypes = internalMutation({
+  args: {},
+  handler: async (ctx) => ({ added: await addMissingFactoryTypes(ctx) }),
 })
 
 function slugify(label: string): string {

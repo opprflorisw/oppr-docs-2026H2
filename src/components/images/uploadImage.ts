@@ -4,7 +4,7 @@ import type { ReactMutation } from "convex/react"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { api } from "../../../convex/_generated/api"
 
-export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 export const ACCEPTED_IMAGE_TYPES = "image/png,image/jpeg,image/gif,image/webp"
 
 export async function sha256Hex(buf: ArrayBuffer): Promise<string> {

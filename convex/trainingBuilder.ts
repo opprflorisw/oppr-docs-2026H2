@@ -105,7 +105,7 @@ export const peopleOptions = query({
     await requireUserId(ctx)
     const people = await ctx.db.query("people").take(500)
     const profiles = await ctx.db.query("skillProfiles").take(200)
-    const skills = await ctx.db.query("skills").take(500)
+    const skills = await ctx.db.query("skills").take(500).then((r) => r.filter((s) => !s.archived))
     return {
       people: people
         .map((p) => ({

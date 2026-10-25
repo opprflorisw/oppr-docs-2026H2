@@ -88,34 +88,40 @@ export function SkillLevelsSettings() {
         </CardContent>
       </Card>
       <div className="flex flex-wrap items-center gap-2">
-        <Button disabled={!editorId || !dirty || busy || !!blocked} title={blocked ?? undefined} onClick={() => void save()}>
-          Save level names
-        </Button>
-        {dirty && (
-          <Button variant="ghost" disabled={busy} onClick={() => saved && setNames(saved)}>
-            Undo changes
-          </Button>
+        {dirty ? (
+          <>
+            <Button disabled={!editorId || busy || !!blocked} title={blocked ?? undefined} onClick={() => void save()}>
+              Save level names
+            </Button>
+            <Button variant="ghost" disabled={busy} onClick={() => saved && setNames(saved)}>
+              Undo changes
+            </Button>
+          </>
+        ) : (
+          editorId && <span className="text-xs text-muted-foreground">Change a name and save it here.</span>
         )}
-        <span className="ml-auto flex gap-1 text-xs text-muted-foreground">
-          Start from:
-          <button
-            type="button"
-            className="font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50"
-            disabled={!editorId || isDefault}
-            onClick={() => setNames([...DEFAULT_LEVEL_NAMES])}
-          >
-            Oppr words
-          </button>
-          or
-          <button
-            type="button"
-            className="font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50"
-            disabled={!editorId}
-            onClick={() => setNames([...ILUO])}
-          >
-            ILUO
-          </button>
-        </span>
+        {editorId && (
+          <span className="ml-auto flex flex-wrap gap-1 text-xs text-muted-foreground">
+            Start from
+            <button
+              type="button"
+              className="font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50"
+              disabled={isDefault}
+              onClick={() => setNames([...DEFAULT_LEVEL_NAMES])}
+            >
+              the standard names
+            </button>
+            or
+            <button
+              type="button"
+              className="font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50"
+              title="I, L, U, O: a common shop-floor scale from not started to can teach"
+              onClick={() => setNames([...ILUO])}
+            >
+              the ILUO scale (I, L, U, O)
+            </button>
+          </span>
+        )}
         {blocked && <p className="w-full text-xs text-destructive">{blocked}</p>}
       </div>
     </div>

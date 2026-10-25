@@ -1132,6 +1132,9 @@ export default defineSchema({
     // Months a level stays valid; null = does not expire.
     validityMonths: v.union(v.number(), v.null()),
     sortOrder: v.number(),
+    // Archived: out of the matrix, profiles and gaps; levels and history are
+    // kept so restoring brings it back as it was.
+    archived: v.optional(v.boolean()),
   }),
 
   skillLevels: defineTable({

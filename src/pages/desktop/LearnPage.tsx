@@ -1,5 +1,5 @@
-import { useLocation, useSearch } from "wouter"
-import { FileCheck2, GraduationCap, Grid3x3, ListChecks, Settings2, UserRound } from "lucide-react"
+import { Link, Redirect, useLocation, useSearch } from "wouter"
+import { BadgeCheck, ChevronRight, FileCheck2, GraduationCap, Grid3x3, ListChecks, UserRound } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
@@ -8,21 +8,20 @@ import { TrainingsTab, TrainingsTabPrimary } from "@/components/learn/TrainingsT
 import { RecordsTab } from "@/components/learn/RecordsTab"
 import { SkillMatrixTab } from "@/components/learn/SkillMatrixTab"
 import { MyLearningTab } from "@/components/learn/MyLearningTab"
-import { SkillsSettings } from "@/components/learn/SkillsSettings"
 import { useCheckIn } from "@/lib/checkIn"
 import { isEngineerOrAdmin } from "@/lib/roles"
+import { useAskPageScope } from "@/components/ai/AskDock"
 
 // Learn (CONTEXT.md) is the pillar that builds and keeps up what people can
 // do: Trainings (and Rounds), Skills and the proof. One page with a flat row
-// of tabs, the tab in ?tab= so other pages can link straight to it. Skill
-// setup (Skills, profiles, who is measured, coverage questions) is an
-// Engineer-only tab here, not in Settings.
+// of tabs, the tab in ?tab= so other pages can link straight to it. Setting
+// up Skills (Skills, profiles, who is measured, coverage questions, levels)
+// is the Skills workspace, its own page at /learn/skills.
 const TABS = [
   { value: "mine", label: "My learning", icon: UserRound, engineerOnly: false },
   { value: "trainings", label: "Trainings", icon: ListChecks, engineerOnly: false },
   { value: "matrix", label: "Skill matrix", icon: Grid3x3, engineerOnly: false },
   { value: "records", label: "Training records", icon: FileCheck2, engineerOnly: false },
-  { value: "setup", label: "Skills setup", icon: Settings2, engineerOnly: true },
 ] as const
 type TabValue = (typeof TABS)[number]["value"]
 
@@ -31,8 +30,9 @@ const SUBTITLE: Record<TabValue, string> = {
   trainings: "Trainings and Rounds built from published knowledge.",
   matrix: "Who can do what, against the levels each role needs.",
   records: "The proof per person: which Training, which version, and when.",
-  setup: "Skills, Skill profiles, who is measured against them, and coverage questions.",
 }
+
+const SKILLS_SCOPE = { kind: "skills" } as const
 
 function tabKey(personId: string) {
   return `oppr.learn.tab.${personId}`
@@ -68,11 +68,16 @@ export function LearnPage() {
   const fallback: TabValue =
     engineer && (person?.profileIds ?? []).length === 0 ? "trainings" : "mine"
   const tab: TabValue = allowed(fromUrl) ? fromUrl : allowed(remembered) ? remembered : fallback
+  // On the Skill matrix, Ask answers from the matrix too.
+  useAskPageScope(tab === "matrix" ? SKILLS_SCOPE : null)
 
   function pick(v: string) {
     if (person) writeTab(person._id, v)
     navigate(`${location}?tab=${v}`, { replace: true })
   }
+
+  // The old Skills setup tab is the Skills workspace now.
+  if (fromUrl === "setup") return <Redirect to="/learn/skills" replace />
 
   return (
     <div className="flex flex-col">
@@ -83,21 +88,42 @@ export function LearnPage() {
         subtitle={SUBTITLE[tab]}
         actions={tab === "trainings" ? <TrainingsTabPrimary /> : undefined}
       />
-      {!hydrated && (!fromUrl || fromUrl === "setup") ? (
+      {!hydrated && !fromUrl ? (
         <div className="mx-auto w-full max-w-6xl space-y-4 p-6">
           <Skeleton className="h-9 w-[520px] max-w-full" />
           <Skeleton className="h-64 w-full" />
         </div>
       ) : (
         <Tabs value={tab} onValueChange={pick} className="mx-auto w-full max-w-6xl space-y-4 p-6">
-          <TabsList>
-            {tabs.map((t) => (
-              <TabsTrigger key={t.value} value={t.value} className="gap-1.5">
-                <t.icon className="h-3.5 w-3.5" />
-                {t.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          <div className="flex flex-wrap items-center gap-2">
+            <TabsList>
+              {tabs.map((t) => (
+                <TabsTrigger key={t.value} value={t.value} className="gap-1.5">
+                  <t.icon className="h-3.5 w-3.5" />
+                  {t.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            <Link
+              href="/learn/skills"
+              title="Set up Skills, Skill profiles, who is measured and which Training proves what"
+              className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-md border bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-muted"
+            >
+              <BadgeCheck className="h-3.5 w-3.5 text-primary" aria-hidden />
+              {engineer ? "Set up Skills" : "How Skills are set up"}
+              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+            </Link>
+          </div>
+          {tab === "matrix" && (
+            <p className="text-xs text-muted-foreground">
+              The Skill matrix shows who holds what. To add Skills, change the levels a profile needs, put people on a
+              profile or link the Trainings that prove a Skill, go to the{" "}
+              <Link href="/learn/skills" className="font-medium text-primary underline-offset-2 hover:underline">
+                Skills workspace
+              </Link>
+              .
+            </p>
+          )}
           <TabsContent value="mine">
             <MyLearningTab />
           </TabsContent>
@@ -110,11 +136,6 @@ export function LearnPage() {
           <TabsContent value="records">
             <RecordsTab />
           </TabsContent>
-          {engineer && (
-            <TabsContent value="setup">
-              <SkillsSettings />
-            </TabsContent>
-          )}
         </Tabs>
       )}
     </div>

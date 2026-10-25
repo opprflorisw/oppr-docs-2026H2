@@ -34,8 +34,8 @@ export function ShiftCoverCard({ engineer }: { engineer: boolean }) {
           {engineer ? (
             <>
               No coverage question is shown on Home yet.{" "}
-              <Link href="/learn?tab=setup" className="font-medium text-foreground underline-offset-2 hover:underline">
-                Pick one in Skills setup
+              <Link href="/learn/skills/coverage" className="font-medium text-foreground underline-offset-2 hover:underline">
+                Pick one in the Skills workspace
               </Link>
               .
             </>

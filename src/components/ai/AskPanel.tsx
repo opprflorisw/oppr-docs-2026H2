@@ -19,18 +19,23 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react"
 import { useLocation } from "wouter"
 import { useCheckIn } from "@/lib/checkIn"
 import {
+  Check,
   Copy,
+  History,
   Mic,
   MicOff,
   RefreshCw,
   Send,
+  SquarePen,
   Square,
   Trash2,
   Type,
+  X,
 } from "lucide-react"
 import { toast } from "sonner"
 import type { Asset, AssetLog, Citation, Doc, QaMessage } from "@/types"
@@ -44,6 +49,8 @@ import {
 } from "@/lib/convex-adapters"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { formatDateTime } from "@/lib/time"
 import { useChatSize, useOnline, type ChatSize } from "@/components/mobile/use-mobile-prefs"
 import { FloorFeedback, FloorSources } from "@/components/mobile/AskFloor"
 import { FloorPrimaryButton, FloorSecondaryButton, MobileSheet } from "@/components/mobile/MobileSheet"
@@ -194,12 +201,15 @@ export type AskPanelScope =
   | { kind: "doc"; id: string }
   | { kind: "asset"; id: string }
   | { kind: "wiki"; id: string }
+  | { kind: "training"; id: string }
+  | { kind: "skills" }
   | { kind: "library" }
 
 /**
  * Where a scope's thread is saved (qaSessions). The table knows doc, asset and
- * library; an Ask this Wiki thread is kept under the library kind with its
- * own id "wiki:<id>", so it never mixes with the whole-library thread.
+ * library; a Wiki, Training or Skills thread is kept under the library kind
+ * with its own id ("wiki:<id>", "training:<id>", "skills"), so it never mixes
+ * with the whole-library thread.
  */
 export function askSessionScope(scope: AskPanelScope): {
   scopeKind: "doc" | "asset" | "library"
@@ -207,6 +217,8 @@ export function askSessionScope(scope: AskPanelScope): {
 } {
   if (scope.kind === "library") return { scopeKind: "library", scopeId: "library" }
   if (scope.kind === "wiki") return { scopeKind: "library", scopeId: `wiki:${scope.id}` }
+  if (scope.kind === "training") return { scopeKind: "library", scopeId: `training:${scope.id}` }
+  if (scope.kind === "skills") return { scopeKind: "library", scopeId: "skills" }
   return { scopeKind: scope.kind, scopeId: scope.id }
 }
 
@@ -238,6 +250,12 @@ export interface AskPanelProps {
    * handling.
    */
   variant?: "default" | "floor"
+  /** Shows a close button in the header (the desktop Ask dock). */
+  onClose?: () => void
+  /** Called with the path just before the panel opens a page itself (a citation, a code). */
+  onBeforeNavigate?: (path: string) => void
+  /** A line under the header, e.g. that the scope now follows the page. */
+  notice?: ReactNode
 }
 
 /** No answer starts within this time: stop and say so. */
@@ -255,10 +273,20 @@ export function AskPanel({
   initialQuestion = null,
   onInitialQuestionSent,
   variant = "default",
+  onClose,
+  onBeforeNavigate,
+  notice,
 }: AskPanelProps) {
   const floor = variant === "floor"
   const online = useOnline()
-  const [location, navigate] = useLocation()
+  const [location, navigateRaw] = useLocation()
+  const navigate = useCallback(
+    (path: string) => {
+      onBeforeNavigate?.(path)
+      navigateRaw(path)
+    },
+    [navigateRaw, onBeforeNavigate],
+  )
   // Logged with each question (convex/usage.logAsk): who asked, if checked in.
   const { person: checkedInPerson } = useCheckIn()
 
@@ -295,8 +323,10 @@ export function AskPanel({
     scopeId: scopeIdArg,
     who,
   })
+  // New conversation and History pick a thread; by default the newest one.
+  const [pickedSession, setPickedSession] = useState<string | null>(null)
   const sessionId =
-    sessionIdProp ?? sessionsList?.[0]?._id ?? null
+    sessionIdProp ?? pickedSession ?? sessionsList?.[0]?._id ?? null
 
   const messagesRaw = useQuery(
     api.qa.listMessages,
@@ -308,6 +338,7 @@ export function AskPanel({
   )
 
   const ensureSession = useMutation(api.qa.ensureSession)
+  const createSession = useMutation(api.qa.createSession)
   const addMessage = useMutation(api.qa.addMessage)
   const deleteMessages = useMutation(api.qa.deleteMessages)
   const popLastTurn = useMutation(api.qa.popLastTurn)
@@ -335,7 +366,7 @@ export function AskPanel({
 
   function handleScopeChange(next: AskPanelScope) {
     if (next.kind === scope.kind) {
-      if (next.kind === "library") return
+      if (next.kind === "library" || next.kind === "skills") return
       if ("id" in next && "id" in scope && next.id === scope.id) return
     }
     abortRef.current?.abort()
@@ -374,6 +405,29 @@ export function AskPanel({
     setClearOpen(false)
   }
 
+  async function handleNewConversation() {
+    abortRef.current?.abort()
+    abortRef.current = null
+    setStreamingText("")
+    setPending(false)
+    try {
+      const id = await createSession({ scopeKind: scopeKindArg, scopeId: scopeIdArg, who })
+      setPickedSession(id)
+      taRef.current?.focus()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not start a new conversation")
+    }
+  }
+
+  function pickSession(id: string) {
+    if (id === sessionId) return
+    abortRef.current?.abort()
+    abortRef.current = null
+    setStreamingText("")
+    setPending(false)
+    setPickedSession(id)
+  }
+
   function handleStop() {
     abortRef.current?.abort()
   }
@@ -394,12 +448,14 @@ export function AskPanel({
       // cell) are found and highlighted in the body; a PDF opens at its page.
       const params = new URLSearchParams()
       if (page != null) params.set("page", String(page))
+      // From Ask this Wiki: the document's breadcrumb leads back to the Wiki.
+      if (scope.kind === "wiki" && !isMobile) params.set("wiki", scope.id)
       const hl = citation.excerpt.replace(/…$/, "").split(" | ")[0].trim().slice(0, 80)
       if (hl && !hl.startsWith("Figure:")) params.set("hl", hl)
       const qs = params.toString()
       navigate(qs ? `${base}?${qs}` : base)
     },
-    [location, navigate, onCitationClick],
+    [location, navigate, onCitationClick, scope],
   )
 
   function scrollToCitation(messageId: string, n: number) {
@@ -444,11 +500,14 @@ export function AskPanel({
 
     let activeSessionId: Id<"qaSessions">
     try {
-      activeSessionId = await ensureSession({
-        scopeKind: scopeKindArg,
-        scopeId: scopeIdArg,
-        who,
-      })
+      // The thread on screen; a first question starts one.
+      activeSessionId = sessionId
+        ? (sessionId as Id<"qaSessions">)
+        : await ensureSession({
+            scopeKind: scopeKindArg,
+            scopeId: scopeIdArg,
+            who,
+          })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to start chat")
       setPending(false)
@@ -465,7 +524,7 @@ export function AskPanel({
 
       const history = messages.map((m) => ({ role: m.role, text: m.text }))
       const askScope =
-        scope.kind === "library" ? { kind: "library" as const } : { kind: scope.kind, id: scope.id }
+        scope.kind === "library" || scope.kind === "skills" ? { kind: scope.kind } : { kind: scope.kind, id: scope.id }
 
       const res = await fetch(`${siteUrl}/ai/askStream`, {
         method: "POST",
@@ -607,7 +666,11 @@ export function AskPanel({
   }, [autoFocus])
 
   // A question handed over by the host is asked once, after the thread loads.
+  // A later, different question from the host is asked too.
   const initialSentRef = useRef(false)
+  useEffect(() => {
+    if (initialQuestion?.trim()) initialSentRef.current = false
+  }, [initialQuestion])
   useEffect(() => {
     if (!initialQuestion?.trim() || initialSentRef.current) return
     if (!authToken || sessionsList === undefined) return
@@ -719,29 +782,48 @@ export function AskPanel({
       )}
     >
       {!floor && (
-      <header className="space-y-1.5 border-b px-3 py-2.5">
+      <header className="space-y-2 border-b px-3 py-2.5">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">Ask</h2>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-0.5">
             {compact && (
               <ChatSizeToggle value={chatSize} onChange={setChatSize} />
             )}
-            {messages.length > 0 && (
+            <ThreadHistory
+              sessions={sessionsList ?? []}
+              currentId={sessionId}
+              onPick={pickSession}
+              canClear={messages.length > 0}
+              onClear={handleClearChat}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 px-2 text-xs text-muted-foreground"
+              onClick={() => void handleNewConversation()}
+              disabled={messages.length === 0 && !pending}
+              title="Start a new conversation. The current one stays under History."
+            >
+              <SquarePen className="h-3.5 w-3.5" />
+              New
+            </Button>
+            {onClose && (
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
-                className="h-7 gap-1 px-2 text-[11px] text-muted-foreground hover:text-destructive"
-                onClick={handleClearChat}
-                title="Clear conversation"
+                size="icon"
+                className="h-7 w-7 text-muted-foreground"
+                onClick={onClose}
+                aria-label="Close Ask"
+                title="Close Ask (Ctrl+J)"
               >
-                <Trash2 className="h-3 w-3" />
-                Clear
+                <X className="h-4 w-4" />
               </Button>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           {allowScopeSwitch ? (
             <ScopeChip scope={scope} onChange={handleScopeChange} />
           ) : (
@@ -750,6 +832,7 @@ export function AskPanel({
         </div>
       </header>
       )}
+      {!floor && notice}
 
       <div
         ref={scrollRef}
@@ -865,7 +948,8 @@ export function AskPanel({
                 void send(input)
               }
             }}
-            placeholder="Ask a question…"
+            placeholder="Ask a question"
+            aria-label="Your question"
             disabled={pending}
             className={cn(
               "resize-none overflow-hidden",
@@ -1193,6 +1277,76 @@ function MessageBlock({
         )}
       </div>
     </div>
+  )
+}
+
+/** Earlier conversations in this scope, newest first, and clearing the one on screen. */
+function ThreadHistory({
+  sessions,
+  currentId,
+  onPick,
+  canClear,
+  onClear,
+}: {
+  sessions: { _id: string; _creationTime: number }[]
+  currentId: string | null
+  onPick: (id: string) => void
+  canClear: boolean
+  onClear: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  if (sessions.length < 2 && !canClear) return null
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1 px-2 text-xs text-muted-foreground"
+          title="Earlier conversations about this scope"
+        >
+          <History className="h-3.5 w-3.5" />
+          History
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-64 p-1">
+        <p className="px-2 pb-1 pt-1.5 text-xs font-medium text-muted-foreground">Conversations about this scope</p>
+        <ul className="max-h-64 overflow-y-auto">
+          {sessions.map((x, i) => (
+            <li key={x._id}>
+              <button
+                type="button"
+                onClick={() => {
+                  onPick(x._id)
+                  setOpen(false)
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {i === 0 ? "Latest, " : ""}
+                  {formatDateTime(x._creationTime)}
+                </span>
+                {x._id === currentId && <Check className="h-3.5 w-3.5 shrink-0 text-primary" aria-label="On screen" />}
+              </button>
+            </li>
+          ))}
+        </ul>
+        {canClear && (
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false)
+              onClear()
+            }}
+            className="mt-1 flex w-full items-center gap-2 rounded-md border-t px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted hover:text-destructive"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Clear the conversation on screen
+          </button>
+        )}
+      </PopoverContent>
+    </Popover>
   )
 }
 

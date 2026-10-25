@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useMutation, useQuery } from "convex/react"
 import { Link, useLocation, useRoute } from "wouter"
@@ -52,13 +52,12 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Skeleton } from "@/components/ui/skeleton"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
+import { useElementWidth } from "@/components/layout/useElementWidth"
 import { WikiGuidedCreation } from "@/components/wiki/WikiGuidedCreation"
-import { WikiAsk } from "@/components/wiki/WikiAsk"
-import { AtAGlance, WikiSectionBlock, WikiToc } from "@/components/wiki/WikiReader"
+import { WikiAskEntry } from "@/components/wiki/WikiAsk"
+import { AtAGlance, WikiSectionBlock, WikiToc, WikiTocMenu } from "@/components/wiki/WikiReader"
 import { WikiPrintLayout } from "@/components/wiki/WikiPrintLayout"
 import { FORMAT_LABEL, sectionSlugs, type WikiView } from "@/components/wiki/wikiShared"
-import { AskIdaSheet } from "@/components/ai/AskIdaSheet"
-import type { AnyAskScope } from "@/components/ai/ScopeChip"
 import { AssetQrSvg } from "@/components/docs/AssetQrSvg"
 import { TrainingGuidedCreation } from "@/components/learn/training/TrainingGuidedCreation"
 import { newTrainingDraft } from "@/components/learn/training/builderModel"
@@ -90,7 +89,7 @@ export function WikiPage() {
     return (
       <div className="flex flex-col">
         <TopBar breadcrumb={[{ label: "Wiki", href: "/wiki" }, { label: "Loading" }]} />
-        <div className="mx-auto w-full max-w-6xl space-y-4 p-6" aria-busy>
+        <div className="mx-auto w-full max-w-[1600px] space-y-4 p-6" aria-busy>
           <Skeleton className="h-6 w-1/3" />
           <Skeleton className="h-24 w-full max-w-[70ch]" />
           <Skeleton className="h-4 w-2/3 max-w-[70ch]" />
@@ -128,7 +127,6 @@ function WikiReaderPage({ wiki }: { wiki: WikiView }) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [makeTraining, setMakeTraining] = useState(false)
   const trainingDefaults = useQuery(api.orgSettings.get)?.training
-  const [askScope, setAskScope] = useState<AnyAskScope | null>(null)
   const [printMode, setPrintMode] = useState<"full" | "one-pager">("full")
 
   const building = wiki.status === "generating"
@@ -176,6 +174,14 @@ function WikiReaderPage({ wiki }: { wiki: WikiView }) {
     // Let the print layout re-render in the chosen mode first.
     window.setTimeout(() => window.print(), 50)
   }
+
+  // The layout follows the width the page actually has (the Ask panel and a
+  // docked phone take some), not the screen: three columns when there is
+  // room, the sources rail folds into one rail next, then the table of
+  // contents becomes a menu.
+  const frameRef = useRef<HTMLDivElement>(null)
+  const frameW = useElementWidth(frameRef)
+  const layout: "one" | "two" | "three" = frameW >= 1320 ? "three" : frameW >= 940 ? "two" : "one"
 
   const allCurrent = wiki.outdated.length === 0
   const builtLine = wiki.generatedAt ? `built ${formatAgo(wiki.generatedAt)}` : "not built yet"
@@ -244,10 +250,24 @@ function WikiReaderPage({ wiki }: { wiki: WikiView }) {
         }
       />
 
-      <div className="mx-auto grid w-full max-w-6xl gap-10 px-6 py-6 lg:grid-cols-[minmax(0,1fr)_260px]">
+      <div
+        ref={frameRef}
+        className={cn(
+          "mx-auto grid w-full max-w-[1600px] px-6 py-6",
+          layout === "three" && "grid-cols-[200px_minmax(0,760px)_280px] justify-center gap-10",
+          layout === "two" && "grid-cols-[minmax(0,760px)_280px] justify-center gap-10",
+          layout === "one" && "grid-cols-1 gap-8",
+        )}
+      >
+        {layout === "three" && (
+          <aside className={RAIL}>
+            <WikiToc sections={sections} slugs={slugs} />
+          </aside>
+        )}
         <article className="min-w-0 space-y-6">
           {/* Meta: format, size, what it covers. */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+            {layout === "one" && <WikiTocMenu sections={sections} slugs={slugs} />}
             <span className="rounded-full border bg-background px-2 py-0.5 font-medium text-foreground">
               {FORMAT_LABEL[wiki.format]}
             </span>
@@ -314,14 +334,8 @@ function WikiReaderPage({ wiki }: { wiki: WikiView }) {
 
           <TrustStrip wiki={wiki} onHistory={() => setHistoryOpen(true)} />
 
-          {content && (
-            <WikiAsk
-              wikiId={wiki._id}
-              wikiTitle={wiki.title}
-              headings={sections.map((s) => s.heading)}
-              onScopeChange={setAskScope}
-              className="max-w-[70ch]"
-            />
+          {content && layout === "one" && (
+            <WikiAskEntry wikiId={wiki._id} headings={sections.map((s) => s.heading)} className="max-w-[88ch]" />
           )}
 
           {wiki.status === "empty" && (
@@ -365,8 +379,11 @@ function WikiReaderPage({ wiki }: { wiki: WikiView }) {
           )}
         </article>
 
-        <aside className="space-y-6 lg:sticky lg:top-32 lg:max-h-[calc(100vh-9rem)] lg:self-start lg:overflow-y-auto">
-          <WikiToc sections={sections} slugs={slugs} />
+        <aside className={cn("space-y-6", layout !== "one" && RAIL, layout === "one" && "max-w-[70ch] border-t pt-6")}>
+          {layout === "two" && <WikiToc sections={sections} slugs={slugs} />}
+          {content && layout !== "one" && (
+            <WikiAskEntry wikiId={wiki._id} headings={sections.map((s) => s.heading)} variant="rail" />
+          )}
           <BuiltFrom wiki={wiki} />
           <ScopeCard wiki={wiki} />
         </aside>
@@ -415,21 +432,13 @@ function WikiReaderPage({ wiki }: { wiki: WikiView }) {
           }}
         />
       )}
-      {askScope && (
-        <AskIdaSheet
-          scope={askScope}
-          trigger={null}
-          open
-          onOpenChange={(o) => {
-            if (!o) setAskScope(null)
-          }}
-        />
-      )}
 
       {content && createPortal(<WikiPrintLayout wiki={wiki} slugs={slugs} mode={printMode} />, document.body)}
     </div>
   )
 }
+
+const RAIL = "sticky top-16 max-h-[calc(100vh-5rem)] space-y-6 self-start overflow-y-auto"
 
 function StatusBar({ tone, children }: { tone: "info" | "warn" | "error"; children: React.ReactNode }) {
   const styles = {

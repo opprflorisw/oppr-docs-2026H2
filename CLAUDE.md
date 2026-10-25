@@ -76,7 +76,7 @@ To reset data to the minimal test set: `npx convex run seedMinimal:run` (wipes a
 2. All data lives in **Convex**. Components subscribe via `useQuery(api.…)` — every open window live-updates on writes; there is no client-side persistence layer.
 3. Functions in `convex/*.ts` are the only legitimate way to touch data. Every function calls `requireUser`/`requireUserId` (`convex/lib/auth.ts`). The schema lives in `convex/schema.ts`.
 4. AI runs **server-side** in `convex/ai/*` — embeddings land in a 768-dim `vectorIndex` on `chunks` (auto-scheduled on publish); Ask IDA streams NDJSON from the `/ai/askStream` HTTP action. The Gemini key never reaches the browser.
-5. The slide-in **Ask IDA** sheet (`AskIdaSheet`) is the universal Q&A surface. It accepts three scopes: `{ kind: 'doc', id }`, `{ kind: 'asset', id }`, `{ kind: 'library' }`.
+5. The **Ask** side panel (`AskDock`, mounted once in the desktop shell, rendering `AskPanel`) is the one desktop Q&A surface; open it with `openAsk(question?, scope?)`. Scopes: `doc`, `asset`, `wiki`, `training`, `skills` (the Skill matrix as background), `library`. The phone keeps its own full-screen Ask (`MobileAskPage`).
 
 ---
 
@@ -160,7 +160,7 @@ Add an SVG entry to `DIAGRAM_PRESETS` in `src/components/docs/diagramPresets.ts`
 - `npx convex run admin:wipeAll` — CLI-only full wipe (no reseed).
 
 ### "Add a new Ask IDA scope"
-1. Extend `AskPanelScope` in `src/components/ai/AskPanel.tsx`.
+1. Extend `AskPanelScope` in `src/components/ai/AskPanel.tsx`, and the route-to-scope mapping in `src/components/ai/AskDock.tsx`.
 2. Extend the scope handling in `convex/ai/ask.ts` — `prepareAskContext` (retrieval/slicing), `lookupAfterSearch` (version/status filter), and `buildScopeOverview`. The streaming `askStream` HTTP action is the only entry point.
 3. Loosen the `qaSessions.scopeKind` union in `convex/schema.ts` and update `qa.ts` session functions if you want persistence.
 

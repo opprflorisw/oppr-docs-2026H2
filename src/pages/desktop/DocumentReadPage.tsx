@@ -16,6 +16,8 @@ import {
   Printer,
 } from "lucide-react"
 import { Link } from "wouter"
+import { useElementWidth } from "@/components/layout/useElementWidth"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -90,6 +92,9 @@ export function DocumentReadPage() {
   const [forkOpen, setForkOpen] = useState(false)
   const [forking, setForking] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
+  // The side rail shows when the page has the room (the Ask panel takes some).
+  const frameRef = useRef<HTMLDivElement>(null)
+  const withRail = useElementWidth(frameRef) >= 880
   const createNewVersion = useMutation(api.documents.createNewVersion)
   const [submitOpen, setSubmitOpen] = useState(false)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
@@ -418,7 +423,13 @@ export function DocumentReadPage() {
         )}
       </div>
 
-      <div className="mx-auto grid w-full max-w-7xl flex-1 gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_240px] print:block print:max-w-none print:p-0">
+      <div
+        ref={frameRef}
+        className={cn(
+          "mx-auto grid w-full max-w-7xl flex-1 gap-6 p-6 print:block print:max-w-none print:p-0",
+          withRail && "grid-cols-[minmax(0,1fr)_240px]",
+        )}
+      >
         <div className="min-w-0 space-y-4">
           {hasWorkingDraft && !isViewingHistorical && !viewingDraft && (
             <Alert className="border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100 print:hidden">

@@ -24,14 +24,14 @@ import { requireUser, requireUserId } from "./lib/auth"
 import { requireEngineer } from "./documents"
 import { isPublished } from "./lib/published"
 import { BLOCKED_REASON } from "./trainings"
-import { createAssignments, defaultDueAt } from "./assignments"
-import { isEngineerOrAdmin } from "./lib/roles"
+import { createAssignments, defaultDueAt, REFRESH_BEFORE_DAYS } from "./assignments"
+import { isEngineerOrAdmin, requireEngineerOrAdmin } from "./lib/roles"
+import { readOrgSettings } from "./orgSettings"
 import { loadShifts, shiftKeyOf } from "./people/shifts"
 
 const DAY = 24 * 60 * 60 * 1000
 /** A level that expires within this many days shows as "expiring". */
 export const EXPIRING_WINDOW_DAYS = 30
-/** Re-train after a Significant change is due this many days later. */
 
 export type CellStatus = "ok" | "gap" | "expired" | "expiring" | "retrain" | "none"
 
@@ -140,14 +140,21 @@ export function covers(t: { _id: Id<"trainings"> }, skill: Doc<"skills">): boole
   return skill.trainingIds.includes(t._id)
 }
 
-async function allSkills(ctx: Ctx) {
-  const skills = await ctx.db.query("skills").take(500)
+/** Skills in use. Archived Skills are left out everywhere except the workspace's archive list. */
+async function allSkills(ctx: Ctx, includeArchived = false) {
+  const skills = (await ctx.db.query("skills").take(500)).filter((s) => includeArchived || !s.archived)
   return skills.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
 }
 
+/** Profiles, with targets on archived Skills left out (they come back on restore). */
 async function allProfiles(ctx: Ctx) {
   const profiles = await ctx.db.query("skillProfiles").take(200)
-  return profiles.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+  const archived = new Set(
+    (await ctx.db.query("skills").take(500)).filter((s) => s.archived).map((s) => s._id),
+  )
+  return profiles
+    .map((p) => (archived.size === 0 ? p : { ...p, targets: p.targets.filter((t) => !archived.has(t.skillId)) }))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
 }
 
 async function allPeople(ctx: Ctx) {
@@ -712,7 +719,7 @@ export function failStreak(attempts: Doc<"trainingAttempts">[]) {
 /**
  * Trainings that look like they prove this Skill (their live version cites
  * one of the Skill's Documents) but are not linked. Shown as suggestions in
- * Skill setup and in the Training builder; linking is an explicit choice.
+ * the Skills workspace and in the Training builder; linking is an explicit choice.
  */
 export const suggestedLinks = query({
   args: { skillId: v.id("skills") },
@@ -738,7 +745,7 @@ export const setTrainingLink = mutation({
   args: { skillId: v.id("skills"), trainingId: v.id("trainings"), linked: v.boolean(), engineerPersonId: v.id("people") },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
-    await requireEngineer(ctx, args.engineerPersonId)
+    await requireEngineerOrAdmin(ctx, args.engineerPersonId, "Check in as an Engineer to change which Training proves a Skill.")
     const skill = await ctx.db.get(args.skillId)
     if (!skill) throw new Error("This Skill no longer exists.")
     const ids = skill.trainingIds.filter((x) => x !== args.trainingId)
@@ -849,6 +856,8 @@ export const catalogue = query({
         code: t.code,
         title: t.title,
         status: t.status,
+        kind: t.kind,
+        isPractice: t.isPractice ?? false,
         published: t.liveVersion != null,
       }))
       .sort((a, b) => a.code.localeCompare(b.code))
@@ -895,6 +904,9 @@ export const catalogue = query({
         kind: p.kind,
         profileIds: p.profileIds ?? [],
       })),
+      archivedSkills: (await allSkills(ctx, true))
+        .filter((s) => s.archived)
+        .map((s) => ({ _id: s._id, name: s.name, area: s.area })),
       documents,
       trainings,
     }
@@ -1241,8 +1253,8 @@ function cleanSkill(args: {
 
 async function assertUniqueSkillName(ctx: MutationCtx, name: string, exceptId?: Id<"skills">) {
   const rows = await ctx.db.query("skills").take(500)
-  if (rows.some((r) => r._id !== exceptId && r.name.toLowerCase() === name.toLowerCase()))
-    throw new Error(`A Skill called "${name}" already exists.`)
+  const twin = rows.find((r) => r._id !== exceptId && r.name.toLowerCase() === name.toLowerCase())
+  if (twin) throw new Error(`A Skill called "${name}" already exists${twin.archived ? " in the archive. Restore it instead" : ""}.`)
 }
 
 async function assertUniqueProfileName(ctx: MutationCtx, name: string, exceptId?: Id<"skillProfiles">) {
@@ -1252,12 +1264,15 @@ async function assertUniqueProfileName(ctx: MutationCtx, name: string, exceptId?
 }
 
 // Changing the catalogue changes what everyone is measured against: only a
-// checked-in Engineer may do it (engineerPersonId, as for sign-offs).
+// checked-in Engineer or Admin may do it (engineerPersonId).
+const SKILL_EDIT = "Check in as an Engineer or Admin to change Skills."
+const PROFILE_EDIT = "Check in as an Engineer or Admin to change Skill profiles."
+
 export const createSkill = mutation({
   args: { ...skillFields, engineerPersonId: v.id("people") },
   handler: async (ctx, { engineerPersonId, ...args }) => {
     await requireUserId(ctx)
-    await requireEngineer(ctx, engineerPersonId)
+    await requireEngineerOrAdmin(ctx, engineerPersonId, SKILL_EDIT)
     const clean = cleanSkill(args)
     await assertUniqueSkillName(ctx, clean.name)
     const last = (await ctx.db.query("skills").take(500)).reduce((m, s) => Math.max(m, s.sortOrder), -1)
@@ -1269,7 +1284,7 @@ export const updateSkill = mutation({
   args: { id: v.id("skills"), ...skillFields, engineerPersonId: v.id("people") },
   handler: async (ctx, { id, engineerPersonId, ...args }) => {
     await requireUserId(ctx)
-    await requireEngineer(ctx, engineerPersonId)
+    await requireEngineerOrAdmin(ctx, engineerPersonId, SKILL_EDIT)
     const skill = await ctx.db.get(id)
     if (!skill) throw new Error("This Skill no longer exists.")
     const clean = cleanSkill(args)
@@ -1279,39 +1294,19 @@ export const updateSkill = mutation({
 })
 
 /**
- * Removes a Skill, its levels and its place in profiles. Its history stays,
- * with an entry for every level removed, so the matrix change is traceable.
+ * Archives a Skill (archived true) or restores it (false). An archived Skill
+ * leaves the matrix, the profiles, the gaps and coverage, and no Training
+ * raises it. Levels, profile targets and history are kept untouched, so a
+ * restore brings it back exactly as it was.
  */
-export const removeSkill = mutation({
-  args: { id: v.id("skills"), engineerPersonId: v.id("people") },
-  handler: async (ctx, { id, engineerPersonId }) => {
+export const archiveSkill = mutation({
+  args: { id: v.id("skills"), archived: v.boolean(), engineerPersonId: v.id("people") },
+  handler: async (ctx, { id, archived, engineerPersonId }) => {
     await requireUserId(ctx)
-    const engineer = await requireEngineer(ctx, engineerPersonId)
+    await requireEngineerOrAdmin(ctx, engineerPersonId, SKILL_EDIT)
     const skill = await ctx.db.get(id)
-    if (!skill) return
-    const levels = await ctx.db
-      .query("skillLevels")
-      .withIndex("by_skillId", (q) => q.eq("skillId", id))
-      .take(1000)
-    const now = Date.now()
-    for (const l of levels) {
-      if (l.level >= 1)
-        await ctx.db.insert("skillEvents", {
-          personId: l.personId,
-          skillId: id,
-          fromLevel: l.level,
-          toLevel: 0,
-          reason: `Skill "${skill.name}" removed from the catalogue by ${engineer.name}`,
-          byPersonId: engineer._id,
-          at: now,
-        })
-      await ctx.db.delete(l._id)
-    }
-    for (const p of await ctx.db.query("skillProfiles").take(200)) {
-      if (p.targets.some((t) => t.skillId === id))
-        await ctx.db.patch(p._id, { targets: p.targets.filter((t) => t.skillId !== id) })
-    }
-    await ctx.db.delete(id)
+    if (!skill) throw new Error("This Skill no longer exists.")
+    await ctx.db.patch(id, { archived })
   },
 })
 
@@ -1335,7 +1330,7 @@ export const createProfile = mutation({
   args: { name: v.string(), description: v.string(), targets: targetsValidator, engineerPersonId: v.id("people") },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
-    await requireEngineer(ctx, args.engineerPersonId)
+    await requireEngineerOrAdmin(ctx, args.engineerPersonId, PROFILE_EDIT)
     const name = args.name.trim()
     if (!name) throw new Error("Give the Skill profile a name.")
     await assertUniqueProfileName(ctx, name)
@@ -1362,15 +1357,22 @@ export const updateProfile = mutation({
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
-    await requireEngineer(ctx, args.engineerPersonId)
-    if (!(await ctx.db.get(args.id))) throw new Error("This Skill profile no longer exists.")
+    await requireEngineerOrAdmin(ctx, args.engineerPersonId, PROFILE_EDIT)
+    const existing = await ctx.db.get(args.id)
+    if (!existing) throw new Error("This Skill profile no longer exists.")
     const name = args.name.trim()
     if (!name) throw new Error("Give the Skill profile a name.")
     await assertUniqueProfileName(ctx, name, args.id)
+    // Targets on archived Skills are not shown, so the client never sends
+    // them: keep them for a restore.
+    const sent = new Set(args.targets.map((t) => t.skillId))
+    const kept = []
+    for (const t of existing.targets)
+      if (!sent.has(t.skillId) && (await ctx.db.get(t.skillId))?.archived) kept.push(t)
     await ctx.db.patch(args.id, {
       name,
       description: args.description.trim(),
-      targets: await cleanTargets(ctx, args.targets),
+      targets: [...(await cleanTargets(ctx, args.targets)), ...kept],
     })
   },
 })
@@ -1380,7 +1382,7 @@ export const removeProfile = mutation({
   args: { id: v.id("skillProfiles"), engineerPersonId: v.id("people") },
   handler: async (ctx, { id, engineerPersonId }) => {
     await requireUserId(ctx)
-    await requireEngineer(ctx, engineerPersonId)
+    await requireEngineerOrAdmin(ctx, engineerPersonId, PROFILE_EDIT)
     for (const p of await ctx.db.query("people").take(500)) {
       if ((p.profileIds ?? []).includes(id))
         await ctx.db.patch(p._id, { profileIds: (p.profileIds ?? []).filter((x) => x !== id) })
@@ -1474,5 +1476,195 @@ export const retrainGroups = query({
       })
     }
     return out.sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0))
+  },
+})
+
+// ---- Skills workspace (Learn, /learn/skills) ------------------------------------
+
+/**
+ * The Skills workspace in one read: live counts for the overview picture,
+ * per Skill and per person numbers for the tables, the rules that decide when
+ * a level goes stale, and the gaps that need an Engineer.
+ */
+export const workspace = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx)
+    const now = Date.now()
+    const [skills, profiles, people, org] = await Promise.all([
+      allSkills(ctx),
+      allProfiles(ctx),
+      allPeople(ctx),
+      readOrgSettings(ctx),
+    ])
+    const trainings = (await ctx.db.query("trainings").take(500)).filter((t) => t.status !== "archived")
+    const live = new Set(trainings.filter((t) => t.liveVersion != null).map((t) => t._id))
+    const linked = new Set(skills.flatMap((s) => s.trainingIds))
+
+    const levelTotals = [0, 0, 0, 0]
+    const perSkill = []
+    const stale = []
+    for (const s of skills) {
+      const rows = await ctx.db
+        .query("skillLevels")
+        .withIndex("by_skillId", (q) => q.eq("skillId", s._id))
+        .take(1000)
+      const atLevel = [0, 0, 0, 0]
+      let expired = 0
+      let expiring = 0
+      let retrain = 0
+      for (const r of rows) {
+        const status = cellStatus(r, null, now)
+        if (status === "expired") expired++
+        else if (status === "expiring") expiring++
+        else if (status === "retrain") retrain++
+        const eff = effectiveLevel(r, now)
+        if (eff >= 1) {
+          atLevel[eff]++
+          levelTotals[eff]++
+        }
+      }
+      perSkill.push({
+        _id: s._id,
+        atLevel: atLevel.slice(1),
+        expired,
+        expiring,
+        retrain,
+        provedByLive: s.trainingIds.some((id) => live.has(id)),
+      })
+      if (expired + expiring + retrain > 0) stale.push({ _id: s._id, name: s.name, expired, expiring, retrain })
+    }
+
+    const perPerson = []
+    // Per Skill: who needs it (a profile target) and who of them meets it.
+    const need = new Map<Id<"skills">, { met: Id<"people">[]; short: number }>()
+    for (const p of people) {
+      const { mine, targets } = targetsFor(p, profiles)
+      const levels = await levelsOf(ctx, p._id)
+      let atTarget = 0
+      for (const [skillId, target] of targets) {
+        const n = need.get(skillId) ?? { met: [], short: 0 }
+        if (meetsTarget(levels.get(skillId), target, now)) {
+          atTarget++
+          n.met.push(p._id)
+        } else n.short++
+        need.set(skillId, n)
+      }
+      perPerson.push({ _id: p._id, measured: mine.length > 0, targets: targets.size, atTarget })
+    }
+
+    const records = await ctx.db.query("trainingRecords").take(2000)
+    const events = await ctx.db.query("skillEvents").order("desc").take(2000)
+    const since = now - 30 * DAY
+    const nameOf = new Map(people.map((p) => [p._id, p.name]))
+
+    return {
+      counts: {
+        skills: skills.length,
+        profiles: profiles.length,
+        people: people.length,
+        measured: perPerson.filter((p) => p.measured).length,
+        levels: levelTotals.slice(1),
+        provingTrainings: trainings.filter((t) => live.has(t._id) && linked.has(t._id)).length,
+        records: records.length,
+        recordsLast30: records.filter((r) => r.passedAt >= since).length,
+        eventsLast30: events.filter((e) => e.at >= since).length,
+      },
+      rules: {
+        expiringWindowDays: EXPIRING_WINDOW_DAYS,
+        refreshBeforeDays: REFRESH_BEFORE_DAYS,
+        retrainDueDays: org.training.dueDays,
+        trainingRefreshMonths: org.training.refreshMonths,
+      },
+      skills: perSkill,
+      people: perPerson,
+      gaps: {
+        skillsWithoutTraining: skills
+          .filter((s) => !s.trainingIds.some((id) => live.has(id)))
+          .map((s) => ({ _id: s._id, name: s.name, hasDocument: s.documentIds.length > 0 })),
+        profilesWithNobody: profiles
+          .filter((pr) => !people.some((p) => (p.profileIds ?? []).includes(pr._id)))
+          .map((pr) => ({ _id: pr._id, name: pr.name })),
+        profilesWithoutTargets: profiles.filter((pr) => pr.targets.length === 0).map((pr) => ({ _id: pr._id, name: pr.name })),
+        peopleBelow: perPerson
+          .filter((p) => p.measured && p.atTarget < p.targets)
+          .map((p) => ({ _id: p._id, name: nameOf.get(p._id) ?? "Someone", below: p.targets - p.atTarget, targets: p.targets }))
+          .sort((a, b) => b.below - a.below),
+        stale,
+        /** Skills that people on a profile are short of, most people short first. */
+        skillsShort: skills
+          .flatMap((s) => {
+            const n = need.get(s._id)
+            return n && n.short > 0 ? [{ _id: s._id, name: s.name, short: n.short, needed: n.met.length + n.short }] : []
+          })
+          .sort((a, b) => b.short - a.short),
+        /** Needed by more than one person, but only one meets the target: nobody covers when they are off. */
+        singlePoints: skills.flatMap((s) => {
+          const n = need.get(s._id)
+          return n && n.met.length === 1 && n.met.length + n.short > 1
+            ? [{ _id: s._id, name: s.name, personId: n.met[0], personName: nameOf.get(n.met[0]) ?? "Someone" }]
+            : []
+        }),
+        trainingsProvingNothing: trainings
+          .filter((t) => !linked.has(t._id) && !(t.isPractice ?? false))
+          .map((t) => ({ _id: t._id, code: t.code, title: t.title, published: live.has(t._id) }))
+          .sort((a, b) => a.code.localeCompare(b.code)),
+      },
+    }
+  },
+})
+
+/** Sets the level one Skill profile needs for one Skill; 0 takes the Skill out of the profile. */
+export const setProfileTarget = mutation({
+  args: {
+    profileId: v.id("skillProfiles"),
+    skillId: v.id("skills"),
+    level: v.number(),
+    engineerPersonId: v.id("people"),
+  },
+  handler: async (ctx, args) => {
+    await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.engineerPersonId, "Check in as an Engineer to change Skill profiles.")
+    if (!Number.isInteger(args.level) || args.level < 0 || args.level > 3) throw new Error("Target levels are 0 to 3.")
+    const profile = await ctx.db.get(args.profileId)
+    if (!profile) throw new Error("This Skill profile no longer exists.")
+    if (!(await ctx.db.get(args.skillId))) throw new Error("This Skill no longer exists.")
+    let targets: typeof profile.targets
+    if (args.level === 0) {
+      targets = profile.targets.filter((t) => t.skillId !== args.skillId)
+    } else if (profile.targets.some((t) => t.skillId === args.skillId)) {
+      targets = profile.targets.map((t) => (t.skillId === args.skillId ? { ...t, level: args.level } : t))
+    } else {
+      targets = [...profile.targets, { skillId: args.skillId, level: args.level }]
+    }
+    await ctx.db.patch(profile._id, { targets })
+  },
+})
+
+/** Puts several people on a Skill profile at once (on), or takes them off it. */
+export const setProfileMembers = mutation({
+  args: {
+    profileId: v.id("skillProfiles"),
+    personIds: v.array(v.id("people")),
+    on: v.boolean(),
+    engineerPersonId: v.id("people"),
+  },
+  handler: async (ctx, args) => {
+    await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.engineerPersonId, "Check in as an Engineer to change who is measured.")
+    if (!(await ctx.db.get(args.profileId))) throw new Error("This Skill profile no longer exists.")
+    let changed = 0
+    for (const id of new Set(args.personIds)) {
+      const p = await ctx.db.get(id)
+      if (!p || p.archived) continue
+      const current = p.profileIds ?? []
+      const has = current.includes(args.profileId)
+      if (has === args.on) continue
+      await ctx.db.patch(p._id, {
+        profileIds: args.on ? [...current, args.profileId] : current.filter((x) => x !== args.profileId),
+      })
+      changed++
+    }
+    return { changed }
   },
 })

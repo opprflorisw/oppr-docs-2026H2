@@ -99,7 +99,7 @@ export async function loadImageBytes(
   return null
 }
 
-export function captionOf(row: Pick<Doc<"images">, "altText" | "description" | "tags" | "filename">): string {
+function captionOf(row: Pick<Doc<"images">, "altText" | "description" | "tags" | "filename">): string {
   const parts = [row.altText, row.description ?? "", (row.tags ?? []).join(", ")].filter((s) => s.trim())
   return parts.length ? parts.join(". ") : row.filename.replace(/[-_.]+/g, " ")
 }

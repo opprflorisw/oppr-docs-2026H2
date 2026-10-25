@@ -1,6 +1,6 @@
 // Asset detail modal — opened from the assets list so a row click previews the
-// asset in place instead of routing to /assets/:id. Mirrors ImageDetailModal:
-// a Dialog shell with a skeleton while the query resolves, then the shared
+// asset in place instead of routing to /assets/:id. A Dialog
+// shell with a skeleton while the query resolves, then the shared
 // AssetDetailBody. The /assets/:id route still exists for deep links.
 
 import { useMemo } from "react"

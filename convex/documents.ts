@@ -1760,7 +1760,7 @@ export const controlSelfTest = internalQuery({
   handler: async (ctx) => {
     const docs = await ctx.db.query("documents").take(500)
     const people = await ctx.db.query("people").take(200)
-    const engineers = people.filter((p) => isEngineerOrAdmin(p))
+    const engineers = people.filter(isEngineerOrAdmin)
     const published = docs.find((d) => d.liveVersion != null && d.status !== "archived")
     if (!published || engineers.length < 2) return { error: "Seed data missing" }
     const [a, b] = engineers

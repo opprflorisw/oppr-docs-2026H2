@@ -21,7 +21,7 @@ export async function requireEngineerPerson(ctx: Ctx, personId: Id<"people">): P
   return await requireEngineerOrAdmin(ctx, personId, "Check in as an Engineer to do this.")
 }
 
-export const isEngineer = (p: Doc<"people"> | null | undefined) => isEngineerOrAdmin(p)
+export const isEngineer = isEngineerOrAdmin
 
 /** True when `person` may read `capture`. */
 export function canSee(capture: Doc<"captures">, person: Doc<"people">): boolean {

@@ -234,7 +234,7 @@ export function shiftKey(raw: string | null | undefined, keys?: readonly string[
 }
 
 /** The shift that starts next among `shifts`, by the clock. */
-export function nextShiftOf(shifts: readonly ShiftMeta[], now = new Date()): ShiftKey | null {
+function nextShiftOf(shifts: readonly ShiftMeta[], now = new Date()): ShiftKey | null {
   if (shifts.length === 0) return null
   const m = now.getHours() * 60 + now.getMinutes()
   let best: ShiftMeta | null = null

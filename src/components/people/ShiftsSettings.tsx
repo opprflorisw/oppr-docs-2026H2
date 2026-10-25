@@ -139,7 +139,7 @@ function ShiftRow({
 
   const blurSave = (field: "name" | "start" | "end", value: string) => {
     if (value.trim() && value.trim() !== row[field]) void save({ [field]: value.trim() })
-    else if (!value.trim()) (field === "name" ? setName : field === "start" ? setStart : setEnd)(row[field])
+    else if (!value.trim()) ({ name: setName, start: setStart, end: setEnd })[field](row[field])
   }
 
   return (

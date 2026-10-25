@@ -94,14 +94,30 @@ export async function allocateNamingCode(
     .query("namingCounters")
     .withIndex("by_key", (q) => q.eq("key", key))
     .unique()
-  const next = (existing?.value ?? 0) + 1
+  const token = await resolveTypeToken(ctx, type)
+  // Counters are per type slug, but codes use the token, and two slugs can
+  // share a token (unknown types fall back to "DOC"). Skip numbers that are
+  // already taken so a code is never handed out twice.
+  let next = (existing?.value ?? 0) + 1
+  let code = formatCodeWithToken(location, discipline, token, next)
+  while (await codeTaken(ctx, code)) {
+    next += 1
+    code = formatCodeWithToken(location, discipline, token, next)
+  }
   if (existing) {
     await ctx.db.patch(existing._id, { value: next })
   } else {
     await ctx.db.insert("namingCounters", { key, value: next })
   }
-  const token = await resolveTypeToken(ctx, type)
-  return formatCodeWithToken(location, discipline, token, next)
+  return code
+}
+
+async function codeTaken(ctx: MutationCtx, code: string): Promise<boolean> {
+  const doc = await ctx.db
+    .query("documents")
+    .withIndex("by_namingCode", (q) => q.eq("namingCode", code))
+    .first()
+  return doc !== null
 }
 
 // Non-mutating preview of the next code for the metadata panel. May be stale by

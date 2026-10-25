@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useReducer } from "react"
 import { useQuery } from "convex/react"
 import { useAuthActions } from "@convex-dev/auth/react"
 import { toast } from "sonner"
@@ -81,9 +81,8 @@ function clear(keys: string[]) {
 }
 
 export function MyPreferences() {
-  const [tick, setTick] = useState(0)
-  const refresh = () => setTick((t) => t + 1)
-  void tick
+  // localStorage is not reactive: re-render after a change to re-read it.
+  const [, refresh] = useReducer((n: number) => n + 1, 0)
 
   const metaVisible = (() => {
     try {

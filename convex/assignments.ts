@@ -348,7 +348,7 @@ export const createRefreshers = internalMutation({
       (t) => t.liveVersion != null && t.status !== "archived" && !t.isPractice,
     )
     const liveIds = new Set(trainings.map((t) => String(t._id)))
-    for (const s of await ctx.db.query("skills").take(500)) {
+    for (const s of await ctx.db.query("skills").take(500).then((r) => r.filter((s) => !s.archived))) {
       const trainingId = s.trainingIds.find((id) => liveIds.has(String(id)))
       if (!trainingId) continue
       const levels = await ctx.db

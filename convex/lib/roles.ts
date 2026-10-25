@@ -8,8 +8,6 @@ import type { Doc, Id } from "../_generated/dataModel"
 
 type Ctx = QueryCtx | MutationCtx
 
-export type PersonKind = Doc<"people">["kind"]
-
 type Kinded = Pick<Doc<"people">, "kind" | "archived">
 
 /** True for an Engineer or an Admin who is not archived. */

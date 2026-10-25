@@ -86,6 +86,148 @@ const SHOW_LABEL: Record<Show, string> = {
   undescribed: "Without a description",
 }
 
+// ---- Cascading filters ----------------------------------------------------------------
+// The rail reads top to bottom: Show, Kind, Collections, Areas, Assets, Tags. Each
+// level's counts are the images that match the search plus every selection in the
+// levels above it, so picking a collection updates the Areas, Assets and Tags below.
+// The grid applies all levels with the same predicate, so the numbers always add up.
+
+type Level = "show" | "kind" | "collection" | "area" | "asset" | "tag"
+const LEVELS: Level[] = ["show", "kind", "collection", "area", "asset", "tag"]
+const LEVEL_LABEL: Record<Level, string> = {
+  show: "Show",
+  kind: "Kind",
+  collection: "Collection",
+  area: "Area",
+  asset: "Asset",
+  tag: "Tag",
+}
+
+type Selection = {
+  show: Show
+  kind: Kind | null
+  collectionId: Id<"imageCollections"> | null
+  areaCode: string | null
+  assetId: Id<"assets"> | null
+  tag: string | null
+}
+
+type Cascade = {
+  /** Images matching the search text or photo (all images when no search). */
+  base: number
+  show: Partial<Record<Show, number>>
+  kinds: Map<string, number>
+  collections: Map<string, number>
+  areas: Map<string, number>
+  assets: Map<string, number>
+  tags: Map<string, number>
+  visible: Row[] | undefined
+  /** The highest selected level that took the result to zero, if any. */
+  culprit: Level | null
+}
+
+function showMatches(r: Row, s: Show, dupeIds: Set<string> | null): boolean {
+  switch (s) {
+    case "all":
+      return true
+    case "favorites":
+      return Boolean(r.favorite)
+    case "recent":
+      return Boolean(r.lastUsedAt)
+    case "unused":
+      return r.usageCount === 0
+    case "duplicates":
+      return dupeIds?.has(r._id) ?? false
+    case "undescribed":
+      return !r.description
+  }
+}
+
+function levelMatches(r: Row, level: Level, sel: Selection, dupeIds: Set<string> | null): boolean {
+  switch (level) {
+    case "show":
+      return showMatches(r, sel.show, dupeIds)
+    case "kind":
+      return !sel.kind || r.kind === sel.kind
+    case "collection":
+      return !sel.collectionId || (r.collectionIds ?? []).includes(sel.collectionId)
+    case "area":
+      return !sel.areaCode || (r.areaCodes ?? []).includes(sel.areaCode)
+    case "asset":
+      return !sel.assetId || (r.assetIds ?? []).includes(sel.assetId)
+    case "tag":
+      return !sel.tag || (r.tags ?? []).includes(sel.tag)
+  }
+}
+
+function isSelected(level: Level, sel: Selection): boolean {
+  const on: Record<Level, boolean> = {
+    show: sel.show !== "all",
+    kind: sel.kind !== null,
+    collection: sel.collectionId !== null,
+    area: sel.areaCode !== null,
+    asset: sel.assetId !== null,
+    tag: sel.tag !== null,
+  }
+  return on[level]
+}
+
+function tally(rows: Row[], keysOf: (r: Row) => readonly string[]): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const r of rows) for (const k of new Set(keysOf(r))) out.set(k, (out.get(k) ?? 0) + 1)
+  return out
+}
+
+function computeCascade(
+  rows: Row[],
+  sel: Selection,
+  search: { active: boolean; hits: ImageHit[] },
+  dupes: { a: Id<"images">; b: Id<"images"> }[] | null,
+): Cascade {
+  const byId = new Map(rows.map((r) => [r._id, r]))
+  // A word or photo search narrows to its hit set, best match first.
+  const base = search.active ? search.hits.map((h) => byId.get(h.imageId)).filter((r): r is Row => Boolean(r)) : rows
+  const dupeIds = dupes ? new Set<string>(dupes.flatMap((d) => [d.a, d.b])) : null
+  // stages[i] = images matching the search and every level above level i.
+  const stages: Row[][] = [base]
+  for (const level of LEVELS) stages.push(stages[stages.length - 1].filter((r) => levelMatches(r, level, sel, dupeIds)))
+
+  const show: Partial<Record<Show, number>> = {}
+  for (const s of Object.keys(SHOW_LABEL) as Show[]) {
+    if (s === "duplicates" && !dupeIds) continue
+    show[s] = base.filter((r) => showMatches(r, s, dupeIds)).length
+  }
+
+  let visible: Row[] | undefined = stages[LEVELS.length]
+  if (sel.show === "duplicates") {
+    if (!dupes) visible = undefined
+    else if (!search.active) {
+      // Keep the pairs next to each other.
+      const set = new Set(visible.map((r) => r._id))
+      visible = Array.from(new Set(dupes.flatMap((d) => [d.a, d.b])))
+        .filter((id) => set.has(id))
+        .map((id) => byId.get(id)!)
+    }
+  }
+
+  let culprit: Level | null = null
+  LEVELS.forEach((level, i) => {
+    if (!culprit && isSelected(level, sel) && stages[i].length > 0 && stages[i + 1].length === 0) culprit = level
+  })
+
+  return {
+    base: base.length,
+    show,
+    kinds: tally(stages[1], (r) => (r.kind ? [r.kind] : [])),
+    collections: tally(stages[2], (r) => r.collectionIds ?? []),
+    areas: tally(stages[3], (r) => r.areaCodes ?? []),
+    assets: tally(stages[4], (r) => r.assetIds ?? []),
+    tags: tally(stages[5], (r) => r.tags ?? []),
+    visible,
+    culprit,
+  }
+}
+
 export function ImageLibraryPage(_props: { params?: unknown }) {
   const { person } = useCheckIn()
   const editorId: Id<"people"> | null =
@@ -105,20 +247,9 @@ export function ImageLibraryPage(_props: { params?: unknown }) {
   const [uploading, setUploading] = useState<{ done: number; total: number } | null>(null)
 
   const facets = useQuery(api.images.facets, {})
-  const args = useMemo(
-    () => ({
-      ...(kind ? { kind } : {}),
-      ...(tag ? { tag } : {}),
-      ...(collectionId ? { collectionId } : {}),
-      ...(areaCode ? { areaCode } : {}),
-      ...(assetId ? { assetId } : {}),
-      ...(show === "favorites" ? { favorite: true } : {}),
-      ...(show === "unused" ? { onlyOrphans: true } : {}),
-      sort: show === "recent" ? ("recentlyUsed" as const) : sort,
-    }),
-    [kind, tag, collectionId, areaCode, assetId, show, sort],
-  )
-  const rows = useQuery(api.images.list, args)
+  // The whole library (it is what "All images" shows anyway); filtering and the rail
+  // counts happen below with one shared predicate, so they never disagree.
+  const rows = useQuery(api.images.list, { sort: show === "recent" ? "recentlyUsed" : sort })
   const search = useImageSearch({ limit: 48 })
 
   const findDuplicates = useAction(api.images.possibleDuplicates)
@@ -136,25 +267,38 @@ export function ImageLibraryPage(_props: { params?: unknown }) {
   }, [show, findDuplicates])
 
   const hitById = useMemo(() => new Map(search.hits.map((h) => [h.imageId, h])), [search.hits])
-  const visible: Row[] | undefined = useMemo(() => {
-    if (!rows) return undefined
-    let out = rows
-    if (show === "recent") out = out.filter((r) => r.lastUsedAt)
-    if (show === "undescribed") out = out.filter((r) => !r.description)
-    if (show === "duplicates") {
-      if (!dupes) return undefined
-      const order = dupes.flatMap((d) => [d.a, d.b])
-      const byId = new Map(out.map((r) => [r._id, r]))
-      out = Array.from(new Set(order))
-        .map((id) => byId.get(id))
-        .filter((r): r is Row => Boolean(r))
-    }
-    if (search.active) {
-      const byId = new Map(out.map((r) => [r._id, r]))
-      out = search.hits.map((h) => byId.get(h.imageId)).filter((r): r is Row => Boolean(r))
-    }
-    return out
-  }, [rows, show, dupes, search.active, search.hits])
+  const cascade: Cascade | undefined = useMemo(
+    () =>
+      rows
+        ? computeCascade(
+            rows,
+            { show, kind, collectionId, areaCode, assetId, tag },
+            { active: search.active, hits: search.hits },
+            dupes,
+          )
+        : undefined,
+    [rows, show, kind, collectionId, areaCode, assetId, tag, search.active, search.hits, dupes],
+  )
+  const visible = cascade?.visible
+  // "No pairs at all" keeps its own message in the grid; a filter that empties the view gets a way out.
+  const culprit = cascade?.culprit === "show" && show === "duplicates" ? null : (cascade?.culprit ?? null)
+
+  function dropLevel(level: Level) {
+    if (level === "show") setShow("all")
+    else if (level === "kind") setKind(null)
+    else if (level === "collection") setCollectionId(null)
+    else if (level === "area") setAreaCode(null)
+    else if (level === "asset") setAssetId(null)
+    else setTag(null)
+  }
+  function selectedName(level: Level): string {
+    if (level === "show") return SHOW_LABEL[show]
+    if (level === "kind") return kind ? KIND_LABEL[kind] : ""
+    if (level === "collection") return facets?.collections.find((c) => c._id === collectionId)?.name ?? "this collection"
+    if (level === "area") return areaCode ?? ""
+    if (level === "asset") return facets?.assets.find((a) => a._id === assetId)?.code ?? "this Asset"
+    return tag ?? ""
+  }
 
   // Drop selections that are no longer visible.
   useEffect(() => {
@@ -253,6 +397,7 @@ export function ImageLibraryPage(_props: { params?: unknown }) {
           <div className="flex flex-col gap-4 lg:flex-row">
             <FilterRail
               facets={facets}
+              cascade={cascade}
               show={show}
               setShow={setShow}
               kind={kind}
@@ -331,7 +476,7 @@ export function ImageLibraryPage(_props: { params?: unknown }) {
                     : search.active
                       ? `${visible.length} match${visible.length === 1 ? "" : "es"}, best first`
                       : show === "duplicates"
-                        ? `${dupes?.length ?? 0} pair${dupes?.length === 1 ? "" : "s"} that look alike`
+                        ? `${visible.length} image${visible.length === 1 ? "" : "s"} that look alike`
                         : `${visible.length} image${visible.length === 1 ? "" : "s"}`}
                 </span>
                 {filtersOn && (
@@ -357,7 +502,24 @@ export function ImageLibraryPage(_props: { params?: unknown }) {
                 />
               )}
 
-              {layout === "grid" ? (
+              {visible?.length === 0 && culprit ? (
+                <div className="rounded-md border border-dashed p-10 text-center" data-testid="filter-culprit">
+                  <ImageIcon className="mx-auto h-8 w-8 text-muted-foreground" />
+                  <div className="mt-2 text-sm font-medium">No images match all these filters</div>
+                  <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
+                    The {LEVEL_LABEL[culprit].toLowerCase()} filter "{selectedName(culprit)}" left nothing
+                    {culprit === "show" ? "" : " from the filters above it"}.
+                  </p>
+                  <div className="mt-3 flex justify-center gap-2">
+                    <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => dropLevel(culprit)}>
+                      <X className="mr-1 h-3.5 w-3.5" /> Remove {LEVEL_LABEL[culprit].toLowerCase()} "{selectedName(culprit)}"
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={clearFilters}>
+                      Clear all filters
+                    </Button>
+                  </div>
+                </div>
+              ) : layout === "grid" ? (
                 <Grid
                   rows={visible}
                   hits={search.active ? hitById : null}
@@ -446,6 +608,7 @@ export function ImageLibraryPage(_props: { params?: unknown }) {
 
 function FilterRail(props: {
   facets: Facets | undefined
+  cascade: Cascade | undefined
   show: Show
   setShow: (s: Show) => void
   kind: Kind | null
@@ -461,7 +624,9 @@ function FilterRail(props: {
   editorId: Id<"people"> | null
 }) {
   const f = props.facets
+  const c = props.cascade
   const [allTags, setAllTags] = useState(false)
+  const [allAssets, setAllAssets] = useState(false)
   const createCollection = useMutation(api.images.createCollection)
   const [newName, setNewName] = useState("")
 
@@ -473,40 +638,53 @@ function FilterRail(props: {
     duplicates: <Copy className="h-3.5 w-3.5" />,
     undescribed: <Sparkles className="h-3.5 w-3.5" />,
   }
-  const counts: Partial<Record<Show, number>> = f
-    ? { all: f.total, favorites: f.favorites, undescribed: f.undescribed }
-    : {}
+  // Counts follow the search and the selections above; undefined while loading.
+  const n = (m: Map<string, number> | undefined, key: string) => (m ? (m.get(key) ?? 0) : undefined)
+
+  // Assets and Tags can be long: list what still matches, fold the rest away.
+  const assetRows = (f?.assets ?? []).map((a) => ({ ...a, count: n(c?.assets, a._id) }))
+  const assetsShown = allAssets ? assetRows : assetRows.filter((a) => a.count !== 0 || props.assetId === a._id)
+  const assetsHidden = assetRows.length - assetsShown.length
+  const tagRows = Array.from(c?.tags ?? [], ([t, count]) => ({ tag: t, count }))
+  if (props.tag && !c?.tags.has(props.tag)) tagRows.push({ tag: props.tag, count: 0 })
+  tagRows.sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
 
   return (
     <aside className="space-y-4 lg:w-56 lg:shrink-0" aria-label="Filters">
       <RailGroup title="Show">
         {(Object.keys(SHOW_LABEL) as Show[])
-          // A filter that would show nothing is left out, unless it is on.
-          .filter((s) => props.show === s || !(f && ((s === "undescribed" && f.undescribed === 0) || (s === "favorites" && f.favorites === 0))))
+          // A maintenance filter with nothing to do is left out, unless it is on.
+          .filter((s) => props.show === s || !(s === "undescribed" && c?.show.undescribed === 0))
           .map((s) => (
-          <RailItem key={s} active={props.show === s} onClick={() => props.setShow(s)} icon={showIcons[s]} count={counts[s]}>
-            {SHOW_LABEL[s]}
-          </RailItem>
-        ))}
+            <RailItem
+              key={s}
+              active={props.show === s}
+              onClick={() => props.setShow(s)}
+              icon={showIcons[s]}
+              count={s === "all" ? c?.base : c?.show[s]}
+            >
+              {SHOW_LABEL[s]}
+            </RailItem>
+          ))}
       </RailGroup>
 
       <RailGroup title="Kind">
         {KINDS.filter((k) => props.kind === k || !f || (f.kinds[k] ?? 0) > 0).map((k) => (
-          <RailItem key={k} active={props.kind === k} onClick={() => props.setKind(props.kind === k ? null : k)} count={f?.kinds[k] ?? 0}>
+          <RailItem key={k} active={props.kind === k} onClick={() => props.setKind(props.kind === k ? null : k)} count={n(c?.kinds, k)}>
             {KIND_LABEL[k]}
           </RailItem>
         ))}
       </RailGroup>
 
       <RailGroup title="Collections">
-        {(f?.collections ?? []).map((c) => (
+        {(f?.collections ?? []).map((col) => (
           <RailItem
-            key={c._id}
-            active={props.collectionId === c._id}
-            onClick={() => props.setCollectionId(props.collectionId === c._id ? null : c._id)}
-            count={c.count}
+            key={col._id}
+            active={props.collectionId === col._id}
+            onClick={() => props.setCollectionId(props.collectionId === col._id ? null : col._id)}
+            count={n(c?.collections, col._id)}
           >
-            {c.name}
+            {col.name}
           </RailItem>
         ))}
         {props.editorId && (
@@ -541,41 +719,54 @@ function FilterRail(props: {
 
       <RailGroup title="Areas">
         {(f?.areas ?? []).map((a) => (
-          <RailItem key={a.code} active={props.areaCode === a.code} onClick={() => props.setAreaCode(props.areaCode === a.code ? null : a.code)} count={a.count}>
+          <RailItem
+            key={a.code}
+            active={props.areaCode === a.code}
+            onClick={() => props.setAreaCode(props.areaCode === a.code ? null : a.code)}
+            count={n(c?.areas, a.code)}
+          >
             <span className="font-mono">{a.code}</span> {a.label}
           </RailItem>
         ))}
       </RailGroup>
 
-      {(f?.assets.length ?? 0) > 0 && (
+      {assetRows.length > 0 && (
         <RailGroup title="Assets">
-          {f!.assets.map((a) => (
+          {assetsShown.map((a) => (
             <RailItem key={a._id} active={props.assetId === a._id} onClick={() => props.setAssetId(props.assetId === a._id ? null : a._id)} count={a.count}>
               <span className="font-mono">{a.code}</span> <span className="truncate">{a.name}</span>
             </RailItem>
           ))}
+          {(assetsHidden > 0 || allAssets) && (
+            <button type="button" onClick={() => setAllAssets(!allAssets)} className="px-2 text-[11px] text-muted-foreground underline-offset-2 hover:underline">
+              {allAssets ? "Hide Assets with no matches" : `${assetsHidden} more with no matches`}
+            </button>
+          )}
         </RailGroup>
       )}
 
-      {(f?.tags.length ?? 0) > 0 && (
+      {tagRows.length > 0 && (
         <RailGroup title="Tags">
           <div className="flex flex-wrap gap-1 px-1">
-            {(allTags ? f!.tags : f!.tags.slice(0, 18)).map((t) => (
+            {(allTags ? tagRows : tagRows.slice(0, 18)).map((t) => (
               <button
                 key={t.tag}
                 type="button"
                 onClick={() => props.setTag(props.tag === t.tag ? null : t.tag)}
+                aria-pressed={props.tag === t.tag}
+                title={t.count === 0 ? "No images with the filters above" : undefined}
                 className={cn(
                   "rounded-full border px-2 py-0.5 text-[11px]",
                   props.tag === t.tag ? "border-primary bg-primary/10" : "text-muted-foreground hover:bg-muted",
+                  t.count === 0 && "opacity-50",
                 )}
               >
-                {t.tag}
+                {t.tag} <span className="tabular-nums opacity-70">{t.count}</span>
               </button>
             ))}
-            {f!.tags.length > 18 && (
+            {tagRows.length > 18 && (
               <button type="button" onClick={() => setAllTags(!allTags)} className="px-1 text-[11px] text-muted-foreground underline-offset-2 hover:underline">
-                {allTags ? "Fewer" : `All ${f!.tags.length}`}
+                {allTags ? "Fewer" : `All ${tagRows.length}`}
               </button>
             )}
           </div>
@@ -607,14 +798,18 @@ function RailItem({
   count?: number
   children: ReactNode
 }) {
+  // Zero under the search and the selections above: still clickable, but dimmed.
+  const empty = count === 0
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
+      title={empty ? "No images with the filters above" : undefined}
       className={cn(
         "flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs",
         active ? "bg-primary/10 font-medium text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+        empty && "opacity-50",
       )}
     >
       {icon}

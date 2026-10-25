@@ -24,6 +24,7 @@ import {
 } from "./seed/content"
 import { ensureMediaImpl } from "./seed/media"
 import { buildSupplierPdfs } from "./seed/supplierPdfs"
+import { ensureCompanyLogo } from "./seed/companyLogo"
 
 // The seed of Oppr Knowledge: one rich, believable plant, Pijpwerk Noord,
 // that makes PE pressure pipe (docs/build/full-showcase-plan.md, content
@@ -754,12 +755,20 @@ export const run = internalAction({
       }
     }
 
-    // Templates are kept by the wipe; upsert the seeded one by name so an
-    // old row is renamed rather than shown with its old name.
+    // Templates are kept by the wipe; add missing built-ins and refresh the
+    // ones nobody edited (seedTemplates.ensure).
     try {
-      modules.templates = await ctx.runMutation(internal.seedTemplates.upsert, {})
+      modules.templates = await ctx.runMutation(internal.seedTemplates.ensure, {})
     } catch (e) {
       modules.templates = { error: e instanceof Error ? e.message : String(e) }
+    }
+
+    // The wipe removed the logo image, so the kept cover would point at a
+    // deleted row: recreate it and repoint the cover.
+    try {
+      modules.companyLogo = await ensureCompanyLogo(ctx)
+    } catch (e) {
+      modules.companyLogo = { error: e instanceof Error ? e.message : String(e) }
     }
 
     // 7. Wikis (generated in the background).

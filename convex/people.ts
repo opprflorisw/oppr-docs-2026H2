@@ -1,10 +1,9 @@
 import { ConvexError, v } from "convex/values"
 import { mutation, query } from "./_generated/server"
-import type { MutationCtx } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 import { requireUser, requireUserId } from "./lib/auth"
 import { isAdmin, requireEngineerOrAdmin } from "./lib/roles"
-import { loadShifts } from "./people/shifts"
+import { checkShiftKey } from "./people/shifts"
 
 // The showcase people (CONTEXT.md: Operator, Engineer, plus Admin). Checking
 // in is a client-side choice of one of these; there is no login per person.
@@ -34,6 +33,12 @@ export const listAll = query({
 
 const MESSAGE = "Check in as an Engineer or Admin to change people."
 
+const DEFAULT_ROLE: Record<Doc<"people">["kind"], string> = {
+  operator: "Operator",
+  engineer: "Engineer",
+  admin: "Admin",
+}
+
 function clean(s: string | null | undefined, max: number, label: string): string | undefined {
   const out = (s ?? "").trim().replace(/\s+/g, " ")
   if (out.length > max) throw new ConvexError(`Keep the ${label} under ${max} characters.`)
@@ -44,13 +49,6 @@ function cleanEmail(s: string | null | undefined): string | undefined {
   const out = clean(s, 120, "email address")
   if (out && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out)) throw new ConvexError("That email address does not look right.")
   return out?.toLowerCase()
-}
-
-async function checkShift(ctx: MutationCtx, shift: string | null | undefined) {
-  if (!shift) return undefined
-  const shifts = await loadShifts(ctx)
-  if (!shifts.some((s) => s.key === shift)) throw new ConvexError("That shift no longer exists.")
-  return shift
 }
 
 /** Only an Admin makes someone an Admin, or changes an Admin. */
@@ -84,11 +82,9 @@ export const create = mutation({
     return await ctx.db.insert("people", {
       name,
       kind: args.kind,
-      role:
-        clean(args.role, 80, "role") ??
-        (args.kind === "operator" ? "Operator" : args.kind === "admin" ? "Admin" : "Engineer"),
+      role: clean(args.role, 80, "role") ?? DEFAULT_ROLE[args.kind],
       area: clean(args.area, 20, "area") ?? null,
-      shift: await checkShift(ctx, args.shift),
+      shift: await checkShiftKey(ctx, args.shift),
       team: clean(args.team, 60, "team name"),
       email: cleanEmail(args.email),
       sortOrder: all.reduce((m, p) => Math.max(m, p.sortOrder), -1) + 1,
@@ -115,7 +111,7 @@ export const update = mutation({
     if (args.kind !== undefined) patch.kind = args.kind
     if (args.role !== undefined) patch.role = clean(args.role, 80, "role") ?? target.role
     if (args.area !== undefined) patch.area = clean(args.area, 20, "area") ?? null
-    if (args.shift !== undefined) patch.shift = await checkShift(ctx, args.shift)
+    if (args.shift !== undefined) patch.shift = await checkShiftKey(ctx, args.shift)
     if (args.team !== undefined) patch.team = clean(args.team, 60, "team name")
     if (args.email !== undefined) patch.email = cleanEmail(args.email)
     await ctx.db.patch(target._id, patch)

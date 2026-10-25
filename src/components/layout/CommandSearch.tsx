@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/command"
 import { Dialog, DialogContent, DialogDescription } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
-import { openAsk } from "@/components/ai/FloatingAskIda"
+import { openAsk } from "@/components/ai/AskDock"
 import { STATUS_LABELS } from "@/components/docs/StatusBadge"
 import { api } from "../../../convex/_generated/api"
 
@@ -170,6 +170,7 @@ function Results({
         <CommandGroup heading="Go to">
           <PlaceItem label="Documents" icon={FileText} onSelect={() => go("/library")} />
           <PlaceItem label="Learn" icon={GraduationCap} onSelect={() => go("/learn")} />
+          <PlaceItem label="Skills workspace" icon={GraduationCap} onSelect={() => go("/learn/skills")} />
           <PlaceItem label="Wiki" icon={BookOpenText} onSelect={() => go("/wiki")} />
           <PlaceItem label="Plant" icon={Factory} onSelect={() => go("/plant")} />
           <PlaceItem label="Glossary" icon={Factory} onSelect={() => go("/plant/glossary")} />
@@ -183,9 +184,12 @@ function Results({
   }
 
   const isoMatch = q.length >= 3 && matches(q, "iso 9001", "iso9001", "audit", "certification", "quality management")
+  const skillsMatch =
+    q.length >= 3 && matches(q, "skills workspace", "skill profiles", "skill levels", "coverage questions", "iluo")
 
   const total = found
     ? (isoMatch ? 1 : 0) +
+      (skillsMatch ? 1 : 0) +
       found.docs.length +
       found.assets.length +
       found.trainings.length +
@@ -206,6 +210,17 @@ function Results({
         <CommandEmpty className="py-4 text-center text-sm text-muted-foreground">
           Nothing matches "{query.trim()}". Ask it instead.
         </CommandEmpty>
+      )}
+      {skillsMatch && (
+        <CommandGroup heading="Pages">
+          <CommandItem value="page-skills-workspace" onSelect={() => go("/learn/skills")}>
+            <GraduationCap className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="truncate">Skills workspace</span>
+            <span className="ml-auto shrink-0 pl-2 text-xs text-muted-foreground">
+              Skills, Skill profiles, levels and coverage questions
+            </span>
+          </CommandItem>
+        </CommandGroup>
       )}
       {isoMatch && (
         <CommandGroup heading="Pages">

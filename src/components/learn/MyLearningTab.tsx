@@ -176,7 +176,7 @@ function MyLearning({ personId, engineer }: { personId: Id<"people">; engineer: 
               {engineer ? (
                 <>
                   <span className="font-medium text-foreground">You have no Skill profile.</span>{" "}
-                  <Link href="/learn?tab=setup" className="font-medium text-foreground underline underline-offset-2">
+                  <Link href="/learn/skills/people" className="font-medium text-foreground underline underline-offset-2">
                     Assign one
                   </Link>{" "}
                   to see what you need for your role.

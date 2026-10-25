@@ -383,6 +383,13 @@ function FavoritesTab(grid: { picked: Candidate | null; onPick: (c: Candidate) =
   )
 }
 
+// Extensions whose MIME type is not simply image/<ext>.
+const URL_CONTENT_TYPES: Record<string, string> = {
+  svg: "image/svg+xml",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+}
+
 function UploadTab({
   assetIds,
   areaCodes,
@@ -442,7 +449,7 @@ function UploadTab({
     try {
       const filename = href.split(/[?#]/)[0].split("/").pop() || "image"
       const ext = filename.split(".").pop()?.toLowerCase() ?? ""
-      const contentType = ext === "svg" ? "image/svg+xml" : ext === "jpg" || ext === "jpeg" ? "image/jpeg" : `image/${ext}`
+      const contentType = URL_CONTENT_TYPES[ext] ?? `image/${ext}`
       const altText = alt.trim() || altFromFilename(filename)
       const r = await createFromUrl({ externalUrl: href, filename, contentType, altText })
       onUploaded({ imageId: r.id, url: r.url, altText })

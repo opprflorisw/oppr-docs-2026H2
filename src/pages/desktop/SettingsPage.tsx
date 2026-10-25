@@ -4,12 +4,12 @@ import type { LucideProps } from "lucide-react"
 import {
   Building2,
   CalendarClock,
+  ChevronRight,
   ClipboardCheck,
   FileDown,
   GraduationCap,
   Hash,
   LayoutTemplate,
-  Layers,
   Settings as SettingsIcon,
   ShieldCheck,
   SlidersHorizontal,
@@ -23,8 +23,6 @@ import { CoverSettingsEditor } from "@/components/docs/CoverSettingsEditor"
 import { PpeConfigurator } from "@/components/docs/PpeConfigurator"
 import { PeopleSettings } from "@/components/people/PeopleSettings"
 import { ShiftsSettings } from "@/components/people/ShiftsSettings"
-import { SkillsSettings } from "@/components/learn/SkillsSettings"
-import { SkillLevelsSettings } from "@/components/learn/skills/SkillLevelsSettings"
 import { CompanySettings } from "@/components/settings/CompanySettings"
 import { DocumentRulesSettings } from "@/components/settings/DocumentRulesSettings"
 import { TrainingDefaultsSettings } from "@/components/settings/TrainingDefaultsSettings"
@@ -48,6 +46,8 @@ type Section = {
   icon: ComponentType<LucideProps>
   /** One line under the section heading. */
   lead: string
+  /** Lives on its own page: the nav entry links there. */
+  href?: string
 }
 
 const GROUPS: { label: string; sections: Section[] }[] = [
@@ -73,15 +73,10 @@ const GROUPS: { label: string; sections: Section[] }[] = [
       },
       {
         value: "skills",
-        label: "Skills",
+        label: "Skills workspace",
         icon: GraduationCap,
-        lead: "Skills, Skill profiles and coverage questions for the Skill matrix and Home.",
-      },
-      {
-        value: "skill-levels",
-        label: "Skill levels",
-        icon: Layers,
-        lead: "Your own names for the four Skill levels, for example ILUO.",
+        lead: "Skills, Skill profiles, levels and coverage questions, in Learn.",
+        href: "/learn/skills",
       },
       {
         value: "shifts",
@@ -180,6 +175,14 @@ const LINK_OUT: Record<string, string> = {
   assets: "/plant/assets",
   plant: "/plant",
   mcp: "/mcp",
+  // Skills, profiles and level names live in the Skills workspace in Learn.
+  skills: "/learn/skills",
+  "skill-profiles": "/learn/skills/profiles",
+  profiles: "/learn/skills/profiles",
+  coverage: "/learn/skills/coverage",
+  "skill-levels": "/learn/skills/levels",
+  levels: "/learn/skills/levels",
+  iluo: "/learn/skills/levels",
 }
 
 // Other words for a section, so a typed or old link lands on the right page.
@@ -192,11 +195,6 @@ const ALIASES: Record<string, string> = {
   languages: "company",
   roles: "people",
   "people-and-roles": "people",
-  "skill-profiles": "skills",
-  profiles: "skills",
-  coverage: "skills",
-  levels: "skill-levels",
-  iluo: "skill-levels",
   types: "naming",
   vocabulary: "naming",
   codes: "naming",
@@ -224,9 +222,9 @@ const compact = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "")
 function resolveTab(raw: string): { section?: Section; href?: string } {
   const key = raw.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
   if (!key) return { section: SECTIONS[0] }
+  if (LINK_OUT[key]) return { href: LINK_OUT[key] }
   const exact = SECTIONS.find((s) => s.value === key)
   if (exact) return { section: exact }
-  if (LINK_OUT[key]) return { href: LINK_OUT[key] }
   if (ALIASES[key]) return { section: SECTIONS.find((s) => s.value === ALIASES[key]) }
   // Closest match: the typed word starts, contains or is part of a section's name.
   const c = compact(key)
@@ -235,7 +233,7 @@ function resolveTab(raw: string): { section?: Section; href?: string } {
       SECTIONS.find((s) => compact(s.value).startsWith(c) || compact(s.label).startsWith(c)) ??
       SECTIONS.find((s) => c.startsWith(compact(s.value))) ??
       SECTIONS.find((s) => compact(s.label).includes(c))
-    if (near) return { section: near }
+    if (near) return near.href ? { href: near.href } : { section: near }
   }
   return {}
 }
@@ -307,7 +305,7 @@ function SectionLink({ s, active }: { s: Section; active: boolean }) {
   const Icon = s.icon
   return (
     <Link
-      href={`/settings?tab=${s.value}`}
+      href={s.href ?? `/settings?tab=${s.value}`}
       aria-current={active ? "page" : undefined}
       className={cn(
         "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
@@ -318,6 +316,7 @@ function SectionLink({ s, active }: { s: Section; active: boolean }) {
     >
       <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
       <span className="flex-1">{s.label}</span>
+      {s.href && <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />}
     </Link>
   )
 }
@@ -325,11 +324,24 @@ function SectionLink({ s, active }: { s: Section; active: boolean }) {
 function SectionBody({ value }: { value: string }) {
   switch (value) {
     case "people":
-      return <PeopleSettings />
-    case "skills":
-      return <SkillsSettings />
-    case "skill-levels":
-      return <SkillLevelsSettings />
+      return (
+        <>
+          <Link
+            href="/learn/skills"
+            className="flex items-center gap-3 rounded-lg border bg-card p-4 transition-colors hover:border-primary/40 hover:bg-muted/30"
+          >
+            <GraduationCap className="h-5 w-5 shrink-0 text-primary" aria-hidden />
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium">Skills workspace</span>
+              <span className="block text-xs text-muted-foreground">
+                Skills, Skill profiles, who is measured, level names and coverage questions live in Learn.
+              </span>
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+          </Link>
+          <PeopleSettings />
+        </>
+      )
     case "shifts":
       return <ShiftsSettings />
     case "naming":
@@ -351,11 +363,8 @@ function SectionBody({ value }: { value: string }) {
         </EditorOnly>
       )
     case "safety":
-      return (
-        <EditorOnly>
-          <PpeConfigurator />
-        </EditorOnly>
-      )
+      // Shows its own edit notice: searching and viewing stay usable for everyone.
+      return <PpeConfigurator />
     case "review":
       return <DocumentRulesSettings />
     case "training":

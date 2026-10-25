@@ -162,7 +162,7 @@ export const skillAttention = query({
     await requireUser(ctx)
     const now = Date.now()
     const [skills, people, trainings, levels] = await Promise.all([
-      ctx.db.query("skills").take(500),
+      ctx.db.query("skills").take(500).then((r) => r.filter((s) => !s.archived)),
       ctx.db.query("people").take(500),
       ctx.db.query("trainings").take(500),
       ctx.db.query("skillLevels").take(5000),

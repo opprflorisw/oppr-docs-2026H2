@@ -353,7 +353,7 @@ export const skillCoverage = internalQuery({
   args: { skill: v.optional(v.string()), profile: v.optional(v.string()), areas: areasArg },
   handler: async (ctx, args) => {
     const now = Date.now()
-    const skills = (await ctx.db.query("skills").take(500))
+    const skills = (await ctx.db.query("skills").take(500).then((r) => r.filter((s) => !s.archived)))
       .filter((s) => s.area == null || inAreas(args.areas, s.area))
       .sort((a, b) => a.sortOrder - b.sortOrder)
     const profiles = (await ctx.db.query("skillProfiles").take(200)).sort((a, b) => a.sortOrder - b.sortOrder)

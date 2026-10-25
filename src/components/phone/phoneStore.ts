@@ -7,6 +7,9 @@ import { memoryLocation } from "wouter/memory-location"
 
 export type PhoneMode = "closed" | "popup" | "docked"
 
+/** Width of the docked phone. Ask docks to its left (AskDock). */
+export const PHONE_DOCK_W = 440
+
 const MODE_KEY = "oppr.phone.mode"
 const PATH_KEY = "oppr.phone.path"
 const EVENT = "oppr-phone"

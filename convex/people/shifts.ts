@@ -40,6 +40,13 @@ export function shiftKeyOf(person: Pick<Doc<"people">, "shift" | "role">): strin
   return null
 }
 
+/** The shift key when that shift exists; no shift (null or empty) means none. */
+export async function checkShiftKey(ctx: Ctx, shift: string | null | undefined): Promise<string | undefined> {
+  if (!shift) return undefined
+  if (!(await loadShifts(ctx)).some((s) => s.key === shift)) throw new ConvexError("That shift no longer exists.")
+  return shift
+}
+
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/
 
 function cleanTime(t: string, label: string) {

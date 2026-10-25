@@ -1044,7 +1044,7 @@ export const finish = mutation({
             trainingId: a.trainingId,
             trainingVersion: a.trainingVersion,
             attemptId: a._id,
-            skillIds: (await ctx.db.query("skills").take(500)).filter((x) => x.trainingIds.includes(a.trainingId)).map((x) => x._id),
+            skillIds: (await ctx.db.query("skills").take(500).then((r) => r.filter((s) => !s.archived))).filter((x) => x.trainingIds.includes(a.trainingId)).map((x) => x._id),
             trainerId: null,
             status: "open",
             createdAt: now,

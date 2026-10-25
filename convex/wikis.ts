@@ -14,7 +14,7 @@ import { resolveScope, Scope, ScopeReason, scopeIsEmpty } from "./lib/scope"
 import { isPublished } from "./lib/published"
 import { contentStems, normalise, withTableHeaders } from "./ai/grounding"
 import { openFindingsTouching, stillStands } from "./findings"
-import { isEngineerOrAdmin } from "./lib/roles"
+import { requireEngineerOrAdmin } from "./lib/roles"
 
 /** Same chunks, with table rows carrying their column headers. */
 function withHeaders(chunks: Doc<"chunks">[]): Doc<"chunks">[] {
@@ -137,11 +137,8 @@ function readBudget(docCount: number, totalChunks: number) {
 }
 
 /** Changing a Wiki is Engineer work (plan: Engineer gating). */
-async function requireEngineer(ctx: QueryCtx, personId: Id<"people"> | undefined) {
-  const person = personId ? await ctx.db.get(personId) : null
-  if (!person || !isEngineerOrAdmin(person))
-    throw new ConvexError("Check in as an Engineer to change this Wiki.")
-  return person
+function requireEngineer(ctx: QueryCtx, personId: Id<"people"> | undefined) {
+  return requireEngineerOrAdmin(ctx, personId, "Check in as an Engineer to change this Wiki.")
 }
 
 // ---- Shared reading helpers ---------------------------------------------------

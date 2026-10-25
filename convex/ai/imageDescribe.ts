@@ -14,6 +14,15 @@ const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 const KINDS = ["photo", "illustration", "diagram", "safety", "generated"] as const
 type Kind = (typeof KINDS)[number]
 
+/** An image's kind (images.kind in the schema). */
+export const imageKindValidator = v.union(
+  v.literal("photo"),
+  v.literal("illustration"),
+  v.literal("diagram"),
+  v.literal("safety"),
+  v.literal("generated"),
+)
+
 const PROMPT = `You catalogue images for a factory's knowledge base (SOPs, work instructions, Trainings).
 Look at the image and answer in JSON with:
 - "altText": one short sentence (max 15 words) that says what the image shows, for screen readers.
@@ -45,15 +54,7 @@ export const applyDescription = internalMutation({
     altText: v.string(),
     description: v.string(),
     tags: v.array(v.string()),
-    kind: v.optional(
-      v.union(
-        v.literal("photo"),
-        v.literal("illustration"),
-        v.literal("diagram"),
-        v.literal("safety"),
-        v.literal("generated"),
-      ),
-    ),
+    kind: v.optional(imageKindValidator),
     overwrite: v.boolean(),
   },
   handler: async (ctx, args) => {
@@ -156,6 +157,6 @@ export const requestDescribe = mutation({
         thenEmbed: true,
       })
     }
-    return { scheduled: Math.min(args.ids.length, 100) }
+    return { scheduled: ids.length }
   },
 })
