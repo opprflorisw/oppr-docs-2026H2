@@ -75,9 +75,9 @@ export function DevPage({
         <div className="mx-auto w-full max-w-6xl space-y-5 p-6">
           {tabs && tab && onTab ? (
             <Tabs value={tab} onValueChange={onTab} className="space-y-5">
-              <TabsList className="h-auto flex-wrap">
+              <TabsList className="h-auto flex-wrap" data-tour={`developer-${tool.href.split("/")[2]}-tabs`}>
                 {tabs.map((t) => (
-                  <TabsTrigger key={t.value} value={t.value}>
+                  <TabsTrigger key={t.value} value={t.value} data-tour={`developer-${tool.href.split("/")[2]}-tab-${t.value}`}>
                     {t.label}
                   </TabsTrigger>
                 ))}

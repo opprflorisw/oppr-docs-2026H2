@@ -118,6 +118,7 @@ export function WrappedManualStrip({
             variant={published ? "default" : "outline"}
             disabled={!data.stampedUrl || data.stamping || data.stampError != null}
             onClick={() => data.stampedUrl && void downloadFile(data.stampedUrl, data.stampedFilename)}
+            data-tour="documents-pdf-button"
             title={
               published
                 ? "The PDF with naming code, version and status on every page"

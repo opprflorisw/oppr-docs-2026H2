@@ -55,7 +55,7 @@ export function TrainingLearnerView({
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-5 p-6">
-      <div className="space-y-2">
+      <div className="space-y-2" data-tour="learn-training-about">
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span className="font-mono">{code}</span>
           <KindBadge kind={kind} />
@@ -67,11 +67,11 @@ export function TrainingLearnerView({
       {summary === undefined ? (
         <div className="h-40 animate-pulse rounded-lg bg-muted" />
       ) : summary === null || !summary.live ? (
-        <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+        <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground" data-tour="learn-training-facts">
           This Training is not in use yet. Once an Engineer has published it, you can do it here.
         </div>
       ) : (
-        <div className="space-y-4 rounded-lg border p-5">
+        <div className="space-y-4 rounded-lg border p-5" data-tour="learn-training-facts">
           <ul className="space-y-2.5 text-sm">
             <li className="flex items-center gap-2.5">
               <ListChecks className="h-4 w-4 shrink-0 text-primary" />

@@ -26,6 +26,8 @@ export interface HeaderAction {
   disabledReason?: string
   /** Red, and only ever inside the '...' menu. */
   destructive?: boolean
+  /** Instructions: a data-tour target on the button (src/components/instructions). */
+  tour?: string
 }
 
 interface PageHeaderProps {
@@ -90,7 +92,7 @@ function ActionButton({
     </>
   )
   const button = action.href && !action.disabled ? (
-    <Button size="sm" variant={variant} asChild>
+    <Button size="sm" variant={variant} asChild data-tour={action.tour}>
       <Link href={action.href}>{inner}</Link>
     </Button>
   ) : (
@@ -100,6 +102,7 @@ function ActionButton({
       onClick={action.onClick}
       disabled={action.disabled}
       title={action.disabled ? action.disabledReason : undefined}
+      data-tour={action.tour}
     >
       {inner}
     </Button>
@@ -161,6 +164,18 @@ export function PageHeader({
   const safeMenu = menu.filter((m) => !m.destructive)
   const destructive = menu.filter((m) => m.destructive)
   const hasMenu = folded.length + menu.length > 0
+  // Instructions: a tour step that points at a folded action points at the
+  // '...' button instead (one wrapper per data-tour id).
+  const foldedTours = [...folded, ...menu].flatMap((a) => (a.tour ? [a.tour] : []))
+  const withTours = (node: ReactNode) =>
+    foldedTours.reduceRight<ReactNode>(
+      (child, t) => (
+        <span data-tour={t} className="inline-flex">
+          {child}
+        </span>
+      ),
+      node,
+    )
 
   return (
     <div
@@ -188,11 +203,13 @@ export function PageHeader({
           ))}
           {hasMenu && (
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" className="w-9 px-0" aria-label="More actions">
-                  <MoreHorizontal aria-hidden />
-                </Button>
-              </DropdownMenuTrigger>
+              {withTours(
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="outline" className="w-9 px-0" aria-label="More actions">
+                    <MoreHorizontal aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>,
+              )}
               <DropdownMenuContent align="end" className="w-56">
                 {folded.map((a) => (
                   <MenuItem key={a.label} action={a} />

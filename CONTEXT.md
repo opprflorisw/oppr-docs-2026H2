@@ -209,6 +209,10 @@ _Avoid_: auto-update, AI edit, suggestion
 The library-wide view of whether the body of Knowledge is lean and relevant. It shows which Documents are never used, which overlap and could be merged, which are asked about but unclear, and which have open Findings. Its goal is a smaller, better library, not a bigger one.
 _Avoid_: dashboard, statistics, library analytics
 
+**Instructions**:
+The in-app onboarding: one guided tour per function of the app (Documents, Learn, Wiki, Plant, Settings and more). Each tour has an introduction page (what it does, why, how it helps, what it can do) and then points at the real screens step by step. A guided tour of the app, never a Round in the plant.
+_Avoid_: manual, help, Round (a Round is a Training done in the plant)
+
 **Consistency check**:
 A recurring agent run that finds Published Knowledge that contradicts or duplicates other Published Knowledge, so Ask never gives conflicting answers.
 _Avoid_: audit, lint

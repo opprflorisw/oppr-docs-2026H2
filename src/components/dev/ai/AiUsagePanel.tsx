@@ -88,6 +88,7 @@ export function AiUsagePanel() {
           variant="outline"
           size="sm"
           aria-label="Period"
+          data-tour="developer-ai-usage-range"
         >
           {RANGES.map((r) => (
             <ToggleGroupItem key={r.value} value={r.value}>
@@ -98,7 +99,7 @@ export function AiUsagePanel() {
         <ExportButton personId={editorId} fromDay={from} toDay={today} />
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-3" data-tour="developer-ai-usage-tiles">
         {RANGES.map((r) => {
           const t = tiles?.find((x) => x.value === r.value)?.totals
           return (
@@ -130,7 +131,7 @@ export function AiUsagePanel() {
 
       <Notices truncated={agg?.truncated ?? false} unpriced={view?.totals.unpriced ?? 0} />
 
-      <Card>
+      <Card data-tour="developer-ai-usage-chart">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">Cost per day, last 30 days</CardTitle>
           <CardDescription className="text-sm">
@@ -143,7 +144,7 @@ export function AiUsagePanel() {
       </Card>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
-        <Card>
+        <Card data-tour="developer-ai-usage-breakdown">
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0 pb-3">
             <CardTitle className="text-sm">Where it goes</CardTitle>
             <ToggleGroup
@@ -180,7 +181,7 @@ export function AiUsagePanel() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card data-tour="developer-ai-usage-split">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm">People and system jobs</CardTitle>
             <CardDescription className="text-xs">
@@ -191,7 +192,7 @@ export function AiUsagePanel() {
         </Card>
       </div>
 
-      <Card>
+      <Card data-tour="developer-ai-usage-top">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Most expensive calls</CardTitle>
         </CardHeader>
@@ -200,7 +201,7 @@ export function AiUsagePanel() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-tour="developer-ai-usage-failed">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Failed calls</CardTitle>
           <CardDescription className="text-xs">A failed call is recorded with its error. It costs nothing or very little.</CardDescription>
@@ -466,7 +467,7 @@ function ExportButton({ personId, fromDay, toDay }: { personId: Id<"people">; fr
     }
   }
   return (
-    <Button size="sm" variant="outline" onClick={() => void run()} disabled={busy}>
+    <Button size="sm" variant="outline" onClick={() => void run()} disabled={busy} data-tour="developer-ai-usage-export">
       {busy ? <Loader2 className="animate-spin" aria-hidden /> : <Download aria-hidden />}
       Export CSV
     </Button>

@@ -339,13 +339,13 @@ export function DocumentNewPage() {
         }
         secondary={
           kind === "tiptap"
-            ? [{ label: "Write with the assistant", icon: Sparkles, onClick: () => setWriterOpen(true) }]
+            ? [{ label: "Write with the assistant", icon: Sparkles, onClick: () => setWriterOpen(true), tour: "documents-compose-assistant" }]
             : undefined
         }
         primary={
           <span className="flex items-center gap-2">
             {createBlocker && <span className="text-xs text-muted-foreground">{createBlocker}</span>}
-            <Button onClick={() => void submit()} disabled={submitting || createBlocker != null} size="sm">
+            <Button onClick={() => void submit()} disabled={submitting || createBlocker != null} size="sm" data-tour="documents-compose-create">
               {submitting ? "Creating..." : kind === "pdf" ? "Import PDF" : "Create document"}
             </Button>
           </span>
@@ -420,7 +420,7 @@ export function DocumentNewPage() {
               </CardContent>
             </Card>
           ) : (
-            <Card>
+            <Card data-tour="documents-compose-body">
               <CardHeader>
                 <CardTitle className="text-base">Body</CardTitle>
                 <CardDescription>
@@ -439,7 +439,7 @@ export function DocumentNewPage() {
           )}
         </div>
 
-        <div className="lg:sticky lg:top-6 lg:self-start">
+        <div className="lg:sticky lg:top-6 lg:self-start" data-tour="documents-compose-details">
           <MetadataPanel
             value={meta}
             onChange={setMeta}

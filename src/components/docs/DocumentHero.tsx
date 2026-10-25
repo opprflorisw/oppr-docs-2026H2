@@ -72,6 +72,7 @@ export function DocumentHero({
   const author = signer("author")
   return (
     <div
+      data-tour="documents-read-hero"
       className={cn(
         "rounded-lg border bg-card p-5 shadow-sm",
         className,

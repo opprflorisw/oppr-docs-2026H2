@@ -285,7 +285,7 @@ function NewImport() {
               onCancel={() => setScan(null)}
             />
           ) : (
-            <Card>
+            <Card data-tour="documents-import-card">
               <CardHeader>
                 <CardTitle className="text-base">Import a PDF</CardTitle>
                 <CardDescription className="text-xs">
@@ -297,6 +297,7 @@ function NewImport() {
               <CardContent>
                 <button
                   type="button"
+                  data-tour="documents-import-drop"
                   onClick={() =>
                     !busy && document.getElementById("import-file-input")?.click()
                   }

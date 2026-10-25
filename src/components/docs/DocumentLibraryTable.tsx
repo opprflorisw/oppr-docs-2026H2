@@ -79,6 +79,8 @@ interface DocumentLibraryTableProps {
   /** Optional override for the empty-state copy. */
   emptyMessage?: string
   className?: string
+  /** Instructions: a data-tour target on the table (src/components/instructions). */
+  tour?: string
 }
 
 // A live (published) document with a newer edition being drafted: the live
@@ -131,6 +133,7 @@ export function DocumentLibraryTable({
   onAction,
   emptyMessage = "No documents match the current filters.",
   className,
+  tour,
 }: DocumentLibraryTableProps) {
   const nextReviews = useQuery(api.documents.nextReviews, {})
   const [reviewSort, setReviewSort] = useState<"asc" | "desc" | null>(null)
@@ -154,6 +157,7 @@ export function DocumentLibraryTable({
   if (docs.length === 0) {
     return (
       <div
+        data-tour={tour}
         className={cn(
           "flex flex-col items-center justify-center gap-2 rounded-md border border-dashed bg-muted/20 p-12 text-center",
           className,
@@ -167,7 +171,7 @@ export function DocumentLibraryTable({
   }
 
   return (
-    <div className={cn("rounded-md border bg-background", className)}>
+    <div className={cn("rounded-md border bg-background", className)} data-tour={tour}>
       <Table>
         <TableHeader>
           <TableRow>

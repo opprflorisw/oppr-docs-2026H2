@@ -26,6 +26,7 @@ import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { useCheckIn } from "@/lib/checkIn"
 import { NewDocumentChooserDialog } from "./DocumentNewChooserPage"
+import { InstructionsHomeCard } from "@/components/instructions/InstructionsHomeCard"
 import { cn } from "@/lib/utils"
 import { isEngineerOrAdmin } from "@/lib/roles"
 
@@ -48,7 +49,7 @@ export function HomePage() {
         title={person ? `Good to see you, ${person.name.split(" ")[0]}` : "Home"}
         subtitle="What needs a decision today, and how the knowledge base is doing."
         actions={
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setNewOpen(true)}>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setNewOpen(true)} data-tour="home-new-document">
             <Plus className="h-3.5 w-3.5" />
             New document
           </Button>
@@ -56,79 +57,81 @@ export function HomePage() {
       />
 
       <div className="mx-auto grid w-full max-w-6xl gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <section className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Inbox className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold">Inbox</h2>
-            {data && (
-              <Badge variant="secondary" className="h-5 px-1.5 text-xs">
-                {inboxCount}
-              </Badge>
+        <section className="space-y-3" data-tour="home-work">
+          <div className="space-y-3" data-tour="home-inbox">
+            <div className="flex items-center gap-2">
+              <Inbox className="h-4 w-4 text-primary" />
+              <h2 className="text-sm font-semibold">Inbox</h2>
+              {data && (
+                <Badge variant="secondary" className="h-5 px-1.5 text-xs">
+                  {inboxCount}
+                </Badge>
+              )}
+            </div>
+
+            {data === undefined ? (
+              <Card>
+                <CardContent className="p-4 text-xs text-muted-foreground">Loading…</CardContent>
+              </Card>
+            ) : inboxCount === 0 ? (
+              <Card>
+                <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
+                  <CheckCircle2 className="h-8 w-8 text-emerald-500" />
+                  <p className="text-sm font-medium">
+                    {engineer ? "No documents need you today" : "No documents need a decision today"}
+                  </p>
+                  <p className="max-w-sm text-xs text-muted-foreground">
+                    Reviews waiting for approval and documents due for their
+                    periodic review show up here.
+                  </p>
+                  <Button size="sm" variant="outline" className="mt-1" onClick={() => navigate("/library")}>
+                    Browse documents
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardContent className="divide-y p-0">
+                  {data.approvals.map((d) => (
+                    <InboxRow
+                      key={`a-${d._id}`}
+                      icon={FileCheck2}
+                      tone="primary"
+                      title={d.title}
+                      code={`${d.namingCode} · v${d.version}${d.isRevision ? " revision" : ""}`}
+                      note={
+                        d.status === "in_review"
+                          ? `Waiting for ${engineer ? "your" : "an Engineer's"} review. Open it to approve.`
+                          : "Approved. Open it to publish."
+                      }
+                      action={d.status === "in_review" ? "Review" : "Publish"}
+                      href={`/docs/${d._id}/edit`}
+                    />
+                  ))}
+                  {data.reviews.map((d) => (
+                    <InboxRow
+                      key={`r-${d._id}`}
+                      icon={CalendarClock}
+                      tone={d.daysLeft < 0 ? "danger" : "warning"}
+                      title={d.title}
+                      code={`${d.namingCode} · v${d.version}`}
+                      note={
+                        d.revisionInProgress
+                          ? "Periodic review: a revision is already in progress"
+                          : d.daysLeft < 0
+                            ? `Periodic review overdue by ${-d.daysLeft} ${-d.daysLeft === 1 ? "day" : "days"}`
+                            : d.daysLeft === 0
+                              ? "Periodic review due today"
+                              : `Periodic review due in ${d.daysLeft} ${d.daysLeft === 1 ? "day" : "days"}`
+                      }
+                      action="Check"
+                      href={`/docs/${d._id}?panel=review`}
+                    />
+                  ))}
+                </CardContent>
+              </Card>
             )}
           </div>
-
-          {data === undefined ? (
-            <Card>
-              <CardContent className="p-4 text-xs text-muted-foreground">Loading…</CardContent>
-            </Card>
-          ) : inboxCount === 0 ? (
-            <Card>
-              <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
-                <CheckCircle2 className="h-8 w-8 text-emerald-500" />
-                <p className="text-sm font-medium">
-                  {engineer ? "No documents need you today" : "No documents need a decision today"}
-                </p>
-                <p className="max-w-sm text-xs text-muted-foreground">
-                  Reviews waiting for approval and documents due for their
-                  periodic review show up here.
-                </p>
-                <Button size="sm" variant="outline" className="mt-1" onClick={() => navigate("/library")}>
-                  Browse documents
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="divide-y p-0">
-                {data.approvals.map((d) => (
-                  <InboxRow
-                    key={`a-${d._id}`}
-                    icon={FileCheck2}
-                    tone="primary"
-                    title={d.title}
-                    code={`${d.namingCode} · v${d.version}${d.isRevision ? " revision" : ""}`}
-                    note={
-                      d.status === "in_review"
-                        ? `Waiting for ${engineer ? "your" : "an Engineer's"} review. Open it to approve.`
-                        : "Approved. Open it to publish."
-                    }
-                    action={d.status === "in_review" ? "Review" : "Publish"}
-                    href={`/docs/${d._id}/edit`}
-                  />
-                ))}
-                {data.reviews.map((d) => (
-                  <InboxRow
-                    key={`r-${d._id}`}
-                    icon={CalendarClock}
-                    tone={d.daysLeft < 0 ? "danger" : "warning"}
-                    title={d.title}
-                    code={`${d.namingCode} · v${d.version}`}
-                    note={
-                      d.revisionInProgress
-                        ? "Periodic review: a revision is already in progress"
-                        : d.daysLeft < 0
-                          ? `Periodic review overdue by ${-d.daysLeft} ${-d.daysLeft === 1 ? "day" : "days"}`
-                          : d.daysLeft === 0
-                            ? "Periodic review due today"
-                            : `Periodic review due in ${d.daysLeft} ${d.daysLeft === 1 ? "day" : "days"}`
-                    }
-                    action="Check"
-                    href={`/docs/${d._id}?panel=review`}
-                  />
-                ))}
-              </CardContent>
-            </Card>
-          )}
 
           {/* Other work for Engineers, one section per pillar. Each renders
               nothing when it has nothing to show. */}
@@ -139,9 +142,20 @@ export function HomePage() {
         </section>
 
         <aside className="space-y-5">
-          {person && <ShiftCoverCard engineer={engineer} />}
-          {person && <ThisWeekCard />}
-          <div className="space-y-3">
+          <div data-tour="home-instructions">
+            <InstructionsHomeCard />
+          </div>
+          {person && (
+            <div data-tour="home-shift-cover">
+              <ShiftCoverCard engineer={engineer} />
+            </div>
+          )}
+          {person && (
+            <div data-tour="home-this-week">
+              <ThisWeekCard />
+            </div>
+          )}
+          <div className="space-y-3" data-tour="home-health">
           <div className="flex items-center gap-2">
             <BookOpenText className="h-4 w-4 text-primary" />
             <h2 className="text-sm font-semibold">Knowledge health</h2>

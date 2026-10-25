@@ -260,7 +260,7 @@ export function SettingsPage() {
         documentTitle={`${section.label} · Settings`}
       />
       <div className="mx-auto grid w-full max-w-6xl gap-6 p-6 md:grid-cols-[13rem_minmax(0,1fr)]">
-        <nav aria-label="Settings sections" className="space-y-5 md:sticky md:top-32 md:self-start">
+        <nav aria-label="Settings sections" className="space-y-5 md:sticky md:top-32 md:-mx-1 md:max-h-[calc(100vh-9rem)] md:self-start md:overflow-y-auto md:px-1 md:pb-1" data-tour="settings-sections">
           {GROUPS.map((g) => (
             <div key={g.label} className="space-y-1">
               <p className="px-3 text-xs font-medium text-muted-foreground">{g.label}</p>
@@ -289,7 +289,9 @@ export function SettingsPage() {
             </h2>
             <p className="text-sm text-muted-foreground">{section.lead}</p>
           </div>
-          <SectionBody value={section.value} />
+          <div data-tour={`settings-section-${section.value}`}>
+            <SectionBody value={section.value} />
+          </div>
         </section>
       </div>
     </div>
@@ -302,6 +304,7 @@ function SectionLink({ s, active }: { s: Section; active: boolean }) {
     <Link
       href={s.href ?? `/settings?tab=${s.value}`}
       aria-current={active ? "page" : undefined}
+      data-tour={`settings-link-${s.value}`}
       className={cn(
         "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
         active

@@ -146,7 +146,7 @@ export function FindingsPage() {
             {!engineer && (
               <span className="hidden text-xs text-muted-foreground xl:inline">Check in as an Engineer to run it.</span>
             )}
-            <Button size="sm" onClick={() => void startRun()} disabled={starting || running != null || !engineer}>
+            <Button size="sm" onClick={() => void startRun()} disabled={starting || running != null || !engineer} data-tour="documents-findings-run">
               {starting || running ? <Loader2 className="animate-spin" /> : <Play />}
               {running ? "Checking..." : "Run check now"}
             </Button>
@@ -156,12 +156,12 @@ export function FindingsPage() {
       <DocumentsTabs />
 
       <div className="mx-auto grid w-full max-w-6xl gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <section className="min-w-0 space-y-4">
+        <section className="min-w-0 space-y-4" data-tour="documents-findings-list">
           <Tabs
             value={tab}
             onValueChange={(v) => navigate(`/library/findings?status=${v}${wikiParam ? `&wiki=${wikiParam}` : ""}`, { replace: true })}
           >
-            <TabsList>
+            <TabsList data-tour="documents-findings-tabs">
               {TABS.map((t) => (
                 <TabsTrigger key={t.value} value={t.value} className="gap-1.5 text-xs">
                   {t.label}
@@ -238,7 +238,7 @@ export function FindingsPage() {
           )}
         </section>
 
-        <aside className="space-y-3">
+        <aside className="space-y-3" data-tour="documents-findings-check">
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-4 w-4 text-primary" />
             <h2 className="text-sm font-semibold">Consistency check</h2>

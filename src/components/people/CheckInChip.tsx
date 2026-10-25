@@ -114,6 +114,7 @@ export function CheckInChip() {
           )}
           aria-label={person ? `Checked in as ${person.name}` : "Anonymous. Check in"}
           title={person ? undefined : "You are anonymous. Check in for Trainings, Rounds and sign-offs."}
+          data-tour="start-check-in"
         >
           {person ? (
             <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-semibold text-primary-foreground">

@@ -97,7 +97,7 @@ export function PlantPage() {
       />
       <Tabs value={tab} onValueChange={(v) => go(v as PlantTab)} className="mx-auto w-full max-w-6xl space-y-4 p-6">
         <div className="flex flex-wrap items-center gap-3">
-          <TabsList className="h-auto flex-wrap">
+          <TabsList className="h-auto flex-wrap" data-tour="plant-tabs">
             {TABS.map((t) => (
               <TabsTrigger key={t.value} value={t.value}>
                 {t.label}
@@ -110,6 +110,7 @@ export function PlantPage() {
               onChange={(e) => setSearch(e.target.value)}
               placeholder={tab === "glossary" ? "Search a word, also in Dutch" : "Search"}
               aria-label="Search the Plant"
+              data-tour="plant-search"
               className="h-9 max-w-xs"
             />
           )}

@@ -30,7 +30,7 @@ import { errorText, useSettingsEditor } from "@/components/settings/SettingsBits
 export function ModelsCard() {
   const overview = useQuery(api.settings.connections.overview)
   return (
-    <Card>
+    <Card data-tour="developer-ai-models">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm">AI models</CardTitle>
         <CardDescription className="text-sm">
@@ -71,7 +71,7 @@ export function SchedulesCard() {
   const overview = useQuery(api.settings.connections.overview)
   return (
     <>
-      <Card>
+      <Card data-tour="developer-ai-schedules">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-sm">
             <CalendarClock className="h-4 w-4 text-muted-foreground" aria-hidden />
@@ -153,7 +153,7 @@ export function SearchIndexCard() {
   }
 
   return (
-    <Card>
+    <Card data-tour="developer-ai-index">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm">Search index</CardTitle>
         <CardDescription className="text-sm">
@@ -181,7 +181,7 @@ export function SearchIndexCard() {
             }
           />
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2" data-tour="developer-ai-index-actions">
           <Button
             size="sm"
             variant="outline"

@@ -51,7 +51,7 @@ export function PlantItemList({
   onOpenItem: (id: Id<"plantItems">) => void
 }) {
   return (
-    <div className="space-y-8">
+    <div className="space-y-8" data-tour="plant-items">
       {kinds.map((kind) => {
         const all = data.items.filter((i) => i.kind === kind)
         const rows = all.filter((i) => itemMatches(i, search))
@@ -141,7 +141,7 @@ export function PlantGlossary({
       />
     )
   return (
-    <div className="rounded-md border bg-card">
+    <div className="rounded-md border bg-card" data-tour="plant-glossary">
       <Table>
         <TableHeader>
           <TableRow>

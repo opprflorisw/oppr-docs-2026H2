@@ -18,7 +18,7 @@ export function OutlinePanel({ ctx }: { ctx: EditCtx }) {
   const liveById = new Map(ctx.liveSections.map((s, i) => [s.id, { s, i }]))
   const removed = ctx.liveSections.filter((s) => !ctx.sections.some((x) => x.id === s.id))
   return (
-    <section aria-labelledby="wiki-outline-heading" className="!mt-3 rounded-lg border bg-muted/20" data-print="hide">
+    <section aria-labelledby="wiki-outline-heading" data-tour="wiki-outline" className="!mt-3 rounded-lg border bg-muted/20" data-print="hide">
       <h2 id="wiki-outline-heading" className="m-0">
         <button
           type="button"

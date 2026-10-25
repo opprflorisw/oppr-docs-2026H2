@@ -220,7 +220,7 @@ export function SkillMatrixTab() {
       <style>{PRINT_CSS}</style>
 
       {/* One row: the coverage questions, then Filters and Print on the right. */}
-      <div className="flex flex-wrap items-center gap-1.5 print:hidden">
+      <div className="flex flex-wrap items-center gap-1.5 print:hidden" data-tour="learn-matrix-coverage">
         {(questions ?? []).map((q) => {
           const active = cover !== null && cover === (q.shift ?? cover) && profileId === q.profileId
           return (
@@ -254,7 +254,7 @@ export function SkillMatrixTab() {
           )}
           <Popover>
             <PopoverTrigger asChild>
-              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" data-matrix-filters>
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" data-matrix-filters data-tour="learn-matrix-filters">
                 <SlidersHorizontal className="h-3.5 w-3.5" />
                 Filters
                 {activeFilters > 0 && (
@@ -367,7 +367,7 @@ export function SkillMatrixTab() {
       )}
 
       {/* Tallies: each one filters the rows. */}
-      <div className="flex flex-wrap items-center gap-1.5 text-xs print:hidden" role="group" aria-label="Filter by status">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs print:hidden" role="group" aria-label="Filter by status" data-tour="learn-matrix-tallies">
         <span className="rounded-full border px-2.5 py-1 text-muted-foreground">
           <span className="font-semibold tabular-nums text-foreground">
             {totals.complete} of {totals.people}
@@ -446,7 +446,7 @@ export function SkillMatrixTab() {
         </Card>
       ) : (
         <MatrixScroller>
-          <table className="w-full border-separate border-spacing-0 text-xs">
+          <table className="w-full border-separate border-spacing-0 text-xs" data-tour="learn-matrix-grid">
             <thead>
               <tr>
                 <th

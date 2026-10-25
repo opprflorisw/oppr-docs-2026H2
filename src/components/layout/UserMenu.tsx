@@ -31,6 +31,7 @@ export function UserMenu() {
           size="sm"
           className="h-8 gap-2 px-2"
           aria-label="User menu"
+          data-tour="start-user-menu"
         >
           <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
             {initial}

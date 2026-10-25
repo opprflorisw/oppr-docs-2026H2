@@ -2,6 +2,7 @@ import type { ComponentType, ReactNode } from "react"
 import { Link, useLocation } from "wouter"
 import {
   BookOpenText,
+  Compass,
   Factory,
   GraduationCap,
   Home,
@@ -26,22 +27,26 @@ import { DEV_HOME, DEV_TOOLS, useIsDeveloper } from "@/components/dev/devTools"
 import { setPhoneMode } from "@/components/phone/phoneStore"
 import { CommandSearch, openCommandSearch } from "./CommandSearch"
 import { useIsWide } from "./PageHeader"
+import { TourRunner } from "@/components/instructions/TourRunner"
 
 type NavItem = {
   label: string
   to: string
   icon: ComponentType<LucideProps>
   match: (path: string) => boolean
+  /** data-tour target for Instructions (src/components/instructions). */
+  tour?: string
 }
 
 // Exactly six places (CONTEXT.md). Everything else is reached from one of
 // these, at most one level down; anything deeper opens as a panel or dialog.
 const NAV: NavItem[] = [
-  { label: "Home", to: "/", icon: Home, match: (p) => p === "/" },
+  { label: "Home", to: "/", icon: Home, match: (p) => p === "/", tour: "nav-home" },
   {
     label: "Documents",
     to: "/library",
     icon: Library,
+    tour: "nav-documents",
     // /library also covers Findings, Knowledge health, Captures and Images.
     match: (p) =>
       p.startsWith("/library") || p.startsWith("/docs") || p.startsWith("/import"),
@@ -50,18 +55,21 @@ const NAV: NavItem[] = [
     label: "Learn",
     to: "/learn",
     icon: GraduationCap,
+    tour: "nav-learn",
     match: (p) => p.startsWith("/learn"),
   },
   {
     label: "Wiki",
     to: "/wiki",
     icon: BookOpenText,
+    tour: "nav-wiki",
     match: (p) => p.startsWith("/wiki"),
   },
   {
     label: "Plant",
     to: "/plant",
     icon: Factory,
+    tour: "nav-plant",
     // Assets is a tab of Plant; /assets/:id still opens an Asset (ADR 0006).
     match: (p) => p.startsWith("/plant") || p.startsWith("/assets"),
   },
@@ -71,6 +79,7 @@ const SETTINGS: NavItem = {
   label: "Settings",
   to: "/settings",
   icon: Settings,
+  tour: "nav-settings",
   match: (p) =>
     p === "/settings" ||
     p.startsWith("/settings/") ||
@@ -95,7 +104,17 @@ const FLOOR: NavItem = {
   label: "Floor simulator",
   to: "/floor",
   icon: MapIcon,
+  tour: "nav-floor",
   match: (p) => p.startsWith("/floor"),
+}
+
+// Guided tours of every function. First in "Try it"; not a seventh place.
+const INSTRUCTIONS: NavItem = {
+  label: "Instructions",
+  to: "/instructions",
+  icon: Compass,
+  tour: "nav-instructions",
+  match: (p) => p.startsWith("/instructions"),
 }
 
 /** A label that becomes a tooltip on the icon rail. */
@@ -127,6 +146,7 @@ function NavLink({ item, location, rail }: { item: NavItem; location: string; ra
         href={item.to}
         aria-current={active ? "page" : undefined}
         aria-label={rail ? item.label : undefined}
+        data-tour={item.tour}
         className={itemClass(active, rail)}
       >
         <Icon className="h-4 w-4 shrink-0" aria-hidden />
@@ -201,6 +221,7 @@ export function DesktopShell({
                 disabled={loading}
                 aria-label="Search (Ctrl+K)"
                 aria-keyshortcuts="Control+K"
+                data-tour="search-button"
                 className={cn(
                   "flex items-center gap-2 rounded-md border border-sidebar-border bg-sidebar-border/30 text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-border/60 hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
                   rail ? "h-10 w-10 justify-center" : "h-9 w-full px-3",
@@ -240,12 +261,14 @@ export function DesktopShell({
             {!rail && (
               <p className="px-3 pb-1 text-xs font-medium text-sidebar-foreground/50">Try it</p>
             )}
+            <NavLink item={INSTRUCTIONS} location={location} rail={rail} />
             <NavLink item={FLOOR} location={location} rail={rail} />
             <RailTip rail={rail} label="Phone">
               <button
                 type="button"
                 onClick={() => setPhoneMode("popup")}
                 aria-label="Open the phone preview"
+                data-tour="nav-phone"
                 className={cn(itemClass(false, rail), !rail && "w-full")}
               >
                 <Smartphone className="h-4 w-4 shrink-0" aria-hidden />
@@ -266,6 +289,7 @@ export function DesktopShell({
         </main>
         {!loading && <AskDock />}
         {!loading && <CommandSearch />}
+        {!loading && <TourRunner />}
       </div>
     </TooltipProvider>
   )
@@ -278,6 +302,7 @@ function DeveloperGroup({ location, rail }: { location: string; rail: boolean })
     <div
       role="group"
       aria-label="Developer"
+      data-tour="nav-developer"
       className={cn("w-full space-y-1 border-t border-sidebar-border py-3", rail ? "flex flex-col items-center" : "px-3")}
     >
       {!rail && <p className="px-3 pb-1 text-xs font-medium text-sidebar-foreground/50">Developer</p>}

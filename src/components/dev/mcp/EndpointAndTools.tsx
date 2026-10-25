@@ -54,7 +54,7 @@ export function EndpointCard() {
   const items = snippets(info.url)
 
   return (
-    <Card className="min-w-0">
+    <Card className="min-w-0" data-tour="developer-mcp-endpoint">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-sm">
           <Plug className="h-4 w-4 text-primary" /> Endpoint
@@ -108,7 +108,7 @@ export function ToolsCard() {
   const info = useQuery(api.mcp.info.endpointInfo)
   if (info === undefined) return <Loading />
   return (
-    <Card className="min-w-0">
+    <Card className="min-w-0" data-tour="developer-mcp-tools">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-sm">
           <Wrench className="h-4 w-4 text-primary" /> Tools ({info.tools.length})

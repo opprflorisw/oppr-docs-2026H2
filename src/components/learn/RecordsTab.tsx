@@ -205,7 +205,7 @@ export function RecordsTab() {
         Training records: {personName}
         {trainingId !== ALL ? `, ${trainings?.find((t) => t._id === trainingId)?.code ?? ""}` : ""}
       </h2>
-      <div className="flex flex-wrap items-center gap-2 print:hidden">
+      <div className="flex flex-wrap items-center gap-2 print:hidden" data-tour="learn-records-filters">
         <Select value={personId} onValueChange={(v) => setParam("person", v)}>
           <SelectTrigger className="h-8 w-[200px] text-xs" aria-label="Person">
             <SelectValue />
@@ -267,7 +267,7 @@ export function RecordsTab() {
               {includeFailed && `, ${rows.length - passedCount} not passed`}
             </span>
           )}
-          <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled={!rows.length} onClick={exportCsv}>
+          <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled={!rows.length} onClick={exportCsv} data-tour="learn-records-export">
             <Download className="h-3.5 w-3.5" />
             Export CSV
           </Button>

@@ -70,12 +70,12 @@ export function TemplatesList() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-end gap-3">
-        <Button size="sm" className="gap-1.5" onClick={() => navigate("/templates/new")}>
+        <Button size="sm" className="gap-1.5" onClick={() => navigate("/templates/new")} data-tour="settings-templates-new">
           <Plus className="h-3.5 w-3.5" />
           New template
         </Button>
       </div>
-      <div className="space-y-3">
+      <div className="space-y-3" data-tour="settings-templates-list">
 
             {templates === undefined ? (
               <div className="space-y-3">

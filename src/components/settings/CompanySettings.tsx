@@ -86,7 +86,7 @@ export function CompanySettings() {
   return (
     <div className="space-y-4">
       <EditNotice />
-      <Card>
+      <Card data-tour="settings-company-name">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Name and logo</CardTitle>
           <CardDescription className="text-sm">
@@ -135,7 +135,7 @@ export function CompanySettings() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-tour="settings-company-languages">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Languages</CardTitle>
         </CardHeader>

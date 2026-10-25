@@ -58,7 +58,7 @@ export function KnowledgeHealthPage() {
         icon={HeartPulse}
         title="Knowledge health"
         statusLine="Is the library lean and relevant? Published documents only, signals from the last 90 days."
-        secondary={[{ label: "ISO 9001", icon: BadgeCheck, href: "/iso-9001" }]}
+        secondary={[{ label: "ISO 9001", icon: BadgeCheck, href: "/iso-9001", tour: "documents-health-iso" }]}
       />
       <DocumentsTabs />
       <div className="mx-auto w-full max-w-6xl space-y-8 p-6">
@@ -87,7 +87,7 @@ function HealthBody({ data }: { data: Health }) {
 
   return (
     <>
-      <section className="space-y-4">
+      <section className="space-y-4" data-tour="documents-health-summary">
         <div className="space-y-1">
           <h2 className="text-lg font-semibold">
             {s.published === 0
@@ -101,7 +101,7 @@ function HealthBody({ data }: { data: Health }) {
             {pct != null && `; ${pct}% of the questions were answered from Published documents`}.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6" data-tour="documents-health-tiles">
           <Tile href="#never-used" icon={Archive} label="Never used" value={s.neverUsed} tone={s.neverUsed ? "warn" : "ok"} />
           <Tile href="#unclear" icon={HelpCircle} label="Asked but unclear" value={s.unclear} tone={s.unclear ? "warn" : "ok"} />
           <Tile
@@ -241,7 +241,7 @@ function Section({
   empty: string
 }) {
   return (
-    <section id={id} className="scroll-mt-32 space-y-2">
+    <section id={id} className="scroll-mt-32 space-y-2" data-tour={`documents-health-${id}`}>
       <div className="flex items-center gap-2">
         <Icon className="h-4 w-4 text-primary" />
         <h2 className="text-sm font-semibold">{title}</h2>

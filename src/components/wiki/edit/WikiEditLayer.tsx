@@ -123,7 +123,7 @@ export function WikiEditLayer({ wiki, personId, onEditingChange, renderers }: Wi
   if (!editing) {
     return (
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground" data-print="hide">
-        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEditing(true)}>
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEditing(true)} data-tour="wiki-edit-button">
           <Pencil className="h-3.5 w-3.5" aria-hidden />
           Edit this Wiki
         </Button>

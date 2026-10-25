@@ -48,6 +48,8 @@ import { PhonePreviewHost } from "@/components/phone/PhonePreview"
 import { CapturesPage } from "@/pages/desktop/CapturesPage"
 import { CaptureDetailPage } from "@/pages/desktop/CaptureDetailPage"
 import { CaptureSetPage } from "@/pages/desktop/CaptureSetPage"
+import { InstructionsPage } from "@/pages/desktop/InstructionsPage"
+import { InstructionsTourPage } from "@/pages/desktop/InstructionsTourPage"
 
 /** A case file. Part of the Developer section: Engineers and Admins only. */
 function AnalysisRoute() {
@@ -136,6 +138,8 @@ function DesktopRoutes() {
       </Route>
       <Route path="/assets/:id" component={AssetDetailPage} />
       <Route path="/floor" component={FloorSimulatorPage} />
+      <Route path="/instructions" component={InstructionsPage} />
+      <Route path="/instructions/:tourId" component={InstructionsTourPage} />
       <Route path="/docs/new" component={DocumentNewChooserPage} />
       <Route path="/docs/new/compose" component={DocumentNewPage} />
       <Route path="/docs/new/import" component={DocumentNewPage} />

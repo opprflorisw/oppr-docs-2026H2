@@ -16,7 +16,7 @@ export function DevHomePage() {
   return (
     <DevPage tool={DEV_HOME} statusLine="Tools for Engineers and Admins to try out models, connections and AI setups.">
       {allowed && (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2" data-tour="developer-home-tools">
           <ToolCard tool={DEV_TOOL.embeddings} status={<LabStatus />} />
           <ToolCard tool={DEV_TOOL.mcp} status={<McpStatus />} />
           <ToolCard tool={DEV_TOOL.ai} status={<AiStatus />} />
@@ -32,6 +32,7 @@ function ToolCard({ tool, status }: { tool: DevTool; status: ReactNode }) {
   return (
     <Link
       href={tool.href}
+      data-tour={`developer-home-${tool.href.split("/")[2]}`}
       className="group flex items-start gap-3 rounded-lg border bg-card p-5 transition-colors hover:border-primary/40 hover:bg-muted/30"
     >
       <Icon className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden />

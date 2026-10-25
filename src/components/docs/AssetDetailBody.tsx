@@ -104,7 +104,7 @@ export function AssetDetailBody({
   }
 
   return (
-    <div className="min-w-0 space-y-6">
+    <div className="min-w-0 space-y-6" data-tour={part === "documents" ? "asset-documents" : undefined}>
       {part !== "documents" && (
       <div className="space-y-5 rounded-md border bg-card p-6">
         <div className="flex items-start justify-between gap-4">

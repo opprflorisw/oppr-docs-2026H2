@@ -222,7 +222,7 @@ export function ImagesTab() {
   }
 
   return (
-    <div className="space-y-5 rounded-lg border bg-card p-5 text-sm">
+    <div className="space-y-5 rounded-lg border bg-card p-5 text-sm" data-tour="developer-embeddings-images">
       <p className="text-xs text-muted-foreground">
         EmbeddingGemma 2 puts text and images in one 768-dim space, so words can find photos and a photo can find
         similar photos. This loads the text and vision encoders (about {IMAGE_SPEC.mb} MB at q4, plus a 32 MB

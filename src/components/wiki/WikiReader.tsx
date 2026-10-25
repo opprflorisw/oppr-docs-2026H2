@@ -144,7 +144,7 @@ export function WikiIntro({ section, fold }: { section: WikiSectionView | null; 
   return (
     <div className="space-y-5">
       {intro && (
-        <section aria-label="Introduction" className={cn("space-y-2", surface === "desktop" && TEXT)}>
+        <section aria-label="Introduction" data-tour="wiki-intro" className={cn("space-y-2", surface === "desktop" && TEXT)}>
           <BlockView block={intro} />
           <OriginMark block={intro} />
           <CoverageLine coverage={content.coverage} />
@@ -202,7 +202,11 @@ export function WikiSection({
         section.safety && cn("border-l-[3px] border-amber-500", phone ? "pl-3" : "pl-4"),
       )}
     >
-      <h2 id={slug} className={cn("text-lg font-semibold leading-snug tracking-tight", phone ? "scroll-mt-32" : cn("scroll-mt-20", TEXT))}>
+      <h2
+        id={slug}
+        data-tour={index === 0 ? "wiki-section" : undefined}
+        className={cn("text-lg font-semibold leading-snug tracking-tight", phone ? "scroll-mt-32" : cn("scroll-mt-20", TEXT))}
+      >
         <span className="group flex items-start gap-1">
           <button
             type="button"
@@ -300,7 +304,7 @@ export function WikiToc({
   }, [idKey])
   if (sections.length === 0) return null
   return (
-    <nav aria-label="On this page" className="space-y-2">
+    <nav aria-label="On this page" className="space-y-2" data-tour="wiki-contents">
       <div className="flex items-center gap-1">
         <p className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">On this page</p>
         <Button size="icon" variant="ghost" className="h-6 w-6" onClick={onExpandAll} aria-label="Expand all sections" title="Expand all">
@@ -356,7 +360,7 @@ export function WikiTocMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
+        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" data-tour="wiki-contents">
           On this page
           <ChevronDown className="h-3 w-3 opacity-60" aria-hidden />
         </Button>

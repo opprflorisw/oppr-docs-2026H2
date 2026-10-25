@@ -40,7 +40,7 @@ export function TrainingsTabPrimary() {
   if (!isEngineerOrAdmin(person)) return null
   return (
     <>
-      <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
+      <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)} data-tour="learn-new-training">
         <Plus className="h-4 w-4" />
         New Training
       </Button>
@@ -72,7 +72,7 @@ export function TrainingsTab() {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2" data-tour="learn-trainings-filters">
         <div className="flex rounded-md border p-0.5" role="group" aria-label="Kind">
           {KIND_FILTERS.map((f) => (
             <button
@@ -171,7 +171,7 @@ export function TrainingsTab() {
           </CardContent>
         </Card>
       ) : (
-        <Card>
+        <Card data-tour="learn-trainings-list">
           <CardContent className="divide-y p-0">
             {rows.map((t) => (
               <Link

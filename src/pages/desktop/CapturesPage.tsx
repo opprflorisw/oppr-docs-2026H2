@@ -225,7 +225,7 @@ function CapturesTable({
   const allOn = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id))
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" data-tour="documents-captures-list">
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-[260px] max-w-sm flex-1">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -274,7 +274,7 @@ function CapturesTable({
         <span className="ml-auto flex items-center gap-3 text-xs text-muted-foreground">
           {filtered.length} {filtered.length === 1 ? "Capture" : "Captures"}
           {engineer && (
-            <Link href="/library/captures?tab=sets" className="inline-flex items-center gap-1 text-sm font-medium text-[#6E59A5] hover:underline">
+            <Link href="/library/captures?tab=sets" data-tour="documents-captures-sets-link" className="inline-flex items-center gap-1 text-sm font-medium text-[#6E59A5] hover:underline">
               <Layers className="h-4 w-4" />
               Capture sets ({setCount})
             </Link>
@@ -574,7 +574,7 @@ function SetsTable({ sets }: { sets: SetRow[] | undefined }) {
   const filtered = sets.filter((s) => !needle || s.title.toLowerCase().includes(needle) || (s.job ?? "").toLowerCase().includes(needle))
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" data-tour="documents-captures-sets">
       <div className="flex items-center gap-2">
         <div className="relative min-w-[260px] max-w-sm flex-1">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

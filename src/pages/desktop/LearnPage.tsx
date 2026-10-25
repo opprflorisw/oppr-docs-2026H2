@@ -98,7 +98,7 @@ export function LearnPage() {
           <div className="flex flex-wrap items-center gap-2">
             <TabsList>
               {tabs.map((t) => (
-                <TabsTrigger key={t.value} value={t.value} className="gap-1.5">
+                <TabsTrigger key={t.value} value={t.value} className="gap-1.5" data-tour={`learn-tab-${t.value}`}>
                   <t.icon className="h-3.5 w-3.5" />
                   {t.label}
                 </TabsTrigger>
@@ -106,6 +106,7 @@ export function LearnPage() {
             </TabsList>
             <Link
               href="/learn/skills"
+              data-tour="learn-skills-workspace-link"
               title="Set up Skills, Skill profiles, who is measured and which Training proves what"
               className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-md border bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-muted"
             >

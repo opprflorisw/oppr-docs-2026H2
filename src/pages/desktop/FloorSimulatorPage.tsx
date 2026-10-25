@@ -221,11 +221,11 @@ export function FloorSimulatorPage() {
       <div className="grid gap-6 p-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,440px)]">
         <div className="min-w-0 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="inline-flex rounded-lg border bg-muted/50 p-0.5" role="tablist" aria-label="Mode">
+            <div className="inline-flex rounded-lg border bg-muted/50 p-0.5" role="tablist" aria-label="Mode" data-tour="floor-mode">
               <ModeButton active={mode === "free"} onClick={() => switchMode("free")} icon={ScanLine} label="Free walk" />
               <ModeButton active={mode === "round"} onClick={() => switchMode("round")} icon={Footprints} label="Round" />
             </div>
-            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground" data-tour="floor-location">
               <MapPin className="h-3.5 w-3.5" />
               {hereAsset ? (
                 <>
@@ -271,7 +271,7 @@ export function FloorSimulatorPage() {
             </div>
           )}
 
-          <Card>
+          <Card data-tour="floor-plan">
             <CardContent className="p-3">
               {assets === undefined ? (
                 <Skeleton className="aspect-[1000/600] w-full rounded-md" />
@@ -320,7 +320,7 @@ export function FloorSimulatorPage() {
           )}
         </div>
 
-        <div className="xl:sticky xl:top-[7.5rem] xl:self-start">
+        <div className="xl:sticky xl:top-[7.5rem] xl:self-start" data-tour="floor-phone">
           <PhoneFrame overlay={overlay}>
             <EmbeddedMobileApp location={phone} bridge={bridge} onLocation={onPhoneLocation} />
           </PhoneFrame>
@@ -375,7 +375,7 @@ function AssetStrip({
 }) {
   if (!assets || assets.length === 0) return null
   return (
-    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4" data-tour="floor-assets">
       {assets.map((a) => (
         <button
           key={a._id}

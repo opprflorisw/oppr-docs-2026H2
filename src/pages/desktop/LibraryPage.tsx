@@ -203,11 +203,12 @@ export function LibraryPage() {
         icon={LibraryIcon}
         title="Documents"
         statusLine="Every controlled document. Only the Published version of each counts as Knowledge."
-        primary={{ label: "New document", icon: PlusCircle, onClick: () => setNewOpen(true) }}
+        primary={{ label: "New document", icon: PlusCircle, onClick: () => setNewOpen(true), tour: "documents-new-button" }}
         secondary={[
           {
             label: "Master list",
             icon: Download,
+            tour: "documents-master-list",
             disabled: !ready || docs.length === 0,
             disabledReason: "No documents to export.",
             onClick: () => downloadMasterList(docs, metaByDoc, nextReviews, (s) => resolveType(s).label),
@@ -216,8 +217,9 @@ export function LibraryPage() {
       />
       <DocumentsTabs />
       <div className="space-y-4 p-6">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2" data-tour="documents-filters">
           <Input
+            data-tour="documents-search"
             placeholder="Search by title or document ID"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -332,6 +334,7 @@ export function LibraryPage() {
           />
         ) : (
           <DocumentLibraryTable
+            tour="documents-list"
             docs={docs}
             assetsByDoc={assetsByDoc}
             metaByDoc={metaByDoc}

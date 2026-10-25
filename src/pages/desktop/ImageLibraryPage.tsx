@@ -387,7 +387,7 @@ export function ImageLibraryPage(_props: { params?: unknown }) {
             <TabsTrigger value="images" className="text-xs">
               <ImageIcon className="mr-1.5 h-3.5 w-3.5" /> Images
             </TabsTrigger>
-            <TabsTrigger value="diagrams" className="text-xs">
+            <TabsTrigger value="diagrams" className="text-xs" data-tour="documents-images-diagrams">
               <Shapes className="mr-1.5 h-3.5 w-3.5" /> Diagrams
             </TabsTrigger>
           </TabsList>
@@ -415,7 +415,7 @@ export function ImageLibraryPage(_props: { params?: unknown }) {
 
             <div className="min-w-0 flex-1 space-y-3">
               <div className="flex flex-wrap items-center gap-2">
-                <div className="relative min-w-[200px] flex-1">
+                <div className="relative min-w-[200px] flex-1" data-tour="documents-images-search">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     value={search.text}
@@ -435,7 +435,7 @@ export function ImageLibraryPage(_props: { params?: unknown }) {
                     </button>
                   )}
                 </div>
-                <Button variant="outline" size="sm" className="h-9" onClick={() => photoInput.current?.click()} title="Find pictures that look like a photo">
+                <Button variant="outline" size="sm" className="h-9" onClick={() => photoInput.current?.click()} title="Find pictures that look like a photo" data-tour="documents-images-photo">
                   <Camera className="mr-1.5 h-3.5 w-3.5" /> By photo
                 </Button>
                 <Select value={sort} onValueChange={(v) => setSort(v as Sort)} disabled={search.active || show === "recent"}>
@@ -594,6 +594,7 @@ export function ImageLibraryPage(_props: { params?: unknown }) {
           label: "Add pictures",
           icon: Upload,
           onClick: () => fileInput.current?.click(),
+          tour: "documents-images-add",
           disabled: !editorId,
           disabledReason: "Check in as an Engineer to add pictures",
         }}
@@ -650,7 +651,7 @@ function FilterRail(props: {
   tagRows.sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
 
   return (
-    <aside className="space-y-4 lg:w-56 lg:shrink-0" aria-label="Filters">
+    <aside className="space-y-4 lg:w-56 lg:shrink-0" aria-label="Filters" data-tour="documents-images-filters">
       <RailGroup title="Show">
         {(Object.keys(SHOW_LABEL) as Show[])
           // A maintenance filter with nothing to do is left out, unless it is on.
@@ -843,7 +844,7 @@ function Grid({
   const urls = useQuery(api.images.urlsFor, rows && rows.length ? { ids: rows.map((r) => r._id) } : "skip")
   if (!rows) {
     return (
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5" data-tour="documents-images-grid">
         {Array.from({ length: 10 }).map((_, i) => (
           <Skeleton key={i} className="aspect-[4/3] w-full" />
         ))}
@@ -852,7 +853,7 @@ function Grid({
   }
   if (rows.length === 0) {
     return (
-      <div className="rounded-md border border-dashed p-10 text-center">
+      <div className="rounded-md border border-dashed p-10 text-center" data-tour="documents-images-grid">
         <ImageIcon className="mx-auto h-8 w-8 text-muted-foreground" />
         <div className="mt-2 text-sm font-medium">{dupes ? "No pictures look alike" : "No pictures here"}</div>
         <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
@@ -867,7 +868,7 @@ function Grid({
     pairOf.set(d.b, i)
   })
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5" data-tour="documents-images-grid">
       {rows.map((r, i) => {
         const hit = hits?.get(r._id)
         const reason = hit ? matchReason(hit, { query, byPhoto }) : null
@@ -932,7 +933,7 @@ function ListView({
   const urls = useQuery(api.images.urlsFor, rows && rows.length ? { ids: rows.map((r) => r._id) } : "skip")
   const all = rows && rows.length > 0 && rows.every((r) => selected.has(r._id))
   return (
-    <div className="overflow-x-auto rounded-md border">
+    <div className="overflow-x-auto rounded-md border" data-tour="documents-images-grid">
       <Table>
         <TableHeader>
           <TableRow>

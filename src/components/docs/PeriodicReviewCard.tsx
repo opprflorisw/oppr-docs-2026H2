@@ -77,6 +77,7 @@ export function PeriodicReviewCard({
 
   return (
     <div
+      data-tour="documents-periodic-review"
       className={cn(
         "space-y-3 rounded-lg border p-3",
         due && "border-amber-300 bg-amber-50/60 dark:border-amber-500/40 dark:bg-amber-500/10",

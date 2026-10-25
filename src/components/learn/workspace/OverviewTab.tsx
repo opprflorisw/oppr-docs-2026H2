@@ -64,7 +64,7 @@ export function OverviewTab({ workspace }: TabProps) {
 
   return (
     <div className="space-y-8">
-      <section aria-labelledby="how-title" className="space-y-3">
+      <section aria-labelledby="how-title" className="space-y-3" data-tour="learn-workspace-how">
         <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
           <h2 id="how-title" className="text-sm font-semibold">
             How it works
@@ -91,7 +91,7 @@ export function OverviewTab({ workspace }: TabProps) {
         </ol>
       </section>
 
-      <section aria-labelledby="attention-title" className="space-y-3">
+      <section aria-labelledby="attention-title" className="space-y-3" data-tour="learn-workspace-attention">
         <div className="space-y-0.5">
           <h2 id="attention-title" className="text-sm font-semibold">
             Needs attention

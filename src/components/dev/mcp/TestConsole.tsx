@@ -101,7 +101,7 @@ export function TestConsole() {
   const validKey = /^opk_\S+$/.test(key.trim())
 
   return (
-    <Card className="min-w-0">
+    <Card className="min-w-0" data-tour="developer-mcp-console">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm">Test console</CardTitle>
         <CardDescription className="text-xs">

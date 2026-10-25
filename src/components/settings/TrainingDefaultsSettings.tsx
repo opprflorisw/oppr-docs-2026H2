@@ -23,7 +23,7 @@ export function TrainingDefaultsSettings() {
   return (
     <div className="space-y-4">
       <EditNotice />
-      <Card>
+      <Card data-tour="settings-training-defaults">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">New Trainings start with</CardTitle>
           <CardDescription className="text-sm">
@@ -104,7 +104,7 @@ export function TrainingDefaultsSettings() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-tour="settings-training-safety">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Safety and coaching</CardTitle>
         </CardHeader>

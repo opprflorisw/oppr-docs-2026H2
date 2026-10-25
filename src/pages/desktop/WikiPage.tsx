@@ -243,7 +243,7 @@ function WikiReaderPage({ wiki }: { wiki: WikiView }) {
             <ShareButton wikiId={wiki._id} title={wiki.title} />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" className="gap-1.5" disabled={!content}>
+                <Button size="sm" variant="outline" className="gap-1.5" disabled={!content} data-tour="wiki-print">
                   <Printer className="h-3.5 w-3.5" />
                   Print
                   <ChevronDown className="h-3 w-3 opacity-60" />
@@ -259,7 +259,7 @@ function WikiReaderPage({ wiki }: { wiki: WikiView }) {
             {isEngineer ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="More actions">
+                  <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="More actions" data-tour="wiki-more-actions">
                     <MoreHorizontal className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -314,7 +314,7 @@ function WikiReaderPage({ wiki }: { wiki: WikiView }) {
             <WikiEditLayer wiki={wiki} personId={person._id} onEditingChange={setEditMode} renderers={setEditRenderers} />
           )}
           {/* One quiet meta line (spec 4.1). The format badge is not shown. */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground" data-tour="wiki-meta">
             {layout === "one" && <WikiTocMenu {...tocProps} onJump={jumpTo} />}
             {content && (
               <span>
@@ -436,7 +436,7 @@ function WikiReaderPage({ wiki }: { wiki: WikiView }) {
           )}
 
           {content && (
-            <footer className="max-w-[68ch] border-t pt-4 text-xs leading-5 text-muted-foreground">
+            <footer data-tour="wiki-footer" className="max-w-[68ch] border-t pt-4 text-xs leading-5 text-muted-foreground">
               <p className="font-medium text-foreground">Generated overview, not a controlled document.</p>
               <p>
                 Every fact cites a Published passage. For the controlled text, open the Document behind a fact.
@@ -652,7 +652,7 @@ function BuiltFrom({ wiki }: { wiki: WikiView }) {
   const n = wiki.sources.length
   if (n === 0) return null
   return (
-    <div className="space-y-2 text-xs">
+    <div className="space-y-2 text-xs" data-tour="wiki-sources">
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex w-full items-start gap-2 text-left">
         <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
         <span className="min-w-0 flex-1 leading-5 text-muted-foreground">
@@ -713,7 +713,7 @@ function ScopeCard({ wiki }: { wiki: WikiView }) {
     ["Taken out", wiki.scopeLabels.removed],
   ]
   return (
-    <details className="group text-xs">
+    <details className="group text-xs" data-tour="wiki-scope">
       <summary className="flex cursor-pointer list-none items-center gap-2 text-muted-foreground">
         <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />
         <span className="flex-1">Scope and rebuilds</span>
@@ -813,7 +813,7 @@ function ShareButton({ wikiId, title }: { wikiId: string; title: string }) {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button size="sm" variant="outline" className="gap-1.5">
+        <Button size="sm" variant="outline" className="gap-1.5" data-tour="wiki-share">
           <Share2 className="h-3.5 w-3.5" />
           Share
         </Button>

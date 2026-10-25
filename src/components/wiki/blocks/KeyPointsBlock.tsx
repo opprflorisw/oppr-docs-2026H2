@@ -24,7 +24,7 @@ export function KeyPointsBlock({ block, open, onToggle }: { block: WikiBlockView
   const bodyId = `kp-${block.id}`
   const phone = surface === "phone"
   return (
-    <section aria-labelledby={`${bodyId}-h`} className={cn("wiki-key-points rounded-xl bg-primary/[0.045]", phone ? "p-4" : "max-w-[68ch] px-5 py-4")}>
+    <section aria-labelledby={`${bodyId}-h`} data-tour="wiki-key-points" className={cn("wiki-key-points rounded-xl bg-primary/[0.045]", phone ? "p-4" : "max-w-[68ch] px-5 py-4")}>
       <h2 id={`${bodyId}-h`} className="text-sm font-semibold text-primary-strong">
         <button
           type="button"

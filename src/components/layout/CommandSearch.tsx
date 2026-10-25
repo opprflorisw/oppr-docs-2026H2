@@ -6,6 +6,7 @@ import {
   BadgeCheck,
   BookOpenText,
   Boxes,
+  Compass,
   Factory,
   FileText,
   GraduationCap,
@@ -26,6 +27,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { openAsk } from "@/components/ai/AskDock"
 import { STATUS_LABELS } from "@/components/docs/StatusBadge"
 import { DEV_HOME, DEV_TOOLS, useIsDeveloper, type DevTool } from "@/components/dev/devTools"
+import { useTourViewer, visibleTours } from "@/components/instructions/audience"
+import { AREA_LABEL } from "@/components/instructions/progress"
+import { tourIcon } from "@/components/instructions/tourIcon"
 import { api } from "../../../convex/_generated/api"
 
 // Plant items open on the tab that holds their kind (docs/adr/0006).
@@ -148,6 +152,8 @@ function Results({
   const people = useQuery(api.people.list, {})
   const plant = useQuery(api.plant.plant.searchIndex, {})
   const developer = useIsDeveloper()
+  const { kind } = useTourViewer()
+  const tours = visibleTours(kind)
   const loading =
     docs === undefined ||
     assets === undefined ||
@@ -186,6 +192,7 @@ function Results({
           <PlaceItem label="Plant" icon={Factory} onSelect={() => go("/plant")} />
           <PlaceItem label="Glossary" icon={Factory} onSelect={() => go("/plant/glossary")} />
           <PlaceItem label="ISO 9001" icon={BadgeCheck} onSelect={() => go("/iso-9001")} />
+          <PlaceItem label="Instructions" icon={Compass} onSelect={() => go("/instructions")} />
         </CommandGroup>
         {developer && (
           <CommandGroup heading="Developer">
@@ -205,6 +212,16 @@ function Results({
   const skillsMatch =
     q.length >= 3 && matches(q, "skills workspace", "skill profiles", "skill levels", "coverage questions", "iluo")
 
+  const instructionsMatch =
+    q.length >= 3 && matches(q, "instructions", "tours", "onboarding", "guide", "help", "how to", "getting started")
+  const tourMatches =
+    q.length >= 2
+      ? tours
+          .filter((t) => matches(q, t.title, t.summary, AREA_LABEL[t.area], "tour"))
+          // "tour" lists every tour; any other word the best few.
+          .slice(0, "tours".startsWith(q) || q.startsWith("tour") ? undefined : PER_GROUP)
+      : []
+
   const devMatches = developer
     ? [DEV_HOME, ...DEV_TOOLS].filter(
         (t) => q.length >= 2 && matches(q, t.label, t.href === "/dev" ? "Developer" : null, DEV_WORDS[t.href]),
@@ -213,6 +230,8 @@ function Results({
 
   const total = found
     ? devMatches.length +
+      (instructionsMatch ? 1 : 0) +
+      tourMatches.length +
       (isoMatch ? 1 : 0) +
       (skillsMatch ? 1 : 0) +
       found.docs.length +
@@ -241,6 +260,27 @@ function Results({
           {devMatches.map((t) => (
             <DevItem key={t.href} tool={t} go={go} />
           ))}
+        </CommandGroup>
+      )}
+      {(instructionsMatch || tourMatches.length > 0) && (
+        <CommandGroup heading="Instructions">
+          {instructionsMatch && (
+            <CommandItem value="page-instructions" onSelect={() => go("/instructions")}>
+              <Compass className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+              <span className="truncate">Instructions</span>
+              <span className="ml-auto shrink-0 pl-2 text-xs text-muted-foreground">Guided tours of every function</span>
+            </CommandItem>
+          )}
+          {tourMatches.map((t) => {
+            const Icon = tourIcon(t.icon)
+            return (
+              <CommandItem key={t.id} value={`tour-${t.id}`} onSelect={() => go(`/instructions/${t.id}`)}>
+                <Icon className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="truncate">Tour: {t.title}</span>
+                <span className="ml-auto shrink-0 pl-2 text-xs text-muted-foreground">{AREA_LABEL[t.area]}</span>
+              </CommandItem>
+            )
+          })}
         </CommandGroup>
       )}
       {skillsMatch && (

@@ -30,7 +30,7 @@ export function ModelLocations({
   onSelect: (id: ModelHost | null) => void
 }) {
   return (
-    <div className="grid gap-3 md:grid-cols-3">
+    <div className="grid gap-3 md:grid-cols-3" data-tour="developer-mcp-locations">
       {MODEL_LOCATIONS.map((m) => {
         const Icon = HOST_ICON[m.id]
         const on = selected === m.id

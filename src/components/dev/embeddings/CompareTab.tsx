@@ -257,11 +257,12 @@ export function CompareTab() {
   })
 
   return (
-    <div className="space-y-5 rounded-lg border bg-card p-5 text-sm">
+    <div className="space-y-5 rounded-lg border bg-card p-5 text-sm" data-tour="developer-embeddings-compare">
       <TextModelSteps />
 
       <Step n={3} title="Compare a query">
         <form
+          data-tour="developer-embeddings-compare-query"
           className="flex flex-wrap gap-2"
           onSubmit={(e) => {
             e.preventDefault()

@@ -110,7 +110,7 @@ export function Iso9001Page() {
         title="ISO 9001"
         statusLine="What ISO 9001:2015 asks for, and what Oppr Knowledge already does about it."
         primary={
-          <Button size="sm" className="print:hidden" onClick={() => window.print()}>
+          <Button size="sm" className="print:hidden" onClick={() => window.print()} data-tour="documents-iso-print">
             <Printer aria-hidden />
             Print or save as PDF
           </Button>
@@ -122,7 +122,12 @@ export function Iso9001Page() {
         <BeforeAudit data={data} />
         <ClauseNav />
         {CLAUSES.map((c) => (
-          <section key={c.number} id={`clause-${c.number}`} className="scroll-mt-32 space-y-3">
+          <section
+            key={c.number}
+            id={`clause-${c.number}`}
+            className="scroll-mt-32 space-y-3"
+            data-tour={c === CLAUSES[0] ? "documents-iso-first-clause" : undefined}
+          >
             <h2 className="text-base font-semibold">
               <span className="mr-2 font-mono text-muted-foreground">{c.number}</span>
               {c.title}
@@ -145,7 +150,7 @@ export function Iso9001Page() {
 
 function Intro() {
   return (
-    <section className="space-y-3">
+    <section className="space-y-3" data-tour="documents-iso-intro">
       <p className="text-sm leading-relaxed">
         For a quality or plant manager preparing for certification or a surveillance audit. Each requirement
         below says in plain language what an auditor wants to see, how Oppr helps, and whether that is built in,
@@ -174,7 +179,7 @@ function Summary({ data, capped }: { data: Evidence | undefined; capped: boolean
   const total = counts(all)
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-4" data-tour="documents-iso-summary">
       <h2 className="text-base font-semibold">Coverage per clause</h2>
       <div className="grid gap-2 sm:grid-cols-3">
         {STATUSES.map((s) => (
@@ -328,7 +333,7 @@ function BeforeAudit({ data }: { data: Evidence | undefined }) {
   ]
 
   return (
-    <section className="space-y-3">
+    <section className="space-y-3" data-tour="documents-iso-audit">
       <div className="flex items-center gap-2">
         <ClipboardCheck className="h-4 w-4 text-primary" aria-hidden />
         <h2 className="text-base font-semibold">Before your audit</h2>
@@ -382,7 +387,7 @@ function CheckRow({ check, loading }: { check: Check; loading: boolean }) {
 
 function ClauseNav() {
   return (
-    <nav aria-label="Clauses" className="flex flex-wrap gap-1.5 print:hidden">
+    <nav aria-label="Clauses" className="flex flex-wrap gap-1.5 print:hidden" data-tour="documents-iso-clauses">
       {CLAUSES.map((c) => (
         <a
           key={c.number}

@@ -67,7 +67,7 @@ export function PlantStructure({
   const unplaced = data.assets.filter((a) => !onALine.has(a._id) && !areaOfAsset(a, data.areas))
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-tour="plant-structure">
       <p className="text-sm text-muted-foreground">
         Areas are the locations of the naming codes. Add or rename them in{" "}
         <Link href="/settings/naming" className="underline underline-offset-2">

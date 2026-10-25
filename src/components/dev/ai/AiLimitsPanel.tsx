@@ -131,7 +131,7 @@ function WikiLimits({ data, personId }: { data: LimitsData; personId: Id<"people
   }
 
   return (
-    <Card>
+    <Card data-tour="developer-ai-limits-wiki">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm">Wiki AI limits</CardTitle>
         <CardDescription className="text-sm">
@@ -272,7 +272,7 @@ function PlanCard({ data, personId }: { data: LimitsData; personId: Id<"people">
   }
 
   return (
-    <Card>
+    <Card data-tour="developer-ai-limits-plan">
       <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0 pb-3">
         <div className="space-y-1.5">
           <CardTitle className="flex items-center gap-2 text-sm">

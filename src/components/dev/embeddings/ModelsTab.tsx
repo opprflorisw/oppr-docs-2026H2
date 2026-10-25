@@ -135,7 +135,7 @@ export function ModelsTab() {
 
   return (
     <div className="space-y-4">
-      <Card>
+      <Card data-tour="developer-embeddings-loaded">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Loaded in this tab</CardTitle>
           <CardDescription className="text-sm">

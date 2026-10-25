@@ -8,18 +8,18 @@ import { api } from "../../../convex/_generated/api"
 import { cn } from "@/lib/utils"
 
 const TABS = [
-  { href: "/library", label: "All documents", match: (p: string) => p === "/library" },
-  { href: "/library/findings", label: "Findings", match: (p: string) => p.startsWith("/library/findings") },
-  { href: "/library/health", label: "Knowledge health", match: (p: string) => p.startsWith("/library/health") },
-  { href: "/library/captures", label: "Captures", match: (p: string) => p.startsWith("/library/captures") },
-  { href: "/library/images", label: "Images", match: (p: string) => p.startsWith("/library/images") },
+  { href: "/library", label: "All documents", tour: "documents-tab-all", match: (p: string) => p === "/library" },
+  { href: "/library/findings", label: "Findings", tour: "documents-tab-findings", match: (p: string) => p.startsWith("/library/findings") },
+  { href: "/library/health", label: "Knowledge health", tour: "documents-tab-health", match: (p: string) => p.startsWith("/library/health") },
+  { href: "/library/captures", label: "Captures", tour: "documents-tab-captures", match: (p: string) => p.startsWith("/library/captures") },
+  { href: "/library/images", label: "Images", tour: "documents-tab-images", match: (p: string) => p.startsWith("/library/images") },
 ] as const
 
 export function DocumentsTabs({ className }: { className?: string }) {
   const [location] = useLocation()
   const counts = useQuery(api.findings.counts, {})
   return (
-    <nav aria-label="Documents" className={cn("border-b bg-background px-6", className)}>
+    <nav aria-label="Documents" className={cn("border-b bg-background px-6", className)} data-tour="documents-tabs">
       <ul className="-mb-px flex gap-1 overflow-x-auto">
         {TABS.map((t) => {
           const active = t.match(location)
@@ -28,6 +28,7 @@ export function DocumentsTabs({ className }: { className?: string }) {
             <li key={t.href}>
               <Link
                 href={t.href}
+                data-tour={t.tour}
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "inline-flex h-10 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-sm font-medium transition-colors",

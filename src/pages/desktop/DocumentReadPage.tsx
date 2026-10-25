@@ -380,11 +380,11 @@ export function DocumentReadPage() {
           documentTitle={docWithAssets.naming_code}
           statusLine={statusLine}
           secondary={[
-            { label: "History", icon: History, onClick: () => setHistoryOpen(true) },
+            { label: "History", icon: History, onClick: () => setHistoryOpen(true), tour: "documents-history-button" },
             // A Wrapped manual has its own controlled-copy download.
             ...(!isWrapped && canExport
               ? [
-                  { label: "PDF", icon: FileDown, onClick: () => setPdfOpen(true) },
+                  { label: "PDF", icon: FileDown, onClick: () => setPdfOpen(true), tour: "documents-pdf-button" },
                   { label: "Print", icon: Printer, onClick: () => window.print() },
                 ]
               : []),
@@ -401,6 +401,7 @@ export function DocumentReadPage() {
                 // Arriving for a periodic review, the review card is the decision.
                 variant={new URLSearchParams(search).get("panel") === "review" ? "outline" : "default"}
                 onClick={handleEdit}
+                data-tour="documents-revise-button"
               >
                 <Edit />
                 {isPublished ? "New version" : "Edit"}
@@ -590,26 +591,29 @@ export function DocumentReadPage() {
           ) : version.body_kind === "pdf" ? (
             <PdfViewer url={pdfUrl ?? null} pageNumber={initialPage} />
           ) : (
-            <div ref={contentRef} className="rounded-md border bg-background p-6">
+            <div ref={contentRef} className="rounded-md border bg-background p-6" data-tour="documents-read-body">
               <TiptapReadOnly content={readBody} />
             </div>
           )}
         </div>
 
         <aside className="space-y-5 print:hidden">
-          {rawDoc && (
-            <PeriodicReviewCard
-              doc={rawDoc}
-              highlight={new URLSearchParams(search).get("panel") === "review"}
-              onStartRevision={handleEdit}
-            />
-          )}
-          {rawDoc && rawDoc.origin === "capture" && captureSources !== undefined && (
-            <MadeFromCapturesCard sources={captureSources} />
-          )}
-          {rawDoc && <DocumentTrainingsCard documentId={rawDoc._id} published={inUse} />}
-          {rawDoc && <InWikisCard documentId={rawDoc._id} />}
-          {rawDoc && <DocumentInsightsCard documentId={rawDoc._id} />}
+          {/* The cards only, without the long contents list (Instructions). */}
+          <div className="space-y-5" data-tour="documents-read-side">
+            {rawDoc && (
+              <PeriodicReviewCard
+                doc={rawDoc}
+                highlight={new URLSearchParams(search).get("panel") === "review"}
+                onStartRevision={handleEdit}
+              />
+            )}
+            {rawDoc && rawDoc.origin === "capture" && captureSources !== undefined && (
+              <MadeFromCapturesCard sources={captureSources} />
+            )}
+            {rawDoc && <DocumentTrainingsCard documentId={rawDoc._id} published={inUse} />}
+            {rawDoc && <InWikisCard documentId={rawDoc._id} />}
+            {rawDoc && <DocumentInsightsCard documentId={rawDoc._id} />}
+          </div>
           {version?.body_kind === "tiptap" && (
             <div className="sticky top-28">
               <DocumentToc body={readBody} contentRef={contentRef} />

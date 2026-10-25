@@ -88,7 +88,7 @@ export function KeysPanel() {
   }
 
   return (
-    <Card>
+    <Card data-tour="developer-mcp-keys">
       <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0 pb-3">
         <div>
           <CardTitle className="flex items-center gap-2 text-sm">
@@ -98,7 +98,7 @@ export function KeysPanel() {
             One key per assistant or system. Making or revoking a key needs an Engineer check-in.
           </CardDescription>
         </div>
-        <Button size="sm" className="gap-1.5" onClick={() => setNewOpen(true)}>
+        <Button size="sm" className="gap-1.5" onClick={() => setNewOpen(true)} data-tour="developer-mcp-new-key">
           <Plus className="h-3.5 w-3.5" /> New key
         </Button>
       </CardHeader>
@@ -400,7 +400,7 @@ function NewKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
 export function AuditLog() {
   const calls = useQuery(api.mcp.keys.recentCalls, { limit: 50 })
   return (
-    <Card>
+    <Card data-tour="developer-mcp-audit">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-sm">
           <ScrollText className="h-4 w-4 text-primary" /> Audit log

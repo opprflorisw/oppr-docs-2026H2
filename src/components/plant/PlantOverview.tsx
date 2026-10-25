@@ -53,7 +53,7 @@ export function PlantOverview({
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
       <div className="space-y-6">
-        <Card>
+        <Card data-tour="plant-background">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-lg">
               <Building2 className="h-5 w-5 text-primary" aria-hidden />
@@ -110,7 +110,7 @@ export function PlantOverview({
       </div>
 
       <div className="space-y-6">
-        <Card>
+        <Card data-tour="plant-key-facts">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Key facts</CardTitle>
           </CardHeader>
@@ -140,7 +140,7 @@ export function PlantOverview({
             )}
           </CardContent>
         </Card>
-        <Card>
+        <Card data-tour="plant-recorded">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Recorded so far</CardTitle>
           </CardHeader>

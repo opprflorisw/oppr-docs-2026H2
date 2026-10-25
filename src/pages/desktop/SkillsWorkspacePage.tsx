@@ -102,9 +102,9 @@ export function SkillsWorkspacePage() {
         }}
         className="mx-auto w-full max-w-[1400px] space-y-4 p-6"
       >
-        <TabsList className="h-auto flex-wrap justify-start">
+        <TabsList className="h-auto flex-wrap justify-start" data-tour="learn-workspace-tabs">
           {TABS.map((t) => (
-            <TabsTrigger key={t.value} value={t.value}>
+            <TabsTrigger key={t.value} value={t.value} data-tour={`learn-workspace-tab-${t.value}`}>
               {t.label}
             </TabsTrigger>
           ))}

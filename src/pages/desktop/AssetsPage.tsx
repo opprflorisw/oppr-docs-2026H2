@@ -123,7 +123,7 @@ export function AssetsPage({ embedded = false }: { embedded?: boolean } = {}) {
       <div className={embedded ? "space-y-4" : "space-y-4 p-6"}>
         <div className="flex flex-wrap items-center gap-3">
           <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
-            <TabsList>
+            <TabsList data-tour="assets-views">
               <TabsTrigger value="list">Asset list</TabsTrigger>
               <TabsTrigger value="hierarchy">Asset hierarchy</TabsTrigger>
             </TabsList>
@@ -133,6 +133,7 @@ export function AssetsPage({ embedded = false }: { embedded?: boolean } = {}) {
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by name, code or location"
             aria-label="Search assets"
+            data-tour="assets-search"
             className="h-9 max-w-xs"
           />
           <span className="ml-auto text-sm text-muted-foreground">
@@ -140,7 +141,7 @@ export function AssetsPage({ embedded = false }: { embedded?: boolean } = {}) {
           </span>
           {embedded && (
             <>
-              <Button variant="outline" size="sm" onClick={() => navigate("/floor")}>
+              <Button variant="outline" size="sm" onClick={() => navigate("/floor")} data-tour="assets-floor-button">
                 <MapIcon className="h-4 w-4" aria-hidden /> Floor simulator
               </Button>
               {engineer && (
@@ -173,7 +174,7 @@ export function AssetsPage({ embedded = false }: { embedded?: boolean } = {}) {
         ) : tab === "hierarchy" ? (
           <AssetHierarchyView assets={assets} />
         ) : (
-          <div className="rounded-md border bg-card">
+          <div className="rounded-md border bg-card" data-tour="assets-table">
             <Table>
               <TableHeader>
                 <TableRow>

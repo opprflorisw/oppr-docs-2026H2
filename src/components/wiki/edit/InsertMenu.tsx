@@ -61,6 +61,7 @@ export function InsertMenu({
             variant="outline"
             className="h-7 gap-1 border-dashed px-2 text-xs text-muted-foreground"
             aria-label={`Add a block in ${heading}`}
+            data-tour="wiki-add-block"
             disabled={pending}
           >
             {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" aria-hidden />}

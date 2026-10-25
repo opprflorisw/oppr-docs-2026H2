@@ -54,8 +54,8 @@ export function DevAnalysisPage() {
       tool={DEV_TOOL.analysis}
       statusLine={`${ANALYSES.length} case files: investigations, gap analyses and design proposals, newest first.`}
     >
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative w-full max-w-sm">
+      <div className="flex flex-wrap items-center gap-3" data-tour="developer-analysis-filters">
+        <div className="relative w-full max-w-sm" data-tour="developer-analysis-search">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <Input
             value={filter}
@@ -84,7 +84,7 @@ export function DevAnalysisPage() {
         />
       </div>
 
-      <div className="overflow-x-auto rounded-md border">
+      <div className="overflow-x-auto rounded-md border" data-tour="developer-analysis-table">
         <Table>
           <TableHeader>
             <TableRow>

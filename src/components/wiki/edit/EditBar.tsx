@@ -20,6 +20,7 @@ export function EditBar({ ctx, onDone }: { ctx: EditCtx; onDone: () => void }) {
     <div
       role="region"
       aria-label="Edit bar"
+      data-tour="wiki-edit-bar"
       className="sticky top-[7.25rem] z-10 space-y-1.5 rounded-lg border border-primary/30 bg-background/95 px-3 py-2 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85"
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -34,7 +35,7 @@ export function EditBar({ ctx, onDone }: { ctx: EditCtx; onDone: () => void }) {
           </span>
         )}
         <div className="ml-auto flex items-center gap-1.5">
-          <Button size="sm" disabled={count === 0} onClick={() => ctx.open({ kind: "apply" })}>
+          <Button size="sm" disabled={count === 0} onClick={() => ctx.open({ kind: "apply" })} data-tour="wiki-apply">
             Review and apply
           </Button>
           <Button size="sm" variant="ghost" disabled={count === 0} onClick={() => ctx.open({ kind: "discard" })}>
@@ -42,7 +43,7 @@ export function EditBar({ ctx, onDone }: { ctx: EditCtx; onDone: () => void }) {
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="More edit actions">
+              <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="More edit actions" data-tour="wiki-edit-more">
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>

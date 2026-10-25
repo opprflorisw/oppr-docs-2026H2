@@ -38,7 +38,7 @@ export function FloorSettings() {
         />
       </div>
 
-      <Card>
+      <Card data-tour="settings-floor-phones">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Shared phones</CardTitle>
           <CardDescription className="text-sm">
@@ -68,7 +68,7 @@ export function FloorSettings() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-tour="settings-floor-captures">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Captures privacy</CardTitle>
           <CardDescription className="text-sm">

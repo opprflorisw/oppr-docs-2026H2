@@ -98,6 +98,7 @@ export function PeopleSettings() {
           onValueChange={(v) => setKind((v || "all") as Kind | "all")}
           className="rounded-md border p-0.5"
           aria-label="Kind"
+          data-tour="settings-people-kinds"
         >
           <ToggleGroupItem value="all" className="h-8 px-2.5 text-xs">
             All {counts.all}
@@ -108,13 +109,13 @@ export function PeopleSettings() {
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
-        <Button size="sm" className="h-9 gap-1.5" disabled={!editor} onClick={() => setEditing("new")}>
+        <Button size="sm" className="h-9 gap-1.5" disabled={!editor} onClick={() => setEditing("new")} data-tour="settings-people-add">
           <Plus className="h-4 w-4" />
           Add person
         </Button>
       </div>
 
-      <Card>
+      <Card data-tour="settings-people-list">
         <CardContent className="divide-y p-0">
           {people === undefined ? (
             <p className="p-4 text-sm text-muted-foreground">Loading…</p>

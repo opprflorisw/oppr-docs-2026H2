@@ -37,7 +37,7 @@ export function AnalysisLayout({
       />
       <main className="flex-1 overflow-y-auto bg-muted/20">
         <div className="mx-auto w-full max-w-5xl px-8 py-8">
-          <header className="mb-6">
+          <header className="mb-6" data-tour="developer-analysis-casefile">
             <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
               <Microscope className="h-3 w-3" />
               Analysis

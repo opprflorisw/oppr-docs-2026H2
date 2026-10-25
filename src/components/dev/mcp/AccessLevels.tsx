@@ -7,7 +7,7 @@ import { ScopeBadge } from "./ScopeBadge"
 /** The four scopes, the fixed "never" row, and how area limits work. */
 export function AccessLevels() {
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]" data-tour="developer-mcp-access">
       <Card>
         <CardContent className="p-0">
           <Table>

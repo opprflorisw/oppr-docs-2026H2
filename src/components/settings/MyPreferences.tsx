@@ -95,7 +95,7 @@ export function MyPreferences() {
     <div className="space-y-4">
       <AccountCard />
 
-      <Card>
+      <Card data-tour="settings-preferences-check-in">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Checked in on this device</CardTitle>
           <CardDescription className="text-sm">
@@ -111,7 +111,7 @@ export function MyPreferences() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-tour="settings-preferences-editor">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Editor</CardTitle>
         </CardHeader>
@@ -139,7 +139,7 @@ export function MyPreferences() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-tour="settings-preferences-remembered">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Remembered on this device</CardTitle>
           <CardDescription className="text-sm">Small things that save you a click. Forgetting them is safe.</CardDescription>
@@ -206,7 +206,7 @@ function AccountCard() {
   const email = me?.email ?? ""
   const name = me?.name ?? null
   return (
-    <Card>
+    <Card data-tour="settings-preferences-account">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm">Signed-in account</CardTitle>
         <CardDescription className="text-sm">This login only opens Oppr on this device.</CardDescription>

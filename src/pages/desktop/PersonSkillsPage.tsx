@@ -111,7 +111,13 @@ export function PersonSkillsPage() {
             {isEngineerOrAdmin(me) && (
               <ProfilesPopover personId={person._id} current={data.profiles.map((p) => p._id)} engineerId={me._id} />
             )}
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => navigate(`${location}?view=file`)}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => navigate(`${location}?view=file`)}
+              data-tour="learn-person-training-file"
+            >
               <Printer className="h-3.5 w-3.5" />
               Training file
             </Button>
@@ -124,7 +130,7 @@ export function PersonSkillsPage() {
         <section className="space-y-5">
           {/* Profiles */}
           {data.profiles.length === 0 ? (
-            <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+            <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground" data-tour="learn-person-profiles">
               No Skill profile assigned, so there are no targets to measure against. Assign one in the{" "}
               <Link href="/learn/skills/people" className="font-medium text-foreground underline underline-offset-2">
                 Skills workspace
@@ -132,7 +138,7 @@ export function PersonSkillsPage() {
               .
             </p>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2" data-tour="learn-person-profiles">
               {data.profiles.map((p) => {
                 const done = p.targets > 0 && p.atTarget === p.targets
                 return (
@@ -166,7 +172,7 @@ export function PersonSkillsPage() {
           )}
 
           {/* Skills */}
-          <div className="space-y-2">
+          <div className="space-y-2" data-tour="learn-person-skills">
             <div className="flex items-center gap-2">
               <BadgeCheck className="h-4 w-4 text-primary" />
               <h2 className="text-sm font-semibold">Skills</h2>
@@ -314,7 +320,7 @@ export function PersonSkillsPage() {
         </section>
 
         <aside className="space-y-5">
-          <div className="space-y-2">
+          <div className="space-y-2" data-tour="learn-person-history">
             <div className="flex items-center gap-2">
               <History className="h-4 w-4 text-primary" />
               <h2 className="text-sm font-semibold">History</h2>
@@ -347,7 +353,7 @@ export function PersonSkillsPage() {
             )}
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2" data-tour="learn-person-records">
             <div className="flex items-center gap-2">
               <FileCheck2 className="h-4 w-4 text-primary" />
               <h2 className="text-sm font-semibold">Training records</h2>

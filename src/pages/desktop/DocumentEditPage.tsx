@@ -467,7 +467,7 @@ export function DocumentEditPage() {
         id={PAGE_HEADER_ID}
         title={`${displayCode} · ${meta.title || "Untitled document"}`}
         subtitle={
-          <span className="flex flex-wrap items-center gap-2">
+          <span className="flex flex-wrap items-center gap-2" data-tour="documents-edit-status">
             <TypeBadge type={meta.type} />
             <StatusBadge status={status} />
             <span className="font-mono text-xs">v{doc.currentVersion}</span>
@@ -494,7 +494,7 @@ export function DocumentEditPage() {
                 <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-destructive" />
               )}
             </Button>
-            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setWriterOpen(true)}>
+            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setWriterOpen(true)} data-tour="documents-edit-assistant">
               <Sparkles className="h-3.5 w-3.5" />
               Write with the assistant
             </Button>
@@ -504,6 +504,7 @@ export function DocumentEditPage() {
               className="gap-1.5"
               aria-pressed={findOpen}
               onClick={() => setFindOpen((o) => !o)}
+              data-tour="documents-edit-find"
             >
               <Search className="h-3.5 w-3.5" />
               Find
@@ -549,6 +550,7 @@ export function DocumentEditPage() {
               size="sm"
               disabled={busy}
               onClick={() => void run("save")}
+              data-tour="documents-edit-save"
             >
               {running === "save" ? "Saving..." : "Save"}
             </Button>
@@ -647,7 +649,7 @@ export function DocumentEditPage() {
           metaVisible && "lg:grid-cols-[minmax(0,1fr)_320px]",
         )}
       >
-        <div className="min-w-0" id="doc-edit-body" onFocusCapture={() => (cursorPlaced.current = true)}>
+        <div className="min-w-0" id="doc-edit-body" data-tour="documents-edit-body" onFocusCapture={() => (cursorPlaced.current = true)}>
           <DocumentEditor
             content={body}
             onChange={(json) => setBody(json)}
@@ -656,7 +658,7 @@ export function DocumentEditPage() {
           />
         </div>
         {metaVisible && (
-          <div className="lg:sticky lg:self-start" style={{ top: stickyTop }}>
+          <div className="lg:sticky lg:self-start" style={{ top: stickyTop }} data-tour="documents-edit-details">
             <MetadataPanel
               value={meta}
               onChange={setMeta}

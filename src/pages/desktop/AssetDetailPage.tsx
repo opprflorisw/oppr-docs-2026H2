@@ -114,7 +114,7 @@ export function AssetDetailPage() {
             {asset.pin_number != null && ` · Floor plan pin ${String(asset.pin_number).padStart(2, "0")}`}
           </span>
         }
-        secondary={[{ label: "QR code", icon: QrCode, onClick: () => setPreviewOpen(true) }]}
+        secondary={[{ label: "QR code", icon: QrCode, onClick: () => setPreviewOpen(true), tour: "asset-qr" }]}
         primary={
           engineer
             ? { label: editing ? "Close editing" : "Edit", icon: Pencil, onClick: () => setEditing((e) => !e) }
@@ -177,7 +177,7 @@ export function AssetDetailPage() {
 /** Photo, description and counts. The record title is in the PageHeader. */
 function AssetSummary({ asset, photoUrl, docCount }: { asset: Asset; photoUrl: string | null; docCount: number }) {
   return (
-    <div className="flex flex-col gap-5 rounded-md border bg-card p-5 sm:flex-row">
+    <div className="flex flex-col gap-5 rounded-md border bg-card p-5 sm:flex-row" data-tour="asset-summary">
       <div className="flex h-40 w-full shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted sm:w-56">
         {photoUrl ? (
           <img src={photoUrl} alt={asset.name} className="h-full w-full object-cover" />
@@ -239,7 +239,7 @@ function WhoCanWorkHere({ assetId }: { assetId: Id<"assets"> }) {
   const coverage = useQuery(api.skills.coverage, skillIds.length > 0 ? { skillIds } : "skip")
   const shifts = useShifts()
   return (
-    <Card>
+    <Card data-tour="asset-who-can-work">
       <CardContent className="space-y-3 p-4">
         <div className="flex items-center gap-2">
           <Users className="h-4 w-4 text-primary" />
@@ -311,7 +311,7 @@ function OverviewsCard({ assetId }: { assetId: Id<"assets"> }) {
   const ctx = useQuery(api.assets.workContext, { id: assetId })
   if (ctx === undefined) return null
   return (
-    <Card>
+    <Card data-tour="asset-overviews">
       <CardContent className="space-y-2 p-4">
         <div className="flex items-center gap-2">
           <BookOpenText className="h-4 w-4 text-primary" />

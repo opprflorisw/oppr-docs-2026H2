@@ -53,7 +53,7 @@ export function NamingSettings() {
         The area, discipline and type options that build every document code.
         The sequence number is automatic.
       </p>
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2" data-tour="settings-naming-vocab">
         <VocabCard
           kind="location"
           title="Areas"
@@ -66,7 +66,7 @@ export function NamingSettings() {
           description="Owning function. Second token, e.g. OPS."
           rows={vocab?.disciplines}
         />
-        <div className="md:col-span-2">
+        <div className="md:col-span-2" data-tour="settings-naming-types">
           <TypesCard rows={types} />
         </div>
       </div>

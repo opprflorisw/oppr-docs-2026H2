@@ -16,7 +16,7 @@ export function DocumentRulesSettings() {
   return (
     <div className="space-y-4">
       <EditNotice />
-      <Card>
+      <Card data-tour="settings-review-periodic">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Periodic review</CardTitle>
           <CardDescription className="text-sm">
@@ -64,7 +64,7 @@ export function DocumentRulesSettings() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-tour="settings-review-approval">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Approval rules</CardTitle>
           <CardDescription className="text-sm">

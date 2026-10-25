@@ -42,7 +42,7 @@ export function Scenarios({ highlight }: { highlight: ModelHost | null }) {
 
   return (
     <div className="space-y-4">
-      <div role="group" aria-label="Scenarios" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 xl:pr-14">
+      <div role="group" aria-label="Scenarios" data-tour="developer-mcp-scenarios" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 xl:pr-14">
         {SCENARIOS.map((s, i) => {
           const Icon = ICON[s.icon]
           const on = s.id === activeId

@@ -91,7 +91,8 @@ export function openAsk(question?: string, scope?: AskPanelScope) {
   setOpen(true)
 }
 
-function closeAsk() {
+/** Closes Ask (a tour starts from a clean screen). */
+export function closeAsk() {
   setOpen(false)
 }
 
@@ -266,6 +267,7 @@ export function AskTopBarButton() {
       onClick={() => (isOpen ? closeAsk() : openAsk())}
       aria-pressed={isOpen}
       aria-keyshortcuts="Control+J"
+      data-tour="start-ask-button"
       title="Ask a question, answered from Published documents (Ctrl+J)"
       className={cn(
         "flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-xs font-medium text-primary-strong transition-colors print:hidden",
@@ -447,6 +449,7 @@ export function AskDock() {
     return (
       <aside
         aria-label="Ask"
+        data-tour="start-ask-panel"
         className="sticky top-0 z-20 flex h-screen shrink-0 self-start border-l bg-card print:hidden"
         style={{ width: shownW }}
       >
@@ -480,6 +483,7 @@ export function AskDock() {
     return (
       <aside
         aria-label="Ask"
+        data-tour="start-ask-panel"
         className="fixed inset-y-0 right-0 z-[46] flex border-l bg-card shadow-xl animate-in slide-in-from-right-8 print:hidden"
         style={{ width: PHONE_DOCK_W }}
       >
@@ -498,6 +502,7 @@ export function AskDock() {
       />
       <aside
         aria-label="Ask"
+        data-tour="start-ask-panel"
         className="fixed inset-y-0 right-0 z-40 flex border-l bg-card shadow-xl animate-in slide-in-from-right-8 print:hidden"
         style={{ width: Math.min(DEFAULT_W, viewport - 24) }}
       >

@@ -19,7 +19,7 @@ export function TopBar({ breadcrumb }: TopBarProps) {
   return (
     <div className="sticky top-0 z-30 flex h-12 items-center justify-between gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <Breadcrumb items={breadcrumb} />
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2" data-tour="start-top-bar">
         <AskTopBarButton />
         <PhoneButton />
         <CheckInChip />

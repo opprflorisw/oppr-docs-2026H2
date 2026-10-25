@@ -163,7 +163,7 @@ export function TestSetTab() {
   const pct = (x: number) => `${Math.round(x * 100)}%`
 
   return (
-    <div className="space-y-5 rounded-lg border bg-card p-5 text-sm">
+    <div className="space-y-5 rounded-lg border bg-card p-5 text-sm" data-tour="developer-embeddings-testset">
       <TextModelSteps compact />
 
       <Step n={3} title="Questions and the documents that should answer them">

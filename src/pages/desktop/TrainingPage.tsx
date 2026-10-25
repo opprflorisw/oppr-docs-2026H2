@@ -334,7 +334,7 @@ function EngineerTrainingPage({ data }: { data: TrainingData }) {
           </div>
         )}
 
-        <div className="flex gap-1 border-b" role="tablist">
+        <div className="flex gap-1 border-b" role="tablist" data-tour="learn-training-tabs">
           {PAGE_TABS.map((x) => (
             <button
               key={x.value}
@@ -384,8 +384,8 @@ function EngineerTrainingPage({ data }: { data: TrainingData }) {
               </div>
             )}
 
-            <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-              <div className="space-y-2 rounded-lg border p-4">
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]" data-tour="learn-training-summary">
+              <div className="space-y-2 rounded-lg border p-4" data-tour="learn-training-about">
                 <p className="text-xs font-medium text-muted-foreground">Purpose</p>
                 <p className="text-sm">{view.purpose || <span className="text-muted-foreground">No purpose written yet.</span>}</p>
                 <p className="text-sm text-muted-foreground">
@@ -394,7 +394,7 @@ function EngineerTrainingPage({ data }: { data: TrainingData }) {
                   To pass: {passRuleText(total, view.passMark, critical.size).toLowerCase()}
                 </p>
               </div>
-              <div className="space-y-2 rounded-lg border p-4 text-sm">
+              <div className="space-y-2 rounded-lg border p-4 text-sm" data-tour="learn-training-facts">
                 <p>
                   <span className="text-muted-foreground">Proves: </span>
                   {skillNames.length > 0 ? (
@@ -456,7 +456,7 @@ function EngineerTrainingPage({ data }: { data: TrainingData }) {
               onPreview={draft ? () => setPreviewing(true) : undefined}
             />
 
-            <section className="space-y-2">
+            <section className="space-y-2" data-tour="learn-training-objectives">
               <div className="flex items-center gap-2">
                 <h2 className="text-sm font-semibold">Learning objectives</h2>
                 <Badge variant="secondary">{view.objectives.length}</Badge>

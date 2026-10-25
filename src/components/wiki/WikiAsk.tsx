@@ -29,7 +29,7 @@ export function WikiAskEntry({
 
   if (variant === "rail") {
     return (
-      <section aria-label="Ask about this Wiki" className={cn("space-y-2", className)} data-print="hide">
+      <section aria-label="Ask about this Wiki" data-tour="wiki-ask" className={cn("space-y-2", className)} data-print="hide">
         <Button size="sm" variant="outline" className="w-full justify-start gap-1.5" onClick={() => openAsk(undefined, scope)}>
           <MessageSquareText className="h-3.5 w-3.5" aria-hidden />
           Ask about this Wiki
@@ -52,7 +52,7 @@ export function WikiAskEntry({
   }
 
   return (
-    <section aria-label="Ask about this Wiki" className={cn("flex flex-wrap items-center gap-2", className)} data-print="hide">
+    <section aria-label="Ask about this Wiki" data-tour="wiki-ask" className={cn("flex flex-wrap items-center gap-2", className)} data-print="hide">
       <Button size="sm" variant="outline" className="gap-1.5" onClick={() => openAsk(undefined, scope)}>
         <MessageSquareText className="h-3.5 w-3.5" aria-hidden />
         Ask about this Wiki

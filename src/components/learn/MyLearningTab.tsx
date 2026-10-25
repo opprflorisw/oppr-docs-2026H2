@@ -171,7 +171,7 @@ function MyLearning({ personId, engineer }: { personId: Id<"people">; engineer: 
       <section className="space-y-5">
         {/* Profile progress */}
         {data.profiles.length === 0 ? (
-          <Card>
+          <Card data-tour="learn-my-profiles">
             <CardContent className="p-4 text-xs text-muted-foreground">
               {engineer ? (
                 <>
@@ -190,7 +190,7 @@ function MyLearning({ personId, engineer }: { personId: Id<"people">; engineer: 
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2" data-tour="learn-my-profiles">
             {data.profiles.map((p) => {
               const done = p.targets > 0 && p.atTarget === p.targets
               return (
@@ -220,7 +220,7 @@ function MyLearning({ personId, engineer }: { personId: Id<"people">; engineer: 
         )}
 
         {/* Next up */}
-        <div className="space-y-2">
+        <div className="space-y-2" data-tour="learn-my-next-up">
           <div className="flex items-center gap-2">
             <ListTodo className="h-4 w-4 text-primary" />
             <h2 className="text-sm font-semibold">Next up</h2>
@@ -306,7 +306,7 @@ function MyLearning({ personId, engineer }: { personId: Id<"people">; engineer: 
         )}
       </section>
 
-      <aside className="space-y-3">
+      <aside className="space-y-3" data-tour="learn-my-records">
         <div className="flex items-center gap-2">
           <FileCheck2 className="h-4 w-4 text-primary" />
           <h2 className="text-sm font-semibold">My Training records</h2>

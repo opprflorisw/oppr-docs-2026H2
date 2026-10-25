@@ -32,7 +32,7 @@ export function DocumentInsightsCard({ documentId }: { documentId: Id<"documents
 
   if (data === undefined) {
     return (
-      <div className="space-y-2 rounded-lg border p-3">
+      <div className="space-y-2 rounded-lg border p-3" data-tour="documents-insights">
         <Skeleton className="h-4 w-32" />
         <Skeleton className="h-10 w-full" />
         <Skeleton className="h-16 w-full" />
@@ -59,7 +59,7 @@ export function DocumentInsightsCard({ documentId }: { documentId: Id<"documents
   }
 
   return (
-    <div className="space-y-3 rounded-lg border p-3">
+    <div className="space-y-3 rounded-lg border p-3" data-tour="documents-insights">
       <div className="flex items-center gap-2">
         <Activity className="h-4 w-4 text-primary" />
         <p className="text-xs font-semibold">Document insights</p>

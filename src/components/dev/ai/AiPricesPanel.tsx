@@ -50,7 +50,7 @@ export function AiPricesPanel() {
 
   return (
     <div className="space-y-5" data-testid="ai-prices">
-      <Card>
+      <Card data-tour="developer-ai-prices-table">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Price table</CardTitle>
           <CardDescription className="text-sm">

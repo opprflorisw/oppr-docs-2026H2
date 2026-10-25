@@ -99,12 +99,12 @@ export function WikiListPage() {
   }, [all, query, area, asset, filtering])
 
   const createAction = isEngineer ? (
-    <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
+    <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)} data-tour="wiki-create">
       <Plus className="h-3.5 w-3.5" />
       Create a Wiki
     </Button>
   ) : (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2" data-tour="wiki-create">
       <span className="max-w-[14rem] text-right text-xs leading-tight text-muted-foreground">
         Check in as an Engineer to create a Wiki
       </span>
@@ -126,7 +126,7 @@ export function WikiListPage() {
       />
       <div className="mx-auto w-full max-w-6xl space-y-10 px-6 py-6">
         <div className="space-y-3">
-          <div className="relative max-w-2xl">
+          <div className="relative max-w-2xl" data-tour="wiki-search">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={q}
@@ -147,7 +147,7 @@ export function WikiListPage() {
             )}
           </div>
           {(areas.length > 0 || assets.length > 0) && (
-            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Browse by area or Asset">
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Browse by area or Asset" data-tour="wiki-browse">
               <span className="mr-1 text-xs text-muted-foreground">Browse</span>
               {areas.map((a) => (
                 <button
@@ -373,7 +373,7 @@ function Home({ all, isEngineer }: { all: WikiRow[]; isEngineer: boolean }) {
       )}
 
       {rest.length > 0 && (
-        <section className="space-y-3">
+        <section className="space-y-3" data-tour="wiki-all">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <h2 className="flex items-center gap-2 text-base font-semibold">
               <BookOpenText className="h-4 w-4 text-primary-strong" aria-hidden />
@@ -423,7 +423,7 @@ function StartHere({ path, suggested, isEngineer }: { path: WikiRow[]; suggested
     }
   }
   return (
-    <section className="space-y-3 rounded-2xl border bg-gradient-to-br from-primary/[0.06] to-transparent p-5">
+    <section data-tour="wiki-start-here" className="space-y-3 rounded-2xl border bg-gradient-to-br from-primary/[0.06] to-transparent p-5">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 className="text-base font-semibold">Start here</h2>
         <p className="text-sm text-muted-foreground">New on the floor? Read these in order.</p>

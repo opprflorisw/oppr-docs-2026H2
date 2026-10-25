@@ -56,7 +56,7 @@ export function ShiftsSettings() {
           Check in as an Engineer or Admin to change shifts.
         </p>
       )}
-      <Card>
+      <Card data-tour="settings-shifts-list">
         <CardContent className="p-0">
           <div className="hidden grid-cols-[56px_1fr_150px_80px_80px_72px_40px] items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground md:grid">
             <span />
