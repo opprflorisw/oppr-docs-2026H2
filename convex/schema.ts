@@ -2,6 +2,9 @@ import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
 import { authTables } from "@convex-dev/auth/server"
 import { captureTables } from "./captures/schema"
+import { peopleTables } from "./people/schema"
+import { plantTables } from "./plant/schema"
+import { settingsTables } from "./settings/schema"
 
 const CITATION = v.object({
   documentId: v.id("documents"),
@@ -14,6 +17,9 @@ const CITATION = v.object({
 export default defineSchema({
   ...authTables,
   ...captureTables,
+  ...plantTables,
+  ...settingsTables,
+  ...peopleTables,
 
   meta: defineTable({
     key: v.string(),

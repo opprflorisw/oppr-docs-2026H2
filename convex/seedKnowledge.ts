@@ -733,6 +733,9 @@ export const run = internalAction({
       ["insights", internal.seed.insights.run],
       ["coverageQuestions", internal.seed.coverageQuestions.run],
       ["captures", internal.seed.captures.run],
+      ["peopleSettings", internal.seed.peopleSettings.run],
+      ["plant", internal.seed.plant.run],
+      ["imagesMeta", internal.seed.imagesMeta.run],
     ] as const
     for (const [name, fn] of steps) {
       try {
