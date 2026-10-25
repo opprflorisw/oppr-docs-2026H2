@@ -1,19 +1,28 @@
 import { useEffect, useRef } from "react"
+import { useQuery } from "convex/react"
+import { api } from "../../convex/_generated/api"
 
 // Shared phones on the floor: a checked-in person who walks away should not
-// leave their name on the device. After IDLE_MS without a touch the phone
-// warns for WARN_MS ("I'm still here") and then checks out.
+// leave their name on the device. After the check-in timeout (Settings, Floor;
+// IDLE_MS until it loads) without a touch the phone warns for WARN_MS
+// ("I'm still here") and then checks out.
 // Also remembers the last people checked in on this phone, so the check-in
 // sheet can offer them first.
 
 export const IDLE_MS = 15 * 60 * 1000
 export const WARN_MS = 10 * 1000
 
+/** The company's check-in timeout on shared phones, in minutes (Settings, Floor). */
+export function useCheckInIdleMinutes(): number {
+  const org = useQuery(api.orgSettings.get)
+  return org?.floor.checkInIdleMinutes ?? IDLE_MS / 60_000
+}
+
 const ACTIVITY_EVENTS = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"] as const
 
 /**
  * Watches activity inside `root` (the phone app) while `active` is true.
- * Calls onWarn after IDLE_MS of silence, and onExpire WARN_MS after that
+ * Calls onWarn after the check-in timeout (or `idleMs`) of silence, and onExpire WARN_MS after that
  * unless the person touched the phone again (which calls onResume).
  */
 export function useIdleCheckOut({
@@ -22,7 +31,7 @@ export function useIdleCheckOut({
   onWarn,
   onResume,
   onExpire,
-  idleMs = IDLE_MS,
+  idleMs,
   warnMs = WARN_MS,
 }: {
   root: HTMLElement | null
@@ -33,6 +42,8 @@ export function useIdleCheckOut({
   idleMs?: number
   warnMs?: number
 }) {
+  const minutes = useCheckInIdleMinutes()
+  const idle = idleMs ?? minutes * 60_000
   const cb = useRef({ onWarn, onResume, onExpire })
   cb.current = { onWarn, onResume, onExpire }
 
@@ -56,7 +67,7 @@ export function useIdleCheckOut({
           warned = false
           cb.current.onExpire()
         }, warnMs)
-      }, idleMs)
+      }, idle)
     }
 
     arm()
@@ -66,7 +77,7 @@ export function useIdleCheckOut({
       window.clearTimeout(expireTimer)
       for (const e of ACTIVITY_EVENTS) root.removeEventListener(e, arm, { capture: true })
     }
-  }, [root, active, idleMs, warnMs])
+  }, [root, active, idle, warnMs])
 }
 
 // ---- Recent on this phone ----------------------------------------------------

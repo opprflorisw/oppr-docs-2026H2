@@ -27,6 +27,7 @@ import { PageHeader } from "@/components/layout/PageHeader"
 import { useCheckIn } from "@/lib/checkIn"
 import { NewDocumentChooserDialog } from "./DocumentNewChooserPage"
 import { cn } from "@/lib/utils"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 // Home (CONTEXT.md): an Engineer's inbox of decisions waiting today, plus a
 // small Knowledge health snapshot. Every inbox row has one obvious action.
@@ -34,7 +35,7 @@ export function HomePage() {
   const data = useQuery(api.home.overview)
   const { person } = useCheckIn()
   // "Your" only when we know who is reading: a checked-in Engineer.
-  const engineer = person?.kind === "engineer"
+  const engineer = isEngineerOrAdmin(person)
   const [, navigate] = useLocation()
   const [newOpen, setNewOpen] = useState(false)
   const inboxCount = data ? data.approvals.length + data.reviews.length : 0

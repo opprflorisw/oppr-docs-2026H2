@@ -1,43 +1,51 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+// The image library: every picture the plant can reuse in Documents and
+// Trainings. Find by words or by a photo (multimodal search), filter by kind,
+// tag, collection, area or Asset, see where each one is used, and tidy up in
+// bulk. Uploads (drag and drop anywhere) get an AI description and tags so
+// nobody has to think of them. Editing needs a checked-in Engineer or Admin.
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { Link } from "wouter"
+import { useAction, useMutation, useQuery } from "convex/react"
 import {
-  ArrowUpRight,
-  ChevronDown,
-  ChevronRight,
-  ChevronsDownUp,
-  ChevronsUpDown,
+  Camera,
+  Clock,
+  Copy,
+  FolderPlus,
   Image as ImageIcon,
+  LayoutGrid,
+  List,
+  Loader2,
+  MapPin,
   Search,
   Shapes,
+  Sparkles,
+  Star,
+  Tag,
   Trash2,
+  Upload,
   X,
 } from "lucide-react"
-import { useMutation, useQuery } from "convex/react"
+import { toast } from "sonner"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
-import { toast } from "sonner"
+import type { FunctionReturnType } from "convex/server"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,195 +58,187 @@ import {
 } from "@/components/ui/alert-dialog"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
-import { ImageDetailModal } from "@/components/docs/ImageDetailModal"
+import { DocumentsTabs } from "@/components/docs/DocumentsTabs"
 import { StatusBadge } from "@/components/docs/StatusBadge"
+import { ImageTile } from "@/components/images/ImageTile"
+import { KIND_LABEL } from "@/components/images/labels"
+import { ImageDetailSheet } from "@/components/images/ImageDetailSheet"
+import { matchReason, useImageSearch, type ImageHit } from "@/components/images/useImageSearch"
+import { ACCEPTED_IMAGE_TYPES, uploadImageFile } from "@/components/images/uploadImage"
+import { useCheckIn } from "@/lib/checkIn"
+import { formatDate } from "@/lib/time"
 import { cn } from "@/lib/utils"
-import { formatDate as formatDateShared } from "@/lib/time"
 import type { DocumentStatus } from "@/types"
 
-type SourceFilter = "all" | "upload" | "url"
-type ViewMode = "flat" | "byDoc"
+type Row = FunctionReturnType<typeof api.images.list>[number]
+type Facets = FunctionReturnType<typeof api.images.facets>
+type Kind = "photo" | "illustration" | "diagram" | "safety" | "generated"
+type Show = "all" | "favorites" | "recent" | "unused" | "duplicates" | "undescribed"
+type Sort = "newest" | "recentlyUsed" | "mostUsed" | "name"
+const KINDS: Kind[] = ["photo", "illustration", "diagram", "safety", "generated"]
 
-type DocRef = {
-  documentId: Id<"documents">
-  namingCode: string
-  title: string
-  status: DocumentStatus
+const SHOW_LABEL: Record<Show, string> = {
+  all: "All images",
+  favorites: "Favorites",
+  recent: "Recently used",
+  unused: "Not used in a Document",
+  duplicates: "Possible duplicates",
+  undescribed: "Without a description",
 }
 
-type ImageRow = {
-  _id: Id<"images">
-  filename: string
-  altText: string
-  source: "upload" | "url"
-  byteSize: number | null
-  createdAt: number
-  usageCount: number
-  documentRefs: DocRef[]
-}
+export function ImageLibraryPage(_props: { params?: unknown }) {
+  const { person } = useCheckIn()
+  const editorId: Id<"people"> | null =
+    person && !person.archived && (person.kind === "engineer" || person.kind === "admin") ? person._id : null
 
-export function ImageLibraryPage({ embedded = false }: { embedded?: boolean }) {
-  const [search, setSearch] = useState("")
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all")
-  const [orphansOnly, setOrphansOnly] = useState(false)
-  const [viewMode, setViewMode] = useState<ViewMode>("flat")
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [anchorId, setAnchorId] = useState<Id<"images"> | null>(null)
+  const [show, setShow] = useState<Show>("all")
+  const [kind, setKind] = useState<Kind | null>(null)
+  const [tag, setTag] = useState<string | null>(null)
+  const [collectionId, setCollectionId] = useState<Id<"imageCollections"> | null>(null)
+  const [areaCode, setAreaCode] = useState<string | null>(null)
+  const [assetId, setAssetId] = useState<Id<"assets"> | null>(null)
+  const [sort, setSort] = useState<Sort>("newest")
+  const [layout, setLayout] = useState<"grid" | "list">("grid")
+  const [selected, setSelected] = useState<Set<Id<"images">>>(new Set())
   const [detail, setDetail] = useState<Id<"images"> | null>(null)
-  const [confirmOpen, setConfirmOpen] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const [uploading, setUploading] = useState<{ done: number; total: number } | null>(null)
 
-  const removeMany = useMutation(api.images.removeMany)
-
+  const facets = useQuery(api.images.facets, {})
   const args = useMemo(
     () => ({
-      ...(sourceFilter !== "all" && { source: sourceFilter }),
-      ...(search.trim() && { search: search.trim() }),
-      ...(orphansOnly && { onlyOrphans: true }),
+      ...(kind ? { kind } : {}),
+      ...(tag ? { tag } : {}),
+      ...(collectionId ? { collectionId } : {}),
+      ...(areaCode ? { areaCode } : {}),
+      ...(assetId ? { assetId } : {}),
+      ...(show === "favorites" ? { favorite: true } : {}),
+      ...(show === "unused" ? { onlyOrphans: true } : {}),
+      sort: show === "recent" ? ("recentlyUsed" as const) : sort,
     }),
-    [search, sourceFilter, orphansOnly],
+    [kind, tag, collectionId, areaCode, assetId, show, sort],
   )
-  const images = useQuery(api.images.list, args) as
-    | ImageRow[]
-    | undefined
-  const ready = images !== undefined
+  const rows = useQuery(api.images.list, args)
+  const search = useImageSearch({ limit: 48 })
 
-  // Drop selections that no longer exist (after delete or filter change).
+  const findDuplicates = useAction(api.images.possibleDuplicates)
+  const [dupes, setDupes] = useState<{ a: Id<"images">; b: Id<"images">; score: number }[] | null>(null)
   useEffect(() => {
-    if (!images) return
-    const present = new Set(images.map((i) => String(i._id)))
+    if (show !== "duplicates") return
+    let live = true
+    setDupes(null)
+    findDuplicates({})
+      .then((r) => live && setDupes(r))
+      .catch(() => live && setDupes([]))
+    return () => {
+      live = false
+    }
+  }, [show, findDuplicates])
+
+  const hitById = useMemo(() => new Map(search.hits.map((h) => [h.imageId, h])), [search.hits])
+  const visible: Row[] | undefined = useMemo(() => {
+    if (!rows) return undefined
+    let out = rows
+    if (show === "recent") out = out.filter((r) => r.lastUsedAt)
+    if (show === "undescribed") out = out.filter((r) => !r.description)
+    if (show === "duplicates") {
+      if (!dupes) return undefined
+      const order = dupes.flatMap((d) => [d.a, d.b])
+      const byId = new Map(out.map((r) => [r._id, r]))
+      out = Array.from(new Set(order))
+        .map((id) => byId.get(id))
+        .filter((r): r is Row => Boolean(r))
+    }
+    if (search.active) {
+      const byId = new Map(out.map((r) => [r._id, r]))
+      out = search.hits.map((h) => byId.get(h.imageId)).filter((r): r is Row => Boolean(r))
+    }
+    return out
+  }, [rows, show, dupes, search.active, search.hits])
+
+  // Drop selections that are no longer visible.
+  useEffect(() => {
+    if (!visible) return
+    const present = new Set(visible.map((r) => r._id))
     setSelected((prev) => {
-      let changed = false
-      const next = new Set<string>()
-      for (const id of prev) {
-        if (present.has(id)) next.add(id)
-        else changed = true
-      }
-      return changed ? next : prev
+      const next = new Set([...prev].filter((id) => present.has(id)))
+      return next.size === prev.size ? prev : next
     })
-  }, [images])
+  }, [visible])
 
-  const orderedIds: Id<"images">[] = images?.map((i) => i._id) ?? []
+  const generateUploadUrl = useMutation(api.files.generateUploadUrl)
+  const createFromUpload = useMutation(api.images.createFromUpload)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const photoInput = useRef<HTMLInputElement>(null)
 
-  function toggle(id: Id<"images">, mode: "single" | "shift" | "ctrl") {
+  async function uploadFiles(files: File[]) {
+    const images = files.filter((f) => f.type.startsWith("image/"))
+    if (images.length === 0) return
+    if (!editorId) {
+      toast.error("Check in as an Engineer to add pictures to the library.")
+      return
+    }
+    setUploading({ done: 0, total: images.length })
+    let added = 0
+    let reused = 0
+    for (const [i, f] of images.entries()) {
+      try {
+        const r = await uploadImageFile(f, { generateUploadUrl, createFromUpload }, {
+          ...(assetId ? { assetIds: [assetId] } : {}),
+          ...(areaCode ? { areaCodes: [areaCode] } : {}),
+        })
+        if (r.deduped) reused++
+        else added++
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : `Could not add ${f.name}`)
+      }
+      setUploading({ done: i + 1, total: images.length })
+    }
+    setUploading(null)
+    if (added) toast.success(`Added ${added} picture${added === 1 ? "" : "s"}. The AI is writing descriptions and tags.`)
+    if (reused) toast.info(`${reused} picture${reused === 1 ? " was" : "s were"} already in the library.`)
+  }
+
+  function toggleSelect(id: Id<"images">) {
     setSelected((prev) => {
-      const key = String(id)
       const next = new Set(prev)
-      if (mode === "shift" && anchorId && images) {
-        const a = orderedIds.findIndex((x) => x === anchorId)
-        const b = orderedIds.findIndex((x) => x === id)
-        if (a !== -1 && b !== -1) {
-          const [lo, hi] = a < b ? [a, b] : [b, a]
-          for (let i = lo; i <= hi; i++) next.add(String(orderedIds[i]))
-          return next
-        }
-      }
-      if (mode === "ctrl") {
-        if (next.has(key)) next.delete(key)
-        else next.add(key)
-        return next
-      }
-      // single: toggle just this one, don't clear others (matches the
-      // sticky-action-bar pattern more than the OS file-picker pattern).
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
-    if (mode !== "shift") setAnchorId(id)
   }
 
-  function clearSelection() {
-    setSelected(new Set())
-    setAnchorId(null)
+  const filtersOn = Boolean(kind || tag || collectionId || areaCode || assetId || show !== "all")
+  function clearFilters() {
+    setShow("all")
+    setKind(null)
+    setTag(null)
+    setCollectionId(null)
+    setAreaCode(null)
+    setAssetId(null)
   }
 
-  function toggleAllVisible() {
-    if (!images) return
-    const allKeys = images.map((i) => String(i._id))
-    const allSelected = allKeys.every((k) => selected.has(k))
-    if (allSelected) {
-      setSelected((prev) => {
-        const next = new Set(prev)
-        for (const k of allKeys) next.delete(k)
-        return next
-      })
-    } else {
-      setSelected((prev) => {
-        const next = new Set(prev)
-        for (const k of allKeys) next.add(k)
-        return next
-      })
-    }
-  }
-
-  const headerCheckState = useMemo<boolean | "indeterminate">(() => {
-    if (!images || images.length === 0) return false
-    const total = images.length
-    let n = 0
-    for (const i of images) if (selected.has(String(i._id))) n++
-    if (n === 0) return false
-    if (n === total) return true
-    return "indeterminate"
-  }, [images, selected])
-
-  const selectedRows: ImageRow[] = useMemo(() => {
-    if (!images) return []
-    return images.filter((i) => selected.has(String(i._id)))
-  }, [images, selected])
-
-  const deletableCount = selectedRows.filter((r) => r.usageCount === 0).length
-  const blockedCount = selectedRows.length - deletableCount
-
-  async function handleConfirmedDelete() {
-    setBusy(true)
-    try {
-      const ids = selectedRows.map((r) => r._id)
-      const result = await removeMany({ ids })
-      if (result.refused.length === 0) {
-        toast.success(
-          `Deleted ${result.ok.length} image${result.ok.length === 1 ? "" : "s"}.`,
-        )
-      } else if (result.ok.length === 0) {
-        toast.error(
-          `Refused: ${result.refused.length} image${
-            result.refused.length === 1 ? "" : "s"
-          } still in use.`,
-        )
-      } else {
-        toast.warning(
-          `Deleted ${result.ok.length}, refused ${result.refused.length} (still in use).`,
-        )
-      }
-      clearSelection()
-      setConfirmOpen(false)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Delete failed")
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="flex flex-col">
-      {!embedded && (
-        <>
-      <TopBar
-        breadcrumb={[
-          { label: "Library", href: "/library" },
-          { label: "Images" },
-        ]}
-      />
-      <PageHeader
-        icon={ImageIcon}
-        title="Image library"
-        subtitle="Every image and diagram referenced in any document. Click a row for the detail view; use the checkboxes to bulk-delete orphans."
-      />
-
-        </>
-      )}
-
-      <div className={embedded ? "" : "p-6"}>
-        <Tabs defaultValue="images" className="space-y-4">
+  const content = (
+    <div
+      className="relative"
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return
+        e.preventDefault()
+        setDragging(true)
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+        setDragging(false)
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.files?.length) return
+        e.preventDefault()
+        setDragging(false)
+        void uploadFiles(Array.from(e.dataTransfer.files))
+      }}
+    >
+      <Tabs defaultValue="images" className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <TabsList>
             <TabsTrigger value="images" className="text-xs">
               <ImageIcon className="mr-1.5 h-3.5 w-3.5" /> Images
@@ -247,243 +247,563 @@ export function ImageLibraryPage({ embedded = false }: { embedded?: boolean }) {
               <Shapes className="mr-1.5 h-3.5 w-3.5" /> Diagrams
             </TabsTrigger>
           </TabsList>
-
-          <TabsContent value="images" className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative max-w-sm flex-1">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filename or alt text…"
-              className="h-8 pl-8 text-xs"
-            />
-          </div>
-          <Select
-            value={sourceFilter}
-            onValueChange={(v) => setSourceFilter(v as SourceFilter)}
-          >
-            <SelectTrigger className="h-8 w-[140px] text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All sources</SelectItem>
-              <SelectItem value="upload">Uploaded</SelectItem>
-              <SelectItem value="url">External URL</SelectItem>
-            </SelectContent>
-          </Select>
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            value={viewMode}
-            onValueChange={(v) => {
-              if (v) setViewMode(v as ViewMode)
-            }}
-          >
-            <ToggleGroupItem value="flat" className="h-8 px-3 text-xs">
-              All images
-            </ToggleGroupItem>
-            <ToggleGroupItem value="byDoc" className="h-8 px-3 text-xs">
-              By document
-            </ToggleGroupItem>
-          </ToggleGroup>
-          <label className="flex items-center gap-1.5 text-xs">
-            <input
-              type="checkbox"
-              checked={orphansOnly}
-              onChange={(e) => setOrphansOnly(e.target.checked)}
-            />
-            Orphans only
-          </label>
-          <div className="ml-auto text-xs text-muted-foreground">
-            {ready ? `${images.length} image${images.length === 1 ? "" : "s"}` : ""}
-          </div>
         </div>
 
-        {selectedRows.length > 0 && (
-          <div className="flex items-center justify-between rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
-            <div className="flex items-center gap-2">
-              <Badge className="bg-primary text-primary-foreground text-xs">
-                {selectedRows.length} selected
-              </Badge>
-              <span className="text-muted-foreground">
-                {deletableCount} deletable
-                {blockedCount > 0 && ` · ${blockedCount} still referenced`}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs"
-                onClick={clearSelection}
-              >
-                <X className="mr-1 h-3 w-3" /> Clear
-              </Button>
-              <Button
-                size="sm"
-                variant="destructive"
-                className="h-7 text-xs"
-                disabled={deletableCount === 0 || busy}
-                onClick={() => setConfirmOpen(true)}
-              >
-                <Trash2 className="mr-1 h-3 w-3" />
-                Delete {deletableCount > 0 ? deletableCount : ""}
-              </Button>
+        <TabsContent value="images" className="space-y-3">
+          <div className="flex flex-col gap-4 lg:flex-row">
+            <FilterRail
+              facets={facets}
+              show={show}
+              setShow={setShow}
+              kind={kind}
+              setKind={setKind}
+              tag={tag}
+              setTag={setTag}
+              collectionId={collectionId}
+              setCollectionId={setCollectionId}
+              areaCode={areaCode}
+              setAreaCode={setAreaCode}
+              assetId={assetId}
+              setAssetId={setAssetId}
+              editorId={editorId}
+            />
+
+            <div className="min-w-0 flex-1 space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative min-w-[200px] flex-1">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={search.text}
+                    onChange={(e) => search.setText(e.target.value)}
+                    placeholder="Search, e.g. hot die head with face shield"
+                    className="h-9 pl-8 pr-8 text-sm"
+                    aria-label="Search images"
+                  />
+                  {(search.text || search.photo) && (
+                    <button
+                      type="button"
+                      onClick={search.clear}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      aria-label="Clear search"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+                <Button variant="outline" size="sm" className="h-9" onClick={() => photoInput.current?.click()} title="Find pictures that look like a photo">
+                  <Camera className="mr-1.5 h-3.5 w-3.5" /> By photo
+                </Button>
+                <Select value={sort} onValueChange={(v) => setSort(v as Sort)} disabled={search.active || show === "recent"}>
+                  <SelectTrigger className="h-9 w-[150px] text-xs" aria-label="Sort">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="newest">Newest first</SelectItem>
+                    <SelectItem value="recentlyUsed">Recently used</SelectItem>
+                    <SelectItem value="mostUsed">Most used</SelectItem>
+                    <SelectItem value="name">File name</SelectItem>
+                  </SelectContent>
+                </Select>
+                <ToggleGroup type="single" variant="outline" value={layout} onValueChange={(v) => v && setLayout(v as "grid" | "list")}>
+                  <ToggleGroupItem value="grid" className="h-9 px-2.5" aria-label="Grid">
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="list" className="h-9 px-2.5" aria-label="List">
+                    <List className="h-3.5 w-3.5" />
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </div>
+
+              {search.photo && (
+                <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-2 py-1.5 text-xs">
+                  <img src={search.photo.previewUrl} alt="" className="h-8 w-8 rounded object-cover" />
+                  <span className="flex-1">Pictures that look like this photo.</span>
+                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={search.clearPhoto}>
+                    Remove photo
+                  </Button>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span>
+                  {visible === undefined || (search.active && search.loading && search.hits.length === 0)
+                    ? "Loading..."
+                    : search.active
+                      ? `${visible.length} match${visible.length === 1 ? "" : "es"}, best first`
+                      : show === "duplicates"
+                        ? `${dupes?.length ?? 0} pair${dupes?.length === 1 ? "" : "s"} that look alike`
+                        : `${visible.length} image${visible.length === 1 ? "" : "s"}`}
+                </span>
+                {filtersOn && (
+                  <button type="button" onClick={clearFilters} className="underline-offset-2 hover:underline">
+                    Clear filters
+                  </button>
+                )}
+                {uploading && (
+                  <span className="flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Adding {uploading.done + 1} of {uploading.total}
+                  </span>
+                )}
+                {!editorId && <span className="ml-auto">Check in as an Engineer to edit the library.</span>}
+              </div>
+
+              {selected.size > 0 && (
+                <BulkBar
+                  ids={[...selected]}
+                  rows={visible ?? []}
+                  editorId={editorId}
+                  facets={facets}
+                  onClear={() => setSelected(new Set())}
+                />
+              )}
+
+              {layout === "grid" ? (
+                <Grid
+                  rows={visible}
+                  hits={search.active ? hitById : null}
+                  query={search.text}
+                  byPhoto={search.photo !== null}
+                  selected={selected}
+                  onToggle={toggleSelect}
+                  onOpen={setDetail}
+                  dupes={show === "duplicates" ? dupes : null}
+                />
+              ) : (
+                <ListView rows={visible} selected={selected} onToggle={toggleSelect} onOpen={setDetail} setSelected={setSelected} />
+              )}
+
+              <SearchableFooter editorId={editorId} />
             </div>
           </div>
-        )}
+        </TabsContent>
 
-        {viewMode === "flat" ? (
-          <FlatList
-            ready={ready}
-            images={images}
-            selected={selected}
-            anchorId={anchorId}
-            headerCheckState={headerCheckState}
-            onToggle={toggle}
-            onToggleAllVisible={toggleAllVisible}
-            onOpenDetail={setDetail}
-          />
-        ) : (
-          <GroupedList
-            ready={ready}
-            images={images}
-            selected={selected}
-            onToggle={toggle}
-            onOpenDetail={setDetail}
-          />
-        )}
-          </TabsContent>
+        <TabsContent value="diagrams">
+          <DiagramsTab />
+        </TabsContent>
+      </Tabs>
 
-          <TabsContent value="diagrams">
-            <DiagramsTab />
-          </TabsContent>
-        </Tabs>
-      </div>
+      {dragging && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/5">
+          <div className="rounded-md bg-background px-4 py-3 text-sm font-medium shadow">Drop to add the pictures to the library</div>
+        </div>
+      )}
 
-      <ImageDetailModal
-        imageId={detail}
-        onClose={() => setDetail(null)}
-        onOpenDoc={(docId) => {
-          window.open(`/docs/${docId}`, "_blank")
+      <input
+        ref={fileInput}
+        type="file"
+        accept={ACCEPTED_IMAGE_TYPES}
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          void uploadFiles(Array.from(e.target.files ?? []))
+          e.target.value = ""
+        }}
+      />
+      <input
+        ref={photoInput}
+        type="file"
+        accept={ACCEPTED_IMAGE_TYPES}
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          e.target.value = ""
+          if (f) search.searchByPhoto(f).catch((err: unknown) => toast.error(err instanceof Error ? err.message : "Could not search by photo"))
         }}
       />
 
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              Delete {deletableCount} image{deletableCount === 1 ? "" : "s"}?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2 text-xs">
-              <span className="block">
-                This permanently removes the image{deletableCount === 1 ? "" : "s"} and the
-                underlying storage blob. Documents that reference{" "}
-                {deletableCount === 1 ? "it" : "them"} will continue to render the
-                placeholder.
-              </span>
-              {blockedCount > 0 && (
-                <span className="block rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-amber-800 dark:text-amber-200">
-                  {blockedCount} of the selected image{blockedCount === 1 ? "" : "s"}{" "}
-                  {blockedCount === 1 ? "is" : "are"} still referenced by a document and
-                  will be skipped. Remove {blockedCount === 1 ? "it" : "them"} from the
-                  document(s) first if you want to delete{" "}
-                  {blockedCount === 1 ? "it" : "them"}.
-                </span>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy || deletableCount === 0}
-              onClick={(e) => {
-                e.preventDefault()
-                void handleConfirmedDelete()
-              }}
-            >
-              Delete {deletableCount}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ImageDetailSheet
+        imageId={detail}
+        onClose={() => setDetail(null)}
+        personId={editorId}
+        areas={facets?.areas ?? []}
+        collections={facets?.collections ?? []}
+      />
+    </div>
+  )
+
+  return (
+    <div className="flex flex-col">
+      <TopBar breadcrumb={[{ label: "Documents", href: "/library" }, { label: "Images" }]} />
+      <PageHeader
+        icon={ImageIcon}
+        title="Image library"
+        statusLine="Pictures to reuse in Documents and Trainings. Drop files anywhere to add them."
+        primary={{
+          label: "Add pictures",
+          icon: Upload,
+          onClick: () => fileInput.current?.click(),
+          disabled: !editorId,
+          disabledReason: "Check in as an Engineer to add pictures",
+        }}
+      />
+      <DocumentsTabs />
+      <div className="p-4 sm:p-6">{content}</div>
     </div>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Flat list
-// ---------------------------------------------------------------------------
+// ---- Filter rail --------------------------------------------------------------------
 
-function FlatList({
-  ready,
-  images,
-  selected,
-  anchorId,
-  headerCheckState,
-  onToggle,
-  onToggleAllVisible,
-  onOpenDetail,
+function FilterRail(props: {
+  facets: Facets | undefined
+  show: Show
+  setShow: (s: Show) => void
+  kind: Kind | null
+  setKind: (k: Kind | null) => void
+  tag: string | null
+  setTag: (t: string | null) => void
+  collectionId: Id<"imageCollections"> | null
+  setCollectionId: (c: Id<"imageCollections"> | null) => void
+  areaCode: string | null
+  setAreaCode: (a: string | null) => void
+  assetId: Id<"assets"> | null
+  setAssetId: (a: Id<"assets"> | null) => void
+  editorId: Id<"people"> | null
+}) {
+  const f = props.facets
+  const [allTags, setAllTags] = useState(false)
+  const createCollection = useMutation(api.images.createCollection)
+  const [newName, setNewName] = useState("")
+
+  const showIcons: Record<Show, ReactNode> = {
+    all: <ImageIcon className="h-3.5 w-3.5" />,
+    favorites: <Star className="h-3.5 w-3.5" />,
+    recent: <Clock className="h-3.5 w-3.5" />,
+    unused: <X className="h-3.5 w-3.5" />,
+    duplicates: <Copy className="h-3.5 w-3.5" />,
+    undescribed: <Sparkles className="h-3.5 w-3.5" />,
+  }
+  const counts: Partial<Record<Show, number>> = f
+    ? { all: f.total, favorites: f.favorites, undescribed: f.undescribed }
+    : {}
+
+  return (
+    <aside className="space-y-4 lg:w-56 lg:shrink-0" aria-label="Filters">
+      <RailGroup title="Show">
+        {(Object.keys(SHOW_LABEL) as Show[])
+          // A filter that would show nothing is left out, unless it is on.
+          .filter((s) => props.show === s || !(f && ((s === "undescribed" && f.undescribed === 0) || (s === "favorites" && f.favorites === 0))))
+          .map((s) => (
+          <RailItem key={s} active={props.show === s} onClick={() => props.setShow(s)} icon={showIcons[s]} count={counts[s]}>
+            {SHOW_LABEL[s]}
+          </RailItem>
+        ))}
+      </RailGroup>
+
+      <RailGroup title="Kind">
+        {KINDS.filter((k) => props.kind === k || !f || (f.kinds[k] ?? 0) > 0).map((k) => (
+          <RailItem key={k} active={props.kind === k} onClick={() => props.setKind(props.kind === k ? null : k)} count={f?.kinds[k] ?? 0}>
+            {KIND_LABEL[k]}
+          </RailItem>
+        ))}
+      </RailGroup>
+
+      <RailGroup title="Collections">
+        {(f?.collections ?? []).map((c) => (
+          <RailItem
+            key={c._id}
+            active={props.collectionId === c._id}
+            onClick={() => props.setCollectionId(props.collectionId === c._id ? null : c._id)}
+            count={c.count}
+          >
+            {c.name}
+          </RailItem>
+        ))}
+        {props.editorId && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button type="button" className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted">
+                <FolderPlus className="h-3.5 w-3.5" /> New collection
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64 space-y-2" align="start">
+              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Die head close-ups" className="h-8 text-xs" />
+              <Button
+                size="sm"
+                className="w-full"
+                disabled={!newName.trim()}
+                onClick={async () => {
+                  try {
+                    await createCollection({ name: newName, personId: props.editorId! })
+                    setNewName("")
+                    toast.success("Collection made")
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : String(e))
+                  }
+                }}
+              >
+                Make collection
+              </Button>
+            </PopoverContent>
+          </Popover>
+        )}
+      </RailGroup>
+
+      <RailGroup title="Areas">
+        {(f?.areas ?? []).map((a) => (
+          <RailItem key={a.code} active={props.areaCode === a.code} onClick={() => props.setAreaCode(props.areaCode === a.code ? null : a.code)} count={a.count}>
+            <span className="font-mono">{a.code}</span> {a.label}
+          </RailItem>
+        ))}
+      </RailGroup>
+
+      {(f?.assets.length ?? 0) > 0 && (
+        <RailGroup title="Assets">
+          {f!.assets.map((a) => (
+            <RailItem key={a._id} active={props.assetId === a._id} onClick={() => props.setAssetId(props.assetId === a._id ? null : a._id)} count={a.count}>
+              <span className="font-mono">{a.code}</span> <span className="truncate">{a.name}</span>
+            </RailItem>
+          ))}
+        </RailGroup>
+      )}
+
+      {(f?.tags.length ?? 0) > 0 && (
+        <RailGroup title="Tags">
+          <div className="flex flex-wrap gap-1 px-1">
+            {(allTags ? f!.tags : f!.tags.slice(0, 18)).map((t) => (
+              <button
+                key={t.tag}
+                type="button"
+                onClick={() => props.setTag(props.tag === t.tag ? null : t.tag)}
+                className={cn(
+                  "rounded-full border px-2 py-0.5 text-[11px]",
+                  props.tag === t.tag ? "border-primary bg-primary/10" : "text-muted-foreground hover:bg-muted",
+                )}
+              >
+                {t.tag}
+              </button>
+            ))}
+            {f!.tags.length > 18 && (
+              <button type="button" onClick={() => setAllTags(!allTags)} className="px-1 text-[11px] text-muted-foreground underline-offset-2 hover:underline">
+                {allTags ? "Fewer" : `All ${f!.tags.length}`}
+              </button>
+            )}
+          </div>
+        </RailGroup>
+      )}
+    </aside>
+  )
+}
+
+function RailGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="space-y-0.5">
+      <div className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{title}</div>
+      {children}
+    </div>
+  )
+}
+
+function RailItem({
+  active,
+  onClick,
+  icon,
+  count,
+  children,
 }: {
-  ready: boolean
-  images: ImageRow[] | undefined
-  selected: Set<string>
-  anchorId: Id<"images"> | null
-  headerCheckState: boolean | "indeterminate"
-  onToggle: (id: Id<"images">, mode: "single" | "shift" | "ctrl") => void
-  onToggleAllVisible: () => void
-  onOpenDetail: (id: Id<"images">) => void
+  active: boolean
+  onClick: () => void
+  icon?: ReactNode
+  count?: number
+  children: ReactNode
 }) {
   return (
-    <div className="overflow-hidden rounded-md border">
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs",
+        active ? "bg-primary/10 font-medium text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+      )}
+    >
+      {icon}
+      <span className="flex min-w-0 flex-1 items-center gap-1 truncate">{children}</span>
+      {count !== undefined && <span className="tabular-nums">{count}</span>}
+    </button>
+  )
+}
+
+// ---- Grid and list ------------------------------------------------------------------
+
+function Grid({
+  rows,
+  hits,
+  query,
+  byPhoto,
+  selected,
+  onToggle,
+  onOpen,
+  dupes,
+}: {
+  rows: Row[] | undefined
+  hits: Map<Id<"images">, ImageHit> | null
+  query: string
+  byPhoto: boolean
+  selected: Set<Id<"images">>
+  onToggle: (id: Id<"images">) => void
+  onOpen: (id: Id<"images">) => void
+  dupes: { a: Id<"images">; b: Id<"images">; score: number }[] | null
+}) {
+  const urls = useQuery(api.images.urlsFor, rows && rows.length ? { ids: rows.map((r) => r._id) } : "skip")
+  if (!rows) {
+    return (
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+        {Array.from({ length: 10 }).map((_, i) => (
+          <Skeleton key={i} className="aspect-[4/3] w-full" />
+        ))}
+      </div>
+    )
+  }
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed p-10 text-center">
+        <ImageIcon className="mx-auto h-8 w-8 text-muted-foreground" />
+        <div className="mt-2 text-sm font-medium">{dupes ? "No pictures look alike" : "No pictures here"}</div>
+        <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
+          {dupes ? "Exact copies are never stored twice; near copies would show up here." : "Try other words or filters, or drop pictures here to add them."}
+        </p>
+      </div>
+    )
+  }
+  const pairOf = new Map<string, number>()
+  dupes?.forEach((d, i) => {
+    pairOf.set(d.a, i)
+    pairOf.set(d.b, i)
+  })
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+      {rows.map((r, i) => {
+        const hit = hits?.get(r._id)
+        const reason = hit ? matchReason(hit, { query, byPhoto }) : null
+        const isSel = selected.has(r._id)
+        return (
+          <div key={r._id} className="group relative">
+            <ImageTile
+              url={urls === undefined ? undefined : (urls[r._id] ?? null)}
+              eager={i < 15}
+              altText={r.altText}
+              favorite={r.favorite}
+              selected={isSel}
+              onClick={(e) => (e.shiftKey || e.metaKey || e.ctrlKey || selected.size > 0 ? onToggle(r._id) : onOpen(r._id))}
+              className="w-full"
+              caption={
+                <span className="flex flex-col gap-0.5">
+                  <span className="line-clamp-1 text-foreground">{r.altText || r.filename}</span>
+                  <span className="flex items-center gap-1">
+                    {r.kind && <span>{KIND_LABEL[r.kind]}</span>}
+                    {r.kind && <span aria-hidden>·</span>}
+                    <span>{r.usageCount === 0 ? "Not used" : `In ${r.usageCount} Document${r.usageCount === 1 ? "" : "s"}`}</span>
+                    {dupes && pairOf.has(r._id) && <span className="ml-auto">pair {pairOf.get(r._id)! + 1}</span>}
+                  </span>
+                </span>
+              }
+              bottomRight={
+                reason ? (
+                  <Badge variant="secondary" className="px-1.5 py-0 text-[10px]" title={reason.title}>
+                    {reason.label}
+                  </Badge>
+                ) : undefined
+              }
+            />
+            <div
+              className={cn(
+                "absolute left-1.5 top-1.5 rounded bg-background/90 p-1 shadow-sm transition-opacity",
+                isSel || selected.size > 0 ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100",
+              )}
+            >
+              <Checkbox checked={isSel} onCheckedChange={() => onToggle(r._id)} aria-label={`Select ${r.altText || r.filename}`} />
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function ListView({
+  rows,
+  selected,
+  onToggle,
+  onOpen,
+  setSelected,
+}: {
+  rows: Row[] | undefined
+  selected: Set<Id<"images">>
+  onToggle: (id: Id<"images">) => void
+  onOpen: (id: Id<"images">) => void
+  setSelected: (s: Set<Id<"images">>) => void
+}) {
+  const urls = useQuery(api.images.urlsFor, rows && rows.length ? { ids: rows.map((r) => r._id) } : "skip")
+  const all = rows && rows.length > 0 && rows.every((r) => selected.has(r._id))
+  return (
+    <div className="overflow-x-auto rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead className="w-10">
               <Checkbox
-                checked={headerCheckState}
-                onCheckedChange={onToggleAllVisible}
-                aria-label="Select all visible"
+                checked={all ? true : selected.size > 0 ? "indeterminate" : false}
+                onCheckedChange={() => setSelected(all ? new Set() : new Set(rows?.map((r) => r._id) ?? []))}
+                aria-label="Select all"
               />
             </TableHead>
-            <TableHead className="w-[8%]">Preview</TableHead>
-            <TableHead className="w-[20%]">Filename</TableHead>
-            <TableHead className="w-[7%]">Source</TableHead>
-            <TableHead className="w-[7%]">Size</TableHead>
-            <TableHead className="w-[20%]">Used in</TableHead>
-            <TableHead className="w-[10%]">Uploaded</TableHead>
-            <TableHead>Alt text</TableHead>
+            <TableHead className="w-14">Picture</TableHead>
+            <TableHead>What it shows</TableHead>
+            <TableHead className="w-28">Kind</TableHead>
+            <TableHead className="w-48">Used in</TableHead>
+            <TableHead className="w-28">Last used</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {!ready ? (
-            Array.from({ length: 4 }).map((_, i) => (
-              <TableRow key={i}>
-                <TableCell colSpan={8}>
-                  <Skeleton className="h-9 w-full" />
-                </TableCell>
-              </TableRow>
-            ))
-          ) : !images || images.length === 0 ? (
+          {!rows ? (
             <TableRow>
-              <TableCell
-                colSpan={8}
-                className="text-center text-xs text-muted-foreground"
-              >
-                No images yet. Insert one from the document editor.
+              <TableCell colSpan={6}>
+                <Skeleton className="h-9 w-full" />
+              </TableCell>
+            </TableRow>
+          ) : rows.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={6} className="text-center text-xs text-muted-foreground">
+                No pictures here.
               </TableCell>
             </TableRow>
           ) : (
-            images.map((img) => (
-              <ImageTableRow
-                key={img._id}
-                img={img}
-                isSelected={selected.has(String(img._id))}
-                isAnchor={anchorId === img._id}
-                onToggle={onToggle}
-                onOpenDetail={onOpenDetail}
-              />
+            rows.map((r) => (
+              <TableRow key={r._id} className={cn("cursor-pointer", selected.has(r._id) && "bg-primary/5")} onClick={() => onOpen(r._id)}>
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                  <Checkbox checked={selected.has(r._id)} onCheckedChange={() => onToggle(r._id)} aria-label="Select" />
+                </TableCell>
+                <TableCell>
+                  <div className="h-9 w-12 overflow-hidden rounded border bg-muted/30">
+                    {urls?.[r._id] && <img src={urls[r._id]!} alt="" loading="lazy" className="h-full w-full object-cover" />}
+                  </div>
+                </TableCell>
+                <TableCell className="text-xs">
+                  <div className="flex items-center gap-1">
+                    {r.favorite && <Star className="h-3 w-3 shrink-0 fill-amber-400 text-amber-500" />}
+                    <span className="line-clamp-1">{r.altText || r.filename}</span>
+                  </div>
+                  {(r.tags?.length ?? 0) > 0 && <div className="line-clamp-1 text-muted-foreground">{r.tags!.join(", ")}</div>}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">{r.kind ? KIND_LABEL[r.kind] : "Not sorted"}</TableCell>
+                <TableCell className="text-xs">
+                  {r.documentRefs.length === 0 ? (
+                    <span className="text-muted-foreground">Not used</span>
+                  ) : (
+                    <div className="flex flex-col gap-0.5">
+                      {r.documentRefs.slice(0, 3).map((d) => (
+                        <span key={d.documentId} className="flex items-center gap-1">
+                          <span className="font-mono">{d.namingCode}</span>
+                          <StatusBadge status={d.status as DocumentStatus} className="px-1 py-0 text-[10px]" />
+                        </span>
+                      ))}
+                      {r.documentRefs.length > 3 && <span className="text-muted-foreground">and {r.documentRefs.length - 3} more</span>}
+                    </div>
+                  )}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">{r.lastUsedAt ? formatDate(r.lastUsedAt) : "Never"}</TableCell>
+              </TableRow>
             ))
           )}
         </TableBody>
@@ -492,406 +812,273 @@ function FlatList({
   )
 }
 
-function ImageTableRow({
-  img,
-  isSelected,
-  isAnchor,
-  onToggle,
-  onOpenDetail,
+// ---- Bulk actions -------------------------------------------------------------------
+
+function BulkBar({
+  ids,
+  rows,
+  editorId,
+  facets,
+  onClear,
 }: {
-  img: ImageRow
-  isSelected: boolean
-  isAnchor: boolean
-  onToggle: (id: Id<"images">, mode: "single" | "shift" | "ctrl") => void
-  onOpenDetail: (id: Id<"images">) => void
+  ids: Id<"images">[]
+  rows: Row[]
+  editorId: Id<"people"> | null
+  facets: Facets | undefined
+  onClear: () => void
 }) {
+  const bulk = useMutation(api.images.bulkUpdate)
+  const removeMany = useMutation(api.images.removeMany)
+  const createCollection = useMutation(api.images.createCollection)
+  const describe = useMutation(api.ai.imageDescribe.requestDescribe)
+  const allAssets = useQuery(api.assets.list, {})
+  const [tagText, setTagText] = useState("")
+  const [collectionName, setCollectionName] = useState("")
+  const [confirm, setConfirm] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const disabled = !editorId || busy
+
+  const chosen = rows.filter((r) => ids.includes(r._id))
+  const deletable = chosen.filter((r) => r.usageCount === 0).length
+  const allFav = chosen.length > 0 && chosen.every((r) => r.favorite)
+
+  async function run(p: () => Promise<unknown>, ok: string) {
+    if (!editorId) return
+    setBusy(true)
+    try {
+      await p()
+      toast.success(ok)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const n = `${ids.length} picture${ids.length === 1 ? "" : "s"}`
+
   return (
-    <TableRow
-      className={cn(
-        "cursor-pointer",
-        isSelected && "bg-primary/5",
-        isAnchor && "ring-1 ring-inset ring-primary/30",
-      )}
-      onClick={(e) => {
-        const target = e.target as HTMLElement
-        if (target.closest("[data-row-checkbox]")) return
-        onOpenDetail(img._id)
-      }}
-    >
-      <TableCell
-        data-row-checkbox
-        onClick={(e) => {
-          e.stopPropagation()
-          const mode: "single" | "shift" | "ctrl" = e.shiftKey
-            ? "shift"
-            : e.metaKey || e.ctrlKey
-              ? "ctrl"
-              : "single"
-          onToggle(img._id, mode)
-        }}
+    <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2 py-1.5 text-xs">
+      <Badge className="bg-primary text-primary-foreground">{ids.length} selected</Badge>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 text-xs"
+        disabled={disabled}
+        onClick={() => run(() => bulk({ ids, personId: editorId!, favorite: !allFav }), allFav ? "Removed from favorites" : "Added to favorites")}
       >
-        <Checkbox checked={isSelected} aria-label="Select row" />
-      </TableCell>
-      <TableCell>
-        <ImageThumb id={img._id} />
-      </TableCell>
-      <TableCell className="font-mono text-xs">{img.filename}</TableCell>
-      <TableCell>
-        <Badge
-          variant="outline"
-          className={cn(
-            "text-xs",
-            img.source === "url" &&
-              "border-amber-400/50 text-amber-700 dark:text-amber-300",
-          )}
-        >
-          {img.source}
-        </Badge>
-      </TableCell>
-      <TableCell className="text-xs text-muted-foreground">
-        {img.byteSize ? `${(img.byteSize / 1024).toFixed(0)} KB` : "None"}
-      </TableCell>
-      <TableCell>
-        {img.usageCount === 0 ? (
-          <Badge
-            variant="outline"
-            className="text-xs text-muted-foreground"
-          >
-            orphan
-          </Badge>
-        ) : (
-          <div className="flex flex-col gap-1">
-            {img.documentRefs.map((ref) => (
-              <span
-                key={ref.documentId}
-                className="flex items-center gap-1.5"
-              >
-                <span className="font-mono text-xs">{ref.namingCode}</span>
-                <StatusBadge
-                  status={ref.status}
-                  className="px-1.5 py-0 text-xs"
-                />
-              </span>
-            ))}
-          </div>
-        )}
-      </TableCell>
-      <TableCell className="text-xs text-muted-foreground">
-        {formatDate(img.createdAt)}
-      </TableCell>
-      <TableCell className="truncate text-xs">{img.altText}</TableCell>
-    </TableRow>
-  )
-}
+        <Star className="mr-1 h-3.5 w-3.5" /> {allFav ? "Unfavorite" : "Favorite"}
+      </Button>
 
-// ---------------------------------------------------------------------------
-// Grouped list (by document)
-// ---------------------------------------------------------------------------
-
-type Group = {
-  key: string
-  kind: "doc" | "orphans"
-  ref?: DocRef
-  images: ImageRow[]
-}
-
-// Images used by multiple documents appear under each document they're used in.
-function buildGroups(images: ImageRow[]): Group[] {
-  const orphans: ImageRow[] = []
-  const byDoc = new Map<string, { ref: DocRef; images: ImageRow[] }>()
-  for (const img of images) {
-    if (img.usageCount === 0) {
-      orphans.push(img)
-      continue
-    }
-    for (const ref of img.documentRefs) {
-      const key = String(ref.documentId)
-      const bucket = byDoc.get(key) ?? { ref, images: [] }
-      bucket.images.push(img)
-      byDoc.set(key, bucket)
-    }
-  }
-  const groups: Group[] = []
-  const docGroups = Array.from(byDoc.values())
-  docGroups.sort((a, b) => a.ref.namingCode.localeCompare(b.ref.namingCode))
-  for (const g of docGroups) {
-    groups.push({
-      key: String(g.ref.documentId),
-      kind: "doc",
-      ref: g.ref,
-      images: g.images,
-    })
-  }
-  if (orphans.length > 0) {
-    groups.push({
-      key: "__orphans__",
-      kind: "orphans",
-      images: orphans,
-    })
-  }
-  return groups
-}
-
-function GroupedList({
-  ready,
-  images,
-  selected,
-  onToggle,
-  onOpenDetail,
-}: {
-  ready: boolean
-  images: ImageRow[] | undefined
-  selected: Set<string>
-  onToggle: (id: Id<"images">, mode: "single" | "shift" | "ctrl") => void
-  onOpenDetail: (id: Id<"images">) => void
-}) {
-  const groups = useMemo(() => (images ? buildGroups(images) : []), [images])
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
-
-  function toggleCollapsed(key: string) {
-    setCollapsed((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
-
-  const allCollapsed = groups.length > 0 && groups.every((g) => collapsed.has(g.key))
-  const allExpanded = collapsed.size === 0
-  function expandAll() {
-    setCollapsed(new Set())
-  }
-  function collapseAll() {
-    setCollapsed(new Set(groups.map((g) => g.key)))
-  }
-
-  if (!ready) {
-    return (
-      <div className="space-y-2">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className="h-12 w-full" />
-        ))}
-      </div>
-    )
-  }
-
-  if (!images || images.length === 0) {
-    return (
-      <div className="rounded-md border p-6 text-center text-xs text-muted-foreground">
-        No images yet.
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">
-          {groups.length} group{groups.length === 1 ? "" : "s"}
-        </span>
-        <div className="flex items-center gap-1.5">
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={disabled}>
+            <Tag className="mr-1 h-3.5 w-3.5" /> Tag
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-64 space-y-2" align="start">
+          <Input value={tagText} onChange={(e) => setTagText(e.target.value)} placeholder="Tags, comma separated" className="h-8 text-xs" />
           <Button
             size="sm"
-            variant="outline"
-            className="h-7 text-xs"
-            onClick={expandAll}
-            disabled={allExpanded}
+            className="w-full"
+            disabled={!tagText.trim() || disabled}
+            onClick={() =>
+              run(async () => {
+                await bulk({ ids, personId: editorId!, addTags: tagText.split(",").map((t) => t.trim()).filter(Boolean) })
+                setTagText("")
+              }, `Tagged ${n}`)
+            }
           >
-            <ChevronsUpDown className="mr-1 h-3 w-3" /> Expand all
+            Add tags
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-xs"
-            onClick={collapseAll}
-            disabled={allCollapsed}
-          >
-            <ChevronsDownUp className="mr-1 h-3 w-3" /> Collapse all
+        </PopoverContent>
+      </Popover>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={disabled}>
+            <Shapes className="mr-1 h-3.5 w-3.5" /> Kind
           </Button>
-        </div>
-      </div>
-      {groups.map((g) => {
-        const isCollapsed = collapsed.has(g.key)
-        const headerToneClass =
-          g.kind === "orphans"
-            ? "border border-amber-500/30 bg-amber-500/10"
-            : "bg-muted/40"
-        return (
-          <div key={g.key}>
-            <div
-              className={cn(
-                "flex w-full items-center gap-2 rounded-md px-3 py-2 text-xs font-medium",
-                headerToneClass,
-              )}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          {KINDS.map((k) => (
+            <DropdownMenuItem key={k} onClick={() => run(() => bulk({ ids, personId: editorId!, kind: k }), `Marked as ${KIND_LABEL[k].toLowerCase()}`)}>
+              {KIND_LABEL[k]}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={disabled}>
+            <MapPin className="mr-1 h-3.5 w-3.5" /> Link
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="max-h-80 overflow-y-auto">
+          {(facets?.areas ?? []).map((a) => (
+            <DropdownMenuItem key={a.code} onClick={() => run(() => bulk({ ids, personId: editorId!, addAreaCodes: [a.code] }), `Linked to area ${a.code}`)}>
+              Area <span className="ml-1 font-mono">{a.code}</span> {a.label}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          {(allAssets ?? []).map((a) => (
+            <DropdownMenuItem key={a._id} onClick={() => run(() => bulk({ ids, personId: editorId!, addAssetIds: [a._id] }), `Linked to ${a.code}`)}>
+              <span className="font-mono">{a.code}</span> <span className="ml-1 truncate">{a.name}</span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={disabled}>
+            <FolderPlus className="mr-1 h-3.5 w-3.5" /> Collection
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-64 space-y-2" align="start">
+          {(facets?.collections ?? []).map((c) => (
+            <button
+              key={c._id}
+              type="button"
+              className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted"
+              onClick={() => run(() => bulk({ ids, personId: editorId!, addToCollection: c._id }), `Added to ${c.name}`)}
             >
-              <button
-                type="button"
-                onClick={() => toggleCollapsed(g.key)}
-                className="flex min-w-0 flex-1 items-center gap-2 text-left"
-              >
-                {isCollapsed ? (
-                  <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-                ) : (
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-                )}
-                {g.kind === "doc" && g.ref ? (
-                  <>
-                    <span className="font-mono">{g.ref.namingCode}</span>
-                    <span className="truncate font-normal text-muted-foreground">
-                      {g.ref.title}
-                    </span>
-                    <StatusBadge
-                      status={g.ref.status}
-                      className="shrink-0 px-1.5 py-0 text-xs"
-                    />
-                  </>
-                ) : (
-                  <>
-                    <Badge
-                      variant="outline"
-                      className="border-amber-500/40 text-xs text-amber-700 dark:text-amber-300"
-                    >
-                      Not used in any document
-                    </Badge>
-                    <span className="font-normal text-muted-foreground">
-                      Safe to delete
-                    </span>
-                  </>
-                )}
-                <span className="ml-auto shrink-0 font-normal text-muted-foreground">
-                  {g.images.length} image{g.images.length === 1 ? "" : "s"}
-                </span>
-              </button>
-              {g.kind === "doc" && g.ref && (
-                <Link
-                  href={`/docs/${g.ref.documentId}`}
-                  className="flex shrink-0 items-center gap-0.5 font-normal text-muted-foreground hover:text-foreground"
-                  title="Open document"
-                >
-                  Open <ArrowUpRight className="h-3 w-3" />
-                </Link>
-              )}
-            </div>
-            {!isCollapsed && (
-              <div className="mt-2 space-y-1.5 pl-6">
-                {g.images.map((img) => (
-                  <GroupedImageRow
-                    key={img._id}
-                    img={img}
-                    isSelected={selected.has(String(img._id))}
-                    onToggle={onToggle}
-                    onOpenDetail={onOpenDetail}
-                  />
-                ))}
-              </div>
-            )}
+              {c.name}
+            </button>
+          ))}
+          <div className="flex gap-1.5 border-t pt-2">
+            <Input value={collectionName} onChange={(e) => setCollectionName(e.target.value)} placeholder="New collection" className="h-8 text-xs" />
+            <Button
+              size="sm"
+              className="h-8"
+              disabled={!collectionName.trim() || disabled}
+              onClick={() =>
+                run(async () => {
+                  await createCollection({ name: collectionName, personId: editorId!, imageIds: ids })
+                  setCollectionName("")
+                }, `Added to ${collectionName.trim()}`)
+              }
+            >
+              Add
+            </Button>
           </div>
-        )
-      })}
-    </div>
-  )
-}
+        </PopoverContent>
+      </Popover>
 
-function GroupedImageRow({
-  img,
-  isSelected,
-  onToggle,
-  onOpenDetail,
-}: {
-  img: ImageRow
-  isSelected: boolean
-  onToggle: (id: Id<"images">, mode: "single" | "shift" | "ctrl") => void
-  onOpenDetail: (id: Id<"images">) => void
-}) {
-  return (
-    <div
-      className={cn(
-        "flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted/30",
-        isSelected && "bg-primary/5",
-      )}
-      onClick={(e) => {
-        const target = e.target as HTMLElement
-        if (target.closest("[data-row-checkbox]")) return
-        onOpenDetail(img._id)
-      }}
-    >
-      <span
-        data-row-checkbox
-        onClick={(e) => {
-          e.stopPropagation()
-          const mode: "single" | "shift" | "ctrl" = e.shiftKey
-            ? "shift"
-            : e.metaKey || e.ctrlKey
-              ? "ctrl"
-              : "single"
-          onToggle(img._id, mode)
-        }}
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 text-xs"
+        disabled={disabled}
+        onClick={() => run(() => describe({ ids, personId: editorId! }), `The AI is describing ${n}`)}
+        title="Fills in missing descriptions, alt text and tags"
       >
-        <Checkbox checked={isSelected} />
-      </span>
-      <ImageThumb id={img._id} small />
-      <span className="font-mono text-xs">{img.filename}</span>
-      <span className="ml-auto text-xs text-muted-foreground">
-        {img.usageCount === 0
-          ? "None"
-          : img.documentRefs.length === 1
-            ? img.documentRefs[0].namingCode
-            : `${img.usageCount} docs`}
-      </span>
+        <Sparkles className="mr-1 h-3.5 w-3.5" /> Describe with AI
+      </Button>
+
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 text-xs text-destructive hover:text-destructive"
+        disabled={disabled || deletable === 0}
+        title={deletable === 0 ? "Pictures used in a Document cannot be deleted" : undefined}
+        onClick={() => setConfirm(true)}
+      >
+        <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete
+      </Button>
+
+      <Button size="sm" variant="ghost" className="ml-auto h-7 text-xs" onClick={onClear}>
+        <X className="mr-1 h-3.5 w-3.5" /> Clear
+      </Button>
+
+      <AlertDialog open={confirm} onOpenChange={setConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {deletable} picture{deletable === 1 ? "" : "s"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              They are removed from the library for good.
+              {chosen.length > deletable &&
+                ` ${chosen.length - deletable} of the selected ${chosen.length - deletable === 1 ? "is" : "are"} used in a Document and stay${chosen.length - deletable === 1 ? "s" : ""}.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={(e) => {
+                e.preventDefault()
+                void run(async () => {
+                  const r = await removeMany({ ids, personId: editorId! })
+                  setConfirm(false)
+                  onClear()
+                  if (r.refused.length) toast.info(`${r.refused.length} still in use, kept.`)
+                }, `Deleted ${deletable}`)
+              }}
+            >
+              Delete {deletable}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Diagrams tab
-// ---------------------------------------------------------------------------
+// ---- Search status --------------------------------------------------------------------
 
-type DiagramEntry = {
-  key: string
-  svg: string
-  caption: string
-  backgroundUrl: string | null
-  documentId: Id<"documents">
-  namingCode: string
-  title: string
-  status: DocumentStatus
+function SearchableFooter({ editorId }: { editorId: Id<"people"> | null }) {
+  const status = useQuery(api.ai.imageEmbed.embedStatus, {})
+  const start = useMutation(api.ai.imageEmbed.startBackfill)
+  if (!status || status.total === 0) return null
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t pt-3 text-xs text-muted-foreground">
+      <span>
+        {status.embedded} of {status.total} pictures can be found by words and by photo
+        {status.byCaption > 0 ? ` (${status.byCaption} by their description only)` : ""}.
+      </span>
+      {status.outstanding > 0 && editorId && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          onClick={async () => {
+            try {
+              await start({ personId: editorId })
+              toast.success("Making the rest searchable. This runs in the background.")
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : String(e))
+            }
+          }}
+        >
+          Make {status.outstanding} searchable
+        </Button>
+      )}
+    </div>
+  )
 }
+
+// ---- Diagrams tab -------------------------------------------------------------------
+
+type DiagramEntry = FunctionReturnType<typeof api.images.listDiagrams>[number]
 
 // Diagram SVG is app-curated (renderDiagramSvg escapes every label), but strip
 // scripts and inline handlers anyway before dangerouslySetInnerHTML.
 function sanitizeSvg(svg: string): string {
-  return svg
-    .replace(/<script[\s\S]*?<\/script\s*>/gi, "")
-    .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+  return svg.replace(/<script[\s\S]*?<\/script\s*>/gi, "").replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
 }
 
-type DiagramSort = "byDoc" | "byStatus"
-
 function DiagramsTab() {
-  const diagrams = useQuery(api.images.listDiagrams, {}) as
-    | DiagramEntry[]
-    | undefined
+  const diagrams = useQuery(api.images.listDiagrams, {})
   const [search, setSearch] = useState("")
-  const [sort, setSort] = useState<DiagramSort>("byDoc")
-
-  const visible = useMemo(() => {
+  const visible: DiagramEntry[] = useMemo(() => {
     if (!diagrams) return []
     const q = search.trim().toLowerCase()
-    const filtered = q
-      ? diagrams.filter((d) =>
-          [d.caption, d.namingCode, d.title]
-            .filter(Boolean)
-            .some((s) => s.toLowerCase().includes(q)),
-        )
+    return q
+      ? diagrams.filter((d) => [d.caption, d.namingCode, d.title].filter(Boolean).some((s) => s.toLowerCase().includes(q)))
       : diagrams
-    return [...filtered].sort((a, b) =>
-      sort === "byStatus"
-        ? a.status.localeCompare(b.status) ||
-          a.namingCode.localeCompare(b.namingCode)
-        : a.namingCode.localeCompare(b.namingCode),
-    )
-  }, [diagrams, search, sort])
+  }, [diagrams, search])
 
   if (diagrams === undefined) {
     return (
@@ -902,74 +1089,43 @@ function DiagramsTab() {
       </div>
     )
   }
-
   if (diagrams.length === 0) {
     return (
       <div className="rounded-md border border-dashed p-10 text-center">
         <Shapes className="mx-auto h-8 w-8 text-muted-foreground" />
         <div className="mt-2 text-sm font-medium">No diagrams yet</div>
         <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
-          Diagrams built in any document are collected here. Insert one from
-          the document editor toolbar.
+          Diagrams built in any Document are collected here. Insert one from the editor toolbar.
         </p>
       </div>
     )
   }
-
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative max-w-sm flex-1">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Caption, code, or document…"
-            className="h-8 pl-8 text-xs"
-          />
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Caption, code or Document" className="h-8 pl-8 text-xs" />
         </div>
-        <Select
-          value={sort}
-          onValueChange={(v) => setSort(v as DiagramSort)}
-        >
-          <SelectTrigger className="h-8 w-[160px] text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="byDoc">By document</SelectItem>
-            <SelectItem value="byStatus">By status</SelectItem>
-          </SelectContent>
-        </Select>
         <div className="ml-auto text-xs text-muted-foreground">
           {visible.length} diagram{visible.length === 1 ? "" : "s"}
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {visible.map((d) => (
-          <div
-            key={d.key}
-            className="flex flex-col overflow-hidden rounded-md border bg-card"
-          >
+          <div key={d.key} className="flex flex-col overflow-hidden rounded-md border bg-card">
             <div
               className="flex min-h-32 items-center justify-center border-b bg-muted/20 p-3 text-foreground [&_svg]:h-auto [&_svg]:max-h-44 [&_svg]:w-full"
               dangerouslySetInnerHTML={{ __html: sanitizeSvg(d.svg) }}
             />
             <div className="flex flex-1 flex-col gap-1.5 p-3">
-              <div className="truncate text-xs font-medium">
-                {d.caption || "Diagram"}
-              </div>
+              <div className="truncate text-xs font-medium">{d.caption || "Diagram"}</div>
               <div className="mt-auto flex items-center gap-1.5">
-                <Link
-                  href={`/docs/${d.documentId}`}
-                  className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                >
+                <Link href={`/docs/${d.documentId}`} className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
                   <span className="shrink-0 font-mono">{d.namingCode}</span>
                   <span className="truncate">{d.title}</span>
                 </Link>
-                <StatusBadge
-                  status={d.status}
-                  className="ml-auto shrink-0 px-1.5 py-0 text-xs"
-                />
+                <StatusBadge status={d.status as DocumentStatus} className="ml-auto shrink-0 px-1.5 py-0 text-xs" />
               </div>
             </div>
           </div>
@@ -977,53 +1133,4 @@ function DiagramsTab() {
       </div>
     </div>
   )
-}
-
-// ---------------------------------------------------------------------------
-// Thumb
-// ---------------------------------------------------------------------------
-
-function ImageThumb({
-  id,
-  small,
-}: {
-  id: Id<"images">
-  small?: boolean
-}) {
-  const url = useQuery(api.images.urlFor, { id })
-  const errored = useRef(false)
-  const size = small ? "h-7 w-7" : "h-9 w-9"
-  const iconSize = small ? "h-3.5 w-3.5" : "h-4 w-4"
-  if (url === undefined) {
-    return <Skeleton className={cn(size, "rounded")} />
-  }
-  if (!url || errored.current) {
-    return (
-      <div
-        className={cn(
-          size,
-          "flex items-center justify-center rounded border bg-muted/30",
-        )}
-      >
-        <ImageIcon className={cn(iconSize, "text-muted-foreground")} />
-      </div>
-    )
-  }
-  return (
-    <div className={cn(size, "overflow-hidden rounded border bg-muted/20")}>
-      <img
-        src={url}
-        alt=""
-        className="h-full w-full object-cover"
-        loading="lazy"
-        onError={() => {
-          errored.current = true
-        }}
-      />
-    </div>
-  )
-}
-
-function formatDate(ms: number): string {
-  return formatDateShared(ms)
 }

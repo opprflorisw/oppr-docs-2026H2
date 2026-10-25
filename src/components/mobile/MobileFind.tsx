@@ -17,13 +17,15 @@ import { MobileSearchInput } from "./MobileSearchInput"
 import { MobileAssetCard } from "./MobileAssetCard"
 import { MobileDocCard } from "./MobileDocCard"
 import { usePinned } from "./use-mobile-prefs"
+import { PhoneGlossary } from "@/components/plant/PhoneGlossary"
 
-type Segment = "assets" | "docs" | "wikis"
+type Segment = "assets" | "docs" | "wikis" | "words"
 
 const SEGMENTS: { key: Segment; label: string }[] = [
   { key: "assets", label: "Assets" },
   { key: "docs", label: "Documents" },
   { key: "wikis", label: "Wikis" },
+  { key: "words", label: "Words" },
 ]
 
 type WikiRow = { _id: string; title: string; purpose?: string; status?: string }
@@ -89,10 +91,11 @@ export function MobileFindPage() {
             docs={matchDocs}
             wikis={matchWikis}
             docsByAsset={assetsResult?.docsByAsset}
+            extra={<PhoneGlossary query={q} />}
           />
         ) : (
           <>
-            <div role="tablist" aria-label="Browse" className="grid grid-cols-3 gap-1 rounded-2xl bg-muted p-1">
+            <div role="tablist" aria-label="Browse" className="grid grid-cols-4 gap-1 rounded-2xl bg-muted p-1">
               {SEGMENTS.map((s) => (
                 <button
                   key={s.key}
@@ -112,6 +115,7 @@ export function MobileFindPage() {
             {segment === "assets" && <AssetBrowse result={assetsResult} />}
             {segment === "docs" && <DocBrowse docs={rawDocs} />}
             {segment === "wikis" && <WikiBrowse wikis={rawWikis === undefined ? undefined : wikis} />}
+            {segment === "words" && <PhoneGlossary />}
           </>
         )}
       </div>
@@ -140,6 +144,7 @@ function Results({
   docs,
   wikis,
   docsByAsset,
+  extra,
 }: {
   query: string
   loading: boolean
@@ -147,6 +152,8 @@ function Results({
   docs: ConvexDoc<"documents">[]
   wikis: WikiRow[]
   docsByAsset: Record<string, unknown[]> | undefined
+  /** More matches from elsewhere (the Plant glossary), above the Ask row. */
+  extra?: React.ReactNode
 }) {
   const [, navigate] = useLocation()
   const { isPinned, togglePin } = usePinned()
@@ -187,6 +194,7 @@ function Results({
       {wikis.slice(0, 6).map((w) => (
         <WikiRowButton key={w._id} wiki={w} />
       ))}
+      {extra}
       <button
         type="button"
         onClick={() => navigate(`/m/ask?scope=library&q=${encodeURIComponent(query)}`)}

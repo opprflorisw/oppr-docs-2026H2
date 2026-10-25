@@ -38,8 +38,9 @@ import {
 import { initials, useCheckIn } from "@/lib/checkIn"
 import { cn } from "@/lib/utils"
 import { ProfileDialog, SkillDialog, type CatalogueProfile, type CatalogueSkill } from "./skills/SkillDialogs"
-import { errorText, SHIFT_META, SHIFT_ORDER, shiftKey, type ShiftKey } from "./skills/skillUi"
+import { errorText, useShifts, type ShiftKey } from "./skills/skillUi"
 import { TrainingGuidedCreation } from "./training/TrainingGuidedCreation"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 type Catalogue = FunctionReturnType<typeof api.skills.catalogue>
 
@@ -50,7 +51,7 @@ type Catalogue = FunctionReturnType<typeof api.skills.catalogue>
 export function SkillsSettings() {
   const catalogue = useQuery(api.skills.catalogue)
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer" ? person : null
+  const engineer = isEngineerOrAdmin(person) ? person : null
   const assignProfiles = useMutation(api.people.assignProfiles)
   const [skillDialog, setSkillDialog] = useState<{ skill: CatalogueSkill | null } | null>(null)
   const [profileDialog, setProfileDialog] = useState<{ profile: CatalogueProfile | null } | null>(null)
@@ -422,6 +423,7 @@ function ProvedBy({
 const ANY_SHIFT = "any"
 
 function CoverageQuestions({ catalogue, engineerId }: { catalogue: Catalogue; engineerId: Id<"people"> | null }) {
+  const shifts = useShifts()
   const questions = useQuery(api.coverageQuestions.list)
   const create = useMutation(api.coverageQuestions.create)
   const update = useMutation(api.coverageQuestions.update)
@@ -520,7 +522,7 @@ function CoverageQuestions({ catalogue, engineerId }: { catalogue: Catalogue; en
                   <div className="min-w-[200px] flex-1">
                     <div className="text-sm font-medium">{q.label}</div>
                     <div className="text-xs text-muted-foreground">
-                      {q.profileName ?? "Profile removed"} · {q.shift ? SHIFT_META[q.shift].label : "Any shift (the next one)"}
+                      {q.profileName ?? "Profile removed"} · {q.shift ? shifts.label(q.shift) : "Any shift (the next one)"}
                     </div>
                   </div>
                   <label className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -613,9 +615,10 @@ function QuestionForm({
 }) {
   const [v, setV] = useState<QuestionValues>(initial)
   const [busy, setBusy] = useState(false)
+  const shifts = useShifts()
   const profileName = catalogue.profiles.find((p) => p._id === v.profileId)?.name
   const suggestion = profileName
-    ? `Who can run ${profileName.replace(/ operator$/i, "").toLowerCase()}${v.shift === "night" ? " tonight" : v.shift ? ` on the ${SHIFT_META[v.shift].label.toLowerCase()}` : ""}?`
+    ? `Who can run ${profileName.replace(/ operator$/i, "").toLowerCase()}${v.shift === "night" ? " tonight" : v.shift ? ` on the ${shifts.label(v.shift).toLowerCase()}` : ""}?`
     : ""
   const blocked = !v.profileId ? "Pick a Skill profile." : !v.label.trim() ? "Write the question." : null
   return (
@@ -651,7 +654,7 @@ function QuestionForm({
             ))}
           </SelectContent>
         </Select>
-        <Select value={v.shift ?? ANY_SHIFT} onValueChange={(s) => setV({ ...v, shift: shiftKey(s) })}>
+        <Select value={v.shift ?? ANY_SHIFT} onValueChange={(s) => setV({ ...v, shift: s === ANY_SHIFT ? null : s })}>
           <SelectTrigger className="h-9 w-[160px] text-xs" aria-label="Shift">
             <SelectValue />
           </SelectTrigger>
@@ -659,9 +662,9 @@ function QuestionForm({
             <SelectItem value={ANY_SHIFT} className="text-xs">
               Any shift (the next one)
             </SelectItem>
-            {SHIFT_ORDER.map((s) => (
-              <SelectItem key={s} value={s} className="text-xs">
-                {SHIFT_META[s].label}
+            {shifts.cover.map((m) => (
+              <SelectItem key={m.key} value={m.key} className="text-xs">
+                {m.label}
               </SelectItem>
             ))}
           </SelectContent>

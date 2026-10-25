@@ -53,7 +53,7 @@ import {
   HardHat,
   ChevronDown,
   AlertTriangle,
-  Image as DiagramIcon,
+  Workflow as DiagramIcon,
   Info,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -61,7 +61,8 @@ import { Button } from "@/components/ui/button"
 import { LaunchLogNode, LaunchLogPicker } from "./LaunchLogBlock"
 import { LinkedAssetNode, LinkedAssetPicker } from "./LinkedAssetBlock"
 import { ReferenceDocNode, ReferenceDocPicker } from "./ReferenceDocBlock"
-import { InsertImageDialog } from "./InsertImageDialog"
+import { ImagePickerDialog } from "@/components/images/ImagePickerDialog"
+import type { Id } from "../../../convex/_generated/dataModel"
 import { InsertLinkDialog } from "./InsertLinkDialog"
 import { CalloutNode, type CalloutKind } from "./CalloutBlock"
 import { PpeNode, PpePicker, PpeQuickPalette, type PpeItem } from "./PpeBlock"
@@ -390,6 +391,10 @@ export function DocumentEditor({
   const [ppePickerOpen, setPpePickerOpen] = useState(false)
   const [diagramPickerOpen, setDiagramPickerOpen] = useState(false)
   const [imageDialogOpen, setImageDialogOpen] = useState(false)
+  const [imageContext, setImageContext] = useState<{ query: string; assetIds: Id<"assets">[] }>({
+    query: "",
+    assetIds: [],
+  })
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)
   const [linkInitial, setLinkInitial] = useState<{
     url: string | null
@@ -779,6 +784,15 @@ export function DocumentEditor({
 
   function insertImage() {
     if (!editor) return
+    // Suggest pictures for the step at the cursor and the Assets linked in the body.
+    const assetIds = new Set<string>()
+    editor.state.doc.descendants((node) => {
+      if (node.type.name === "linkedAsset" && node.attrs.assetId) assetIds.add(String(node.attrs.assetId))
+    })
+    setImageContext({
+      query: editor.state.selection.$from.parent.textContent.trim().slice(0, 200),
+      assetIds: Array.from(assetIds) as Id<"assets">[],
+    })
     setImageDialogOpen(true)
   }
 
@@ -951,7 +965,7 @@ export function DocumentEditor({
 
               {/* Group: Figures — image + diagram */}
               <ToolbarGroup>
-                <ToolbarButton title="Image" onClick={insertImage}>
+                <ToolbarButton title="Image: pick from the library, upload or create" onClick={insertImage}>
                   <ImageIcon className="h-4 w-4" />
                 </ToolbarButton>
                 <ToolbarButton
@@ -1087,17 +1101,19 @@ export function DocumentEditor({
           editor.chain().focus().insertDiagram(attrs).run()
         }}
       />
-      <InsertImageDialog
+      <ImagePickerDialog
         open={imageDialogOpen}
         onOpenChange={setImageDialogOpen}
-        onInsert={({ id, alt, url }) => {
+        initialQuery={imageContext.query}
+        assetIds={imageContext.assetIds}
+        onPick={({ imageId, altText, url }) => {
           if (!editor) return
           editor
             .chain()
             .focus()
             .insertContent({
               type: "image",
-              attrs: { src: url ?? "", alt, "data-image-id": id },
+              attrs: { src: url ?? "", alt: altText, "data-image-id": imageId },
             })
             .run()
         }}

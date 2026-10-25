@@ -30,6 +30,7 @@ import { useCheckIn } from "@/lib/checkIn"
 import { cn } from "@/lib/utils"
 import { AREAS, SCOPE_INFO, SCOPES, type Scope } from "./data"
 import { ScopeBadge } from "./ScopeBadge"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 type KeyHost = "customer-cloud" | "self-hosted" | "other"
 
@@ -65,7 +66,7 @@ function time(ts: number): string {
 export function KeysPanel() {
   const keys = useQuery(api.mcp.keys.listKeys)
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer" ? person : null
+  const engineer = isEngineerOrAdmin(person) ? person : null
   const [newOpen, setNewOpen] = useState(false)
   const [showRevoked, setShowRevoked] = useState(false)
   const [revoking, setRevoking] = useState<{ id: Id<"mcpKeys">; name: string } | null>(null)
@@ -218,7 +219,7 @@ function NewKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
   const create = useMutation(api.mcp.keys.createKey)
   const vocab = useQuery(api.naming.listVocabulary, open ? {} : "skip")
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer" ? person : null
+  const engineer = isEngineerOrAdmin(person) ? person : null
   const [name, setName] = useState("")
   const [scopes, setScopes] = useState<Scope[]>(["read:published"])
   const [areas, setAreas] = useState<string[]>([])

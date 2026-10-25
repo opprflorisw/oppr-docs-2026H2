@@ -7,7 +7,8 @@ import { useState } from "react"
 import { Redirect, useLocation } from "wouter"
 import { WrapManualDialog } from "@/components/manuals/WrapManualDialog"
 import { useQuery } from "convex/react"
-import { BookLock, Cable, FileText, LayoutTemplate, PlusCircle, Sparkles } from "lucide-react"
+import { BookLock, Cable, FileText, LayoutTemplate, MessageSquareText, PlusCircle, Sparkles } from "lucide-react"
+import { cn } from "@/lib/utils"
 import {
   Card,
   CardContent,
@@ -54,13 +55,20 @@ export function NewDocumentChooserDialog({
             New document
           </DialogTitle>
           <DialogDescription className="text-xs">
-            Write it yourself, or start from a PDF. You set the title, location, discipline and
+            Write it with the assistant or yourself, or start from a PDF. You set the title, location, discipline and
             reviewers next.
           </DialogDescription>
         </div>
       <div className="space-y-6">
         <section className="space-y-2">
           <h2 className="text-sm font-semibold">Write</h2>
+          <ChooserCard
+            icon={MessageSquareText}
+            title="Write with the assistant"
+            description="Say what the document should cover. The assistant asks a few questions, drafts the steps and proposes images, PPE and hazards from your library and Plant. You check everything before it goes in."
+            featured
+            onClick={() => navigate("/docs/new/compose?assistant=1")}
+          />
           <div className="grid gap-3 md:grid-cols-2">
             <ChooserCard
               icon={FileText}
@@ -173,11 +181,14 @@ function ChooserCard({
   title,
   description,
   onClick,
+  featured,
 }: {
   icon: typeof FileText
   title: string
   description: string
   onClick: () => void
+  /** The suggested way to start: drawn a little stronger. */
+  featured?: boolean
 }) {
   return (
     <Card
@@ -190,7 +201,7 @@ function ChooserCard({
           onClick()
         }
       }}
-      className="cursor-pointer transition-colors hover:border-primary"
+      className={cn("cursor-pointer transition-colors hover:border-primary", featured && "border-primary/40 bg-primary/5")}
     >
       <CardHeader className="flex-row items-start gap-3 space-y-0 p-4">
         <Icon className="mt-0.5 h-6 w-6 shrink-0 text-primary" />

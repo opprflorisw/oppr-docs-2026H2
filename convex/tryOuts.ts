@@ -17,6 +17,7 @@ import { Doc, Id } from "./_generated/dataModel"
 import { requireUserId } from "./lib/auth"
 import { getVersion } from "./trainings"
 import { addMonths, effectiveLevel } from "./skills"
+import { isEngineerOrAdmin } from "./lib/roles"
 
 type Ctx = QueryCtx | MutationCtx
 
@@ -51,7 +52,7 @@ async function levelOf(ctx: Ctx, personId: Id<"people">, skillId: Id<"skills">) 
 /** May this person sign a try-out of these Skills? Returns why not, or null. */
 async function whyCannotSign(ctx: Ctx, signer: Doc<"people">, traineeId: Id<"people">, skillIds: Id<"skills">[]) {
   if (signer._id === traineeId) return "You cannot sign your own try-out. Ask a trainer or an Engineer."
-  if (signer.kind === "engineer") return null
+  if (isEngineerOrAdmin(signer)) return null
   const now = Date.now()
   for (const id of skillIds) {
     if (effectiveLevel(await levelOf(ctx, signer._id, id), now) >= 3) return null
@@ -62,14 +63,14 @@ async function whyCannotSign(ctx: Ctx, signer: Doc<"people">, traineeId: Id<"peo
 /** Trainers for a Training: people at level 3 on a linked Skill first, then Engineers. */
 async function trainersFor(ctx: Ctx, skillIds: Id<"skills">[], traineeId: Id<"people">) {
   const now = Date.now()
-  const out: { _id: Id<"people">; name: string; role: string; kind: "operator" | "engineer"; level3: boolean }[] = []
+  const out: { _id: Id<"people">; name: string; role: string; kind: Doc<"people">["kind"]; level3: boolean }[] = []
   for (const p of await ctx.db.query("people").take(500)) {
-    if (p._id === traineeId) continue
+    if (p._id === traineeId || p.archived) continue
     let level3 = false
     for (const id of skillIds) if (effectiveLevel(await levelOf(ctx, p._id, id), now) >= 3) level3 = true
-    if (level3 || p.kind === "engineer") out.push({ _id: p._id, name: p.name, role: p.role, kind: p.kind, level3 })
+    if (level3 || isEngineerOrAdmin(p)) out.push({ _id: p._id, name: p.name, role: p.role, kind: p.kind, level3 })
   }
-  return out.sort((a, b) => Number(b.level3) - Number(a.level3) || Number(a.kind === "engineer") - Number(b.kind === "engineer") || a.name.localeCompare(b.name))
+  return out.sort((a, b) => Number(b.level3) - Number(a.level3) || Number(a.kind !== "operator") - Number(b.kind !== "operator") || a.name.localeCompare(b.name))
 }
 
 // ---- Mutations ----------------------------------------------------------------
@@ -135,7 +136,7 @@ export const cancel = mutation({
     const r = await ctx.db.get(args.requestId)
     if (!r || r.status !== "open") return
     const p = await ctx.db.get(args.personId)
-    if (r.personId !== args.personId && p?.kind !== "engineer")
+    if (r.personId !== args.personId && !isEngineerOrAdmin(p))
       throw new ConvexError("Only the trainee or an Engineer can cancel this request.")
     await ctx.db.patch(r._id, { status: "cancelled", doneAt: Date.now() })
   },
@@ -188,7 +189,7 @@ export const sign = mutation({
       throw new ConvexError("Write what to practise, so the trainee knows what to work on.")
 
     const items = args.items.map((i) => ({ label: i.label.trim(), result: i.result, note: i.note?.trim() || undefined }))
-    let trainerLevel = signer.kind === "engineer" ? 3 : 0
+    let trainerLevel = isEngineerOrAdmin(signer) ? 3 : 0
     for (const id of r.skillIds) trainerLevel = Math.max(trainerLevel, effectiveLevel(await levelOf(ctx, signer._id, id), now))
     const attempt = r.attemptId ? await ctx.db.get(r.attemptId) : null
     if (attempt) {
@@ -308,7 +309,7 @@ export const inbox = query({
       if (r.status !== "open" || r.personId === me._id) continue
       if (r.trainerId === null && (r.kind ?? "tryout") === "tryout" && (await whyCannotSign(ctx, me, r.personId, r.skillIds)))
         continue
-      if (r.trainerId === null && (r.kind ?? "tryout") === "walkthrough" && me.kind !== "engineer") continue
+      if (r.trainerId === null && (r.kind ?? "tryout") === "walkthrough" && !isEngineerOrAdmin(me)) continue
       out.push(await requestView(ctx, r))
     }
     return out.sort((a, b) => b.createdAt - a.createdAt)

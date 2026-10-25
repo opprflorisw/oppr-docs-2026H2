@@ -10,6 +10,7 @@ import { useCheckIn } from "@/lib/checkIn"
 import { cn } from "@/lib/utils"
 import { daysAgo, errorText, fmtDate } from "./lib"
 import { AssignDialog } from "./AssignDialog"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 const STATE: Record<"passed" | "in_progress" | "not_passed" | "not_started", { label: string; tone: string }> = {
   passed: { label: "Passed", tone: "bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-500/10 dark:text-emerald-200 dark:border-emerald-500/40" },
@@ -27,7 +28,7 @@ export function TrainingPeoplePanel({ trainingId, isLive }: { trainingId: Id<"tr
   const records = useQuery(api.attempts.listRecords, { trainingId, includeFailed: true })
   const remind = useMutation(api.assignments.remind)
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer" ? person : null
+  const engineer = isEngineerOrAdmin(person) ? person : null
   const [assigning, setAssigning] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
 

@@ -43,6 +43,7 @@ import { useCheckIn } from "@/lib/checkIn"
 import { ReplacePdfDialog } from "./ReplacePdfDialog"
 import { WrappedManualStrip } from "./WrappedManualView"
 import { useWrappedManual } from "./useWrappedManual"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 type Action = "save" | "submit" | "approve" | "publish" | "revert"
 const NONE = "__none__"
@@ -70,8 +71,8 @@ export function WrappedManualEditor({
   const approveDoc = useMutation(api.documents.approve)
   const revertToDraft = useMutation(api.documents.revertToDraft)
   const { person, people } = useCheckIn()
-  const engineer = person?.kind === "engineer" ? person : null
-  const engineers = useMemo(() => (people ?? []).filter((p) => p.kind === "engineer"), [people])
+  const engineer = isEngineerOrAdmin(person) ? person : null
+  const engineers = useMemo(() => (people ?? []).filter((p) => isEngineerOrAdmin(p)), [people])
 
   const { data: wrapped, late } = useWrappedManual(doc._id, doc.currentVersion)
 

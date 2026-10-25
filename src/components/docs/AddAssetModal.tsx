@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { useCheckIn } from "@/lib/checkIn"
 
 interface AddAssetModalProps {
   open: boolean
@@ -29,6 +30,7 @@ interface AddAssetModalProps {
 
 export function AddAssetModal({ open, onOpenChange, onCreated }: AddAssetModalProps) {
   const createAsset = useMutation(api.assets.create)
+  const { person } = useCheckIn()
   const generateUploadUrl = useMutation(api.files.generateUploadUrl)
 
   const [code, setCode] = useState("")
@@ -77,6 +79,7 @@ export function AddAssetModal({ open, onOpenChange, onCreated }: AddAssetModalPr
         name: name.trim(),
         description: description.trim() || null,
         imageStorageId,
+        personId: person?._id,
       })
       toast.success(`Asset ${code.trim()} created`)
       reset()

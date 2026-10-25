@@ -15,7 +15,7 @@ export const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"] as c
 export const DEFAULT_PROTOCOL_VERSION = "2025-06-18"
 
 export const SERVER_INSTRUCTIONS = [
-  "Oppr Knowledge is the controlled knowledge base of Pijpwerk Noord, a Dutch plant that extrudes PE pressure pipe.",
+  "Oppr Knowledge is the controlled knowledge base of one manufacturing plant; oppr_get_structure gives its name, areas and Assets.",
   "It holds Documents (SOPs, work instructions, LMRAs and wrapped supplier manuals), each with an immutable naming code such as EXT-OPS-SOP-0001, plus Assets, Trainings and Skills.",
   "Only Published versions are the truth: every read tool returns Published content only, never drafts.",
   "Use oppr_get_structure first when you prepare outside documents, so you map them onto the plant's real areas, disciplines, document types and Assets.",

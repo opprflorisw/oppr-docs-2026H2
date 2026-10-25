@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils"
 import { useMobileShell } from "./MobileShell"
 import { MobileSearchInput } from "./MobileSearchInput"
 import { FloorPrimaryButton, FloorSecondaryButton, MobileSheet } from "./MobileSheet"
+import { isEngineerOrAdmin } from "@/lib/roles"
+import { useShifts } from "@/components/learn/skills/skillUi"
 
 // Check-in on the floor (CONTEXT.md: Anonymous, Checked in). Anonymous is
 // the default; picking your name is needed only for proof, like a Round.
@@ -73,17 +75,6 @@ export function Avatar({ person, size = "md" }: { person: Pick<Person, "name"> |
   )
 }
 
-const SHIFT_LABEL: Record<string, string> = {
-  early: "early shift",
-  late: "late shift",
-  night: "night shift",
-  day: "day shift",
-}
-
-function shiftOf(p: Person): string | null {
-  const s = (p as Person & { shift?: string | null }).shift
-  return typeof s === "string" ? s : null
-}
 
 /**
  * Bottom sheet with every person: search, recent on this phone, Operators
@@ -102,6 +93,7 @@ export function MobileCheckInSheet({
   onPicked: (id: Person["_id"]) => void
 }) {
   const { person, people, checkIn, checkOut } = useCheckIn()
+  const shifts = useShifts()
   const [query, setQuery] = useState("")
   const recentIds = useMemo(() => readRecentCheckIns(deviceKey), [deviceKey])
 
@@ -110,24 +102,25 @@ export function MobileCheckInSheet({
   const list = (people ?? []).filter(matches)
   const recent = q ? [] : recentIds.map((id) => list.find((p) => p._id === id)).filter((p): p is Person => !!p)
   const operators = list.filter((p) => p.kind === "operator")
-  const engineers = list.filter((p) => p.kind === "engineer")
+  const engineers = list.filter((p) => isEngineerOrAdmin(p))
 
   const groups: { label: string; people: Person[] }[] = []
   if (recent.length > 0) groups.push({ label: "Recent on this phone", people: recent })
   const byShift = new Map<string, Person[]>()
   for (const p of operators) {
-    const key = shiftOf(p) ?? ""
+    const key = p.shift && shifts.meta(p.shift) ? p.shift : ""
     byShift.set(key, [...(byShift.get(key) ?? []), p])
   }
-  for (const key of ["early", "late", "night", "day", ""]) {
+  for (const key of [...shifts.keys, ""]) {
     const ps = byShift.get(key)
     if (!ps?.length) continue
     groups.push({
-      label: key ? `Operators, ${SHIFT_LABEL[key] ?? key}` : byShift.size > 1 ? "Other Operators" : "Operators",
+      label: key ? `Operators, ${shifts.label(key).toLowerCase()}` : byShift.size > 1 ? "Other Operators" : "Operators",
       people: ps,
     })
   }
-  if (engineers.length > 0) groups.push({ label: "Engineers", people: engineers })
+  if (engineers.length > 0)
+    groups.push({ label: engineers.some((p) => p.kind === "admin") ? "Engineers and Admins" : "Engineers", people: engineers })
 
   const pick = (id: Person["_id"]) => {
     checkIn(id)

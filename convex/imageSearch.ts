@@ -1,13 +1,21 @@
 // CONTRACT (shared by the images lane and the guided-writer lane).
-// Search the image library by text, by a photo, or both. The images lane
-// owns this file and replaces the implementation with multimodal embeddings
-// (convex/ai/constants.ts IMAGE_EMBEDDING_MODEL); the signature and the
-// ImageHit shape below must stay as they are.
+// Search the image library by text, by a photo, or both. The signature and
+// the ImageHit shape below must stay as they are.
+//
+// How it works: the query text and/or the photo are embedded with
+// IMAGE_EMBEDDING_MODEL (multimodal, same space as the image embeddings) and
+// matched against images.by_embedding. Words are also matched against the
+// file name, alt text, description and tags, which keeps search working
+// while images are still being embedded or when the API is unavailable.
+// areaCodes and assetIds boost images linked to that context; they do not
+// hide the rest. With neither query nor photo, the context's images and the
+// recently used ones are returned (the picker's "Suggested").
 import { v } from "convex/values"
 import { action, internalQuery } from "./_generated/server"
 import { internal } from "./_generated/api"
-import type { Id } from "./_generated/dataModel"
+import type { Doc, Id } from "./_generated/dataModel"
 import { requireUserId } from "./lib/auth"
+import { embedImageBytes, embedText } from "./ai/imageEmbed"
 
 export type ImageHit = {
   imageId: Id<"images">
@@ -20,6 +28,12 @@ export type ImageHit = {
   matchedBy: "image" | "caption" | "text"
 }
 
+// Cosine scores below this are noise for gemini-embedding-2 (measured on the
+// seeded library; see MIN_VECTOR_SCORE notes in the images lane report).
+const MIN_VECTOR_SCORE = 0.3
+const CONTEXT_BOOST = 0.05
+const TEXT_BOOST = 0.15
+
 export const search = action({
   args: {
     query: v.optional(v.string()),
@@ -31,37 +45,149 @@ export const search = action({
   },
   handler: async (ctx, args): Promise<ImageHit[]> => {
     await requireUserId(ctx)
-    return await ctx.runQuery(internal.imageSearch.textMatch, {
-      query: args.query ?? "",
-      limit: Math.min(args.limit ?? 12, 48),
+    const limit = Math.max(1, Math.min(args.limit ?? 12, 48))
+    const query = (args.query ?? "").trim()
+    const context = { areaCodes: args.areaCodes ?? [], assetIds: args.assetIds ?? [] }
+
+    if (!query && !args.storageId) {
+      return await ctx.runQuery(internal.imageSearch.contextHits, { ...context, limit })
+    }
+
+    const vectorScores = new Map<string, number>()
+    const apiKey = process.env.GEMINI_API_KEY
+    if (apiKey) {
+      const vectors: number[][] = []
+      try {
+        if (args.storageId) {
+          const blob = await ctx.storage.get(args.storageId)
+          if (blob) {
+            vectors.push(
+              await embedImageBytes(new Uint8Array(await blob.arrayBuffer()), blob.type || "image/jpeg", apiKey),
+            )
+          }
+        }
+        if (query) vectors.push(await embedText(query, apiKey))
+      } catch (e) {
+        console.warn("image search embed failed, words only:", e instanceof Error ? e.message : e)
+      }
+      for (const vector of vectors) {
+        const results = await ctx.vectorSearch("images", "by_embedding", { vector, limit: Math.min(limit * 3, 64) })
+        for (const r of results) {
+          if (r._score < MIN_VECTOR_SCORE) continue
+          const prev = vectorScores.get(r._id) ?? 0
+          if (r._score > prev) vectorScores.set(r._id, r._score)
+        }
+      }
+    }
+
+    return await ctx.runQuery(internal.imageSearch.rank, {
+      query,
+      vectorHits: Array.from(vectorScores, ([id, score]) => ({ id: id as Id<"images">, score })),
+      ...context,
+      limit,
     })
   },
 })
 
-export const textMatch = internalQuery({
-  args: { query: v.string(), limit: v.number() },
-  handler: async (ctx, { query, limit }): Promise<ImageHit[]> => {
-    const words = query.toLowerCase().split(/\s+/).filter((w) => w.length > 2)
-    const rows = await ctx.db.query("images").order("desc").take(1000)
-    const scored = rows
-      .map((r) => {
-        const hay = `${r.filename} ${r.altText}`.toLowerCase()
-        const hits = words.filter((w) => hay.includes(w)).length
-        return { r, score: words.length ? hits / words.length : 0 }
+function words(q: string): string[] {
+  return q
+    .toLowerCase()
+    .split(/[^a-z0-9À-ɏ-]+/)
+    .filter((w) => w.length > 2)
+}
+
+function textScore(r: Doc<"images">, ws: string[]): number {
+  if (ws.length === 0) return 0
+  const hay = `${r.filename} ${r.altText} ${r.description ?? ""} ${(r.tags ?? []).join(" ")}`.toLowerCase()
+  return ws.filter((w) => hay.includes(w)).length / ws.length
+}
+
+function inContext(r: Doc<"images">, ctx: { areaCodes: string[]; assetIds: Id<"assets">[] }): boolean {
+  return (
+    (r.areaCodes ?? []).some((a) => ctx.areaCodes.includes(a)) ||
+    (r.assetIds ?? []).some((a) => ctx.assetIds.includes(a))
+  )
+}
+
+const contextArgs = {
+  areaCodes: v.array(v.string()),
+  assetIds: v.array(v.id("assets")),
+  limit: v.number(),
+}
+
+export const rank = internalQuery({
+  args: {
+    query: v.string(),
+    vectorHits: v.array(v.object({ id: v.id("images"), score: v.number() })),
+    ...contextArgs,
+  },
+  handler: async (ctx, args): Promise<ImageHit[]> => {
+    const ws = words(args.query)
+    const scored = new Map<string, { r: Doc<"images">; score: number; matchedBy: ImageHit["matchedBy"] }>()
+    for (const h of args.vectorHits) {
+      const r = await ctx.db.get(h.id)
+      if (!r) continue
+      scored.set(r._id, {
+        r,
+        score: h.score + TEXT_BOOST * textScore(r, ws),
+        matchedBy: r.embedSource === "caption" ? "caption" : "image",
       })
-      .filter((x) => x.score > 0 || words.length === 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
-    return await Promise.all(
-      scored.map(async ({ r, score }) => ({
-        imageId: r._id,
-        url: r.storageId ? await ctx.storage.getUrl(r.storageId) : r.externalUrl,
-        altText: r.altText,
-        description: null,
-        tags: [],
-        score,
-        matchedBy: "text" as const,
-      })),
-    )
+    }
+    if (ws.length > 0) {
+      for await (const r of ctx.db.query("images").order("desc")) {
+        if (scored.has(r._id)) continue
+        const t = textScore(r, ws)
+        if (t > 0) scored.set(r._id, { r, score: 0.2 + TEXT_BOOST * t, matchedBy: "text" })
+      }
+    }
+    const hits = Array.from(scored.values()).map((s) => ({
+      ...s,
+      score: s.score + (inContext(s.r, args) ? CONTEXT_BOOST : 0),
+    }))
+    hits.sort((a, b) => b.score - a.score)
+    return await Promise.all(hits.slice(0, args.limit).map((h) => toHit(ctx, h.r, h.score, h.matchedBy)))
   },
 })
+
+/** No query: images linked to the context first, then the recently used, then the newest. */
+export const contextHits = internalQuery({
+  args: contextArgs,
+  handler: async (ctx, args): Promise<ImageHit[]> => {
+    const out: Doc<"images">[] = []
+    const seen = new Set<string>()
+    const push = (r: Doc<"images">) => {
+      if (seen.has(r._id) || out.length >= args.limit) return
+      seen.add(r._id)
+      out.push(r)
+    }
+    if (args.areaCodes.length || args.assetIds.length) {
+      for await (const r of ctx.db.query("images").order("desc")) {
+        if (inContext(r, args)) push(r)
+        if (out.length >= args.limit) break
+      }
+    }
+    const recent = await ctx.db.query("images").withIndex("by_lastUsedAt").order("desc").take(args.limit)
+    for (const r of recent) if (r.lastUsedAt) push(r)
+    if (out.length < args.limit) {
+      for (const r of await ctx.db.query("images").order("desc").take(args.limit * 2)) push(r)
+    }
+    return await Promise.all(out.map((r, i) => toHit(ctx, r, 1 - i / (out.length + 1), "text")))
+  },
+})
+
+async function toHit(
+  ctx: { storage: { getUrl: (id: Id<"_storage">) => Promise<string | null> } },
+  r: Doc<"images">,
+  score: number,
+  matchedBy: ImageHit["matchedBy"],
+): Promise<ImageHit> {
+  return {
+    imageId: r._id,
+    url: r.storageId ? await ctx.storage.getUrl(r.storageId) : r.externalUrl,
+    altText: r.altText,
+    description: r.description ?? null,
+    tags: r.tags ?? [],
+    score: Math.round(score * 1000) / 1000,
+    matchedBy,
+  }
+}

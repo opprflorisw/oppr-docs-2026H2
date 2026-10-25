@@ -203,10 +203,12 @@ export function AssignDialog({
   const catalogue = useCatalogue()
   const { person } = useCheckIn()
   const assign = useMutation(assignmentsApi.assign)
+  // The company's default due days (Settings, Training).
+  const dueDays = useQuery(api.orgSettings.get)?.training.dueDays ?? 14
   const [pickedTraining, setPickedTraining] = useState<Id<"trainings"> | null>(trainingId ?? null)
   const [profileIds, setProfileIds] = useState<Id<"skillProfiles">[]>([])
   const [personIds, setPersonIds] = useState<Id<"people">[]>(initialPeople ?? [])
-  const [due, setDue] = useState(toDateInput(defaultDueAt ?? Date.now() + 14 * DAY))
+  const [due, setDue] = useState(toDateInput(defaultDueAt ?? Date.now() + dueDays * DAY))
   const [note, setNote] = useState(reason ?? "")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -216,7 +218,7 @@ export function AssignDialog({
     setPickedTraining(trainingId ?? null)
     setProfileIds([])
     setPersonIds(initialPeople ?? [])
-    setDue(toDateInput(defaultDueAt ?? Date.now() + 14 * DAY))
+    setDue(toDateInput(defaultDueAt ?? Date.now() + dueDays * DAY))
     setNote(reason ?? "")
     setError(null)
     // Reset only when the dialog opens.

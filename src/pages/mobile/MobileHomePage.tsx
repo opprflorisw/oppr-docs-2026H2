@@ -22,6 +22,7 @@ import { useMobileShell } from "@/components/mobile/MobileShell"
 import { useCheckIn } from "@/lib/checkIn"
 import { formatAgo } from "@/lib/time"
 import { cn } from "@/lib/utils"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 function greeting(): string {
   const h = new Date().getHours()
@@ -90,7 +91,7 @@ export function MobileHomePage() {
           </button>
         )}
 
-        {person?.kind === "engineer" && <CoverAnswers />}
+        {isEngineerOrAdmin(person) && <CoverAnswers />}
 
         <MobileRoundsCard exclude={topTrainings} />
 
@@ -199,7 +200,7 @@ function CoverAnswer({
 }: {
   label: string
   profileId: Id<"skillProfiles">
-  shift: "early" | "late" | "night" | null
+  shift: string | null
 }) {
   const cover = useQuery(api.skills.coverage, { profileId, shift })
   const n = cover?.count

@@ -35,10 +35,20 @@ export interface GuidedMessage {
   text: string
 }
 
+/** A guided question with quick answers the person can click. */
+export interface GuidedQuestion {
+  text: string
+  choices: string[]
+}
+
 export interface GuidedResult<D> {
   reply: string
   draft: D
   ready: boolean
+  /** The next guided question, shown under the reply with its quick answers. */
+  question?: GuidedQuestion | null
+  /** Anything else the turn proposes (images, safety elements), for `renderEntryExtra`. */
+  extra?: unknown
 }
 
 export interface GuidedCreationProps<D> {
@@ -69,6 +79,17 @@ export interface GuidedCreationProps<D> {
   renderSummary?: (draft: D) => ReactNode
   /** Optional header above the Draft, for example the steps of a flow. */
   stepHeader?: ReactNode
+  /** Replaces the default line under the title. */
+  description?: ReactNode
+  /**
+   * Dialogs opened from inside the flow (an image picker, for example). They
+   * render inside this dialog so opening one does not close it.
+   */
+  overlays?: ReactNode
+  /** Extra content under an assistant message, for example proposals to add. */
+  renderEntryExtra?: (entry: GuidedEntry, info: GuidedEntryInfo<D>) => ReactNode
+  /** What the assistant is doing while it works, by seconds waited (see GuidedProgressStep). */
+  progressSteps?: GuidedProgressStep[]
   /** Null when the Draft can be created, otherwise the reason it cannot. */
   blockedReason: (draft: D) => string | null
   createLabel: string
@@ -77,9 +98,26 @@ export interface GuidedCreationProps<D> {
 
 type Phase = "idle" | "asking" | "creating"
 
+/** A line shown while the assistant works, from `after` seconds on. */
+export interface GuidedProgressStep {
+  after: number
+  text: string
+}
+
 export interface GuidedEntry extends GuidedMessage {
   /** Fields this assistant turn changed in the Draft. */
   changes?: string[]
+  question?: GuidedQuestion | null
+  extra?: unknown
+}
+
+export interface GuidedEntryInfo<D> {
+  index: number
+  isLast: boolean
+  draft: D
+  setDraft: (next: D) => void
+  busy: boolean
+  send: (text: string) => void
 }
 
 interface State<D> {
@@ -149,7 +187,13 @@ function reducer<D>(state: State<D>, action: Action<D>): State<D> {
         dirty: state.dirty || action.changes.length > 0,
         entries: [
           ...state.entries,
-          { role: "assistant", text: action.result.reply, changes: action.changes },
+          {
+            role: "assistant",
+            text: action.result.reply,
+            changes: action.changes,
+            question: action.result.question ?? null,
+            extra: action.result.extra,
+          },
         ],
       }
     case "failAsk":
@@ -272,7 +316,10 @@ export function useGuidedSession<D>({
     const turn = ++turnRef.current
     try {
       // The greeting is UI only; the model sees the person's turns and its own replies.
-      const messages = entries.slice(1).map(({ role, text }) => ({ role, text }))
+      const messages = entries
+        .slice(1)
+        .map(({ role, text, question }) => ({ role, text: question ? `${text}
+${question.text}` : text }))
       const result = await ask(messages, state.draft)
       if (turn !== turnRef.current) return
       dispatch({ type: "answer", result, changes: changedFields(state.draft, result.draft) })
@@ -340,12 +387,16 @@ export function GuidedConversation<D>({
   placeholder,
   className,
   autoFocus = true,
+  renderExtra,
+  progressSteps,
 }: {
   session: GuidedSession<D>
   examples: string[]
   placeholder?: string
   className?: string
   autoFocus?: boolean
+  renderExtra?: (entry: GuidedEntry, info: GuidedEntryInfo<D>) => ReactNode
+  progressSteps?: GuidedProgressStep[]
 }) {
   const [input, setInput] = useState("")
   const [elapsed, setElapsed] = useState(0)
@@ -397,7 +448,31 @@ export function GuidedConversation<D>({
             >
               <span className="sr-only">{m.role === "user" ? "You: " : "Assistant: "}</span>
               {m.text}
+              {m.question && <span className="mt-1.5 block font-medium">{m.question.text}</span>}
             </div>
+            {m.question && i === lastIndex && phase === "idle" && m.question.choices.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 px-0.5 pt-0.5" aria-label="Quick answers">
+                {m.question.choices.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => send(c)}
+                    className="rounded-full border border-primary/40 bg-background px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            )}
+            {m.role === "assistant" &&
+              renderExtra?.(m, {
+                index: i,
+                isLast: i === lastIndex,
+                draft: session.draft,
+                setDraft: session.setDraft,
+                busy,
+                send,
+              })}
             {m.changes && m.changes.length > 0 && (
               <div className="flex flex-wrap items-center gap-x-2 px-1 text-xs text-muted-foreground">
                 <span>
@@ -421,9 +496,11 @@ export function GuidedConversation<D>({
           </div>
         ))}
         {phase === "asking" && (
-          <div className="flex max-w-[88%] items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Updating the draft…
+          <div className="flex max-w-[88%] items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground" role="status">
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+            <span>
+              {[...(progressSteps ?? [])].reverse().find((s) => elapsed >= s.after)?.text ?? "Updating the draft…"}
+            </span>
             {elapsed >= 3 && <span className="text-xs tabular-nums">{elapsed}s</span>}
           </div>
         )}
@@ -478,7 +555,14 @@ export function GuidedConversation<D>({
                 send(input)
               }
             }}
-            placeholder={placeholder ?? (userTurns === 0 ? "Describe what you need…" : "Reply, or ask for a change…")}
+            placeholder={
+              placeholder ??
+              (userTurns === 0
+                ? "Describe what you need…"
+                : entries[lastIndex]?.question
+                  ? "Answer, or ask for a change…"
+                  : "Reply, or ask for a change…")
+            }
             rows={2}
             className="min-h-[44px] resize-none text-sm"
             // Typing stays possible while the assistant answers; sending waits.
@@ -612,13 +696,19 @@ export function GuidedCreation<D>(props: GuidedCreationProps<D>) {
           <div className="border-b px-5 py-3 pr-14">
             <DialogTitle className="text-sm">{title}</DialogTitle>
             <DialogDescription className="text-xs">
-              Describe what you need on the left. The draft on the right fills in as you talk, and you can
-              change any field yourself.
+              {props.description ??
+                "Describe what you need on the left. The draft on the right fills in as you talk, and you can change any field yourself."}
             </DialogDescription>
           </div>
 
           <div className="grid min-h-0 flex-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-            <GuidedConversation session={session} examples={examples} className="border-r" />
+            <GuidedConversation
+              session={session}
+              examples={examples}
+              className="border-r"
+              renderExtra={props.renderEntryExtra}
+              progressSteps={props.progressSteps}
+            />
 
             <section className="flex min-h-0 flex-col bg-muted/20" aria-label="Draft">
               {props.stepHeader ?? (
@@ -648,9 +738,7 @@ export function GuidedCreation<D>(props: GuidedCreationProps<D>) {
                       : `Nothing is saved until you press ${props.createLabel}.`
                 }
               >
-                <Button size="sm" variant="ghost" onClick={requestClose} disabled={session.phase === "creating"}>
-                  Cancel
-                </Button>
+                {/* Closing is the X top right (and Esc); a second Cancel would say the same. */}
                 <Button size="sm" onClick={() => void create()} disabled={Boolean(blocked) || session.busy}>
                   {session.phase === "creating" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
                   {props.createLabel}
@@ -658,6 +746,7 @@ export function GuidedCreation<D>(props: GuidedCreationProps<D>) {
               </GuidedFooter>
             </section>
           </div>
+          {props.overlays}
         </DialogContent>
       </Dialog>
 

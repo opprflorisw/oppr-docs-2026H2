@@ -33,6 +33,7 @@ import { useCheckIn } from "@/lib/checkIn"
 import { formatAgo } from "@/lib/time"
 import { cn } from "@/lib/utils"
 import { PhoneSheet } from "@/components/captures/PhoneSheet"
+import { CAPTURE_NOTICE_POINTS } from "@/components/settings/captureNotice"
 import { CaptureScanSheet } from "@/components/captures/CaptureScanSheet"
 import { EntryTimeline, type EntryView } from "@/components/captures/EntryTimeline"
 import {
@@ -110,6 +111,8 @@ function StartCapture({ personId }: { personId: Id<"people"> }) {
   const [otherOpen, setOtherOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [noticeOpen, setNoticeOpen] = useState(false)
+  // The company's own notice and retention (Settings, Floor), shown with the standard points.
+  const floorSettings = useQuery(api.orgSettings.get)?.floor
   const [noticeDone, setNoticeDone] = useState(() => noticeSeen())
 
   const jobs = known ?? []
@@ -301,11 +304,18 @@ function StartCapture({ personId }: { personId: Id<"people"> }) {
         }
       >
         <ul className="list-disc space-y-2 pl-5 text-base leading-snug">
-          <li>Voice, photos and video can show people. Ask before you film a colleague.</li>
-          <li>Only you see this Capture until you hand it in. Then Engineers can see it.</li>
-          <li>You or an Engineer can delete a photo, video or voice note later.</li>
-          <li>A Capture is not a procedure. An Engineer turns it into a Draft.</li>
+          {CAPTURE_NOTICE_POINTS.map((p) => (
+            <li key={p}>{p}</li>
+          ))}
+          {floorSettings?.captureRetentionDays != null && (
+            <li>Photos, video and voice notes are removed {floorSettings.captureRetentionDays} days after hand-in.</li>
+          )}
         </ul>
+        {floorSettings?.captureNotice && (
+          <p className="mt-3 whitespace-pre-line rounded-xl bg-muted/60 p-3 text-base leading-snug" data-testid="capture-company-notice">
+            {floorSettings.captureNotice}
+          </p>
+        )}
       </PhoneSheet>
     </div>
   )

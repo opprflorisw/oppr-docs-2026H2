@@ -3,6 +3,7 @@ import { v } from "convex/values"
 import { Doc } from "./_generated/dataModel"
 import { requireUser, requireUserId } from "./lib/auth"
 import { isPublished, publishedVersion } from "./lib/published"
+import { requireEngineerOrAdmin } from "./lib/roles"
 
 export const list = query({
   args: {},
@@ -195,9 +196,12 @@ export const create = mutation({
     name: v.string(),
     description: v.optional(v.union(v.string(), v.null())),
     imageStorageId: v.optional(v.union(v.id("_storage"), v.null())),
+    // The checked-in Engineer or Admin (Settings permission).
+    personId: v.optional(v.id("people")),
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId, "Check in as an Engineer or Admin to change Assets.")
     const code = args.code.trim()
     const name = args.name.trim()
     if (!code) throw new Error("Asset ID is required")
@@ -247,9 +251,11 @@ export const update = mutation({
     code: v.optional(v.string()),
     description: v.optional(v.union(v.string(), v.null())),
     level: v.optional(v.number()),
+    personId: v.optional(v.id("people")),
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId, "Check in as an Engineer or Admin to change Assets.")
     const asset = await ctx.db.get(args.id)
     if (!asset) throw new Error("Asset not found")
 

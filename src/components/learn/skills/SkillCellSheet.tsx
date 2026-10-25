@@ -41,6 +41,7 @@ import {
   StatusChip,
   type SkillStatus,
 } from "./skillUi"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 const MIN_SEEN = 20
 
@@ -335,7 +336,7 @@ function SignOffPanel({ data }: { data: CellData }) {
     ? `Check in to sign off ${first}'s practice. The sign-off is recorded in your name.`
     : me._id === person._id
       ? "This is your own Skill. Someone else must sign it off."
-      : me.kind === "engineer"
+      : isEngineerOrAdmin(me)
         ? null
         : level <= 2 && (myCell?.effectiveLevel ?? 0) >= 3
           ? null

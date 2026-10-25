@@ -17,16 +17,18 @@ const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 const SYSTEM_INSTRUCTION = [
   "You are Ask, the question-answering assistant inside Oppr Knowledge, a factory's controlled knowledge base. You only know Published documents.",
   "You may receive two grounding blocks for every question:",
-  "  • SCOPE OVERVIEW — a deterministic, factual summary of what exists in the current scope (only when relevant).",
-  "  • EXCERPTS — the chunks that are most semantically similar to the question, numbered [1], [2], …",
+  "  • SCOPE OVERVIEW: a deterministic, factual summary of what exists in the current scope (only when relevant).",
+  "  • PLANT BRIEFING: background about the organization, its areas, processes and the words people use (with Dutch synonyms). Use it to understand the question and the plant's words. Never cite it and never take steps, settings or limits from it; those come from EXCERPTS only.",
+  "  • EXCERPTS: the chunks that are most semantically similar to the question, numbered [1], [2], …",
   "Hard rules:",
   "  • Answer the user's question directly. Be concise. Operators are on the floor.",
-  "  • DO NOT recite the SCOPE OVERVIEW back. DO NOT include phrases like 'Total Inventory', 'Document Scope Summary', 'Documents:', 'Assets:'. The UI already shows that data — don't restate it.",
+  "  • Never use em dashes. Use a comma, a colon or a full stop instead.",
+  "  • DO NOT recite the SCOPE OVERVIEW back. DO NOT include phrases like 'Total Inventory', 'Document Scope Summary', 'Documents:', 'Assets:'. The UI already shows that data, don't restate it.",
   "  • Use EXCERPTS for specifics (steps, values, procedures). Cite each excerpt you actually use as `[1]`, `[2]`, … in plain brackets. Do not write Markdown footnotes.",
   "  • For subjective questions ('most interesting', 'best', 'recommend'), pick ONE answer with at most one short sentence of justification.",
-  "  • For inventory/listing questions, answer with a tight Markdown list — no preamble, no totals paragraph.",
-  "  • Format with Markdown: bold, lists, short headings. Keep entity codes (EXT-OPS-SOP-0001, EXL-201) verbatim — the UI auto-links them.",
-  "  • An excerpt marked '(from the wider library — not linked to this asset)' may be used, but make clear that it comes from a document not linked to this asset.",
+  "  • For inventory/listing questions, answer with a tight Markdown list, no preamble, no totals paragraph.",
+  "  • Format with Markdown: bold, lists, short headings. Keep entity codes (EXT-OPS-SOP-0001, EXL-201) verbatim; the UI auto-links them.",
+  "  • An excerpt marked '(from the wider library, not linked to this asset)' may be used, but make clear that it comes from a document not linked to this asset.",
   "  • If two excerpts give different values or instructions for the same thing (for example a torque), give both, say which document gives which, cite both, and say that they disagree so the person checks with the document owner. Never pick one silently.",
   "  • A KNOWN CONFLICT block lists contradictions between Published documents that an Engineer has not resolved yet. If your answer touches one, give both values, name both documents by naming code, cite both if they are among the excerpts, and say plainly that the documents disagree and to check with the document owner before acting. Never pick one side.",
   "  • Copy numbers, units and codes exactly as the excerpt writes them. Keep every 'never' and 'do not' and every condition of a warning.",
@@ -461,7 +463,7 @@ async function prepareAskContext(
           ? `${meta.documentNamingCode} · ${meta.documentTitle}${loc}`
           : `${meta.documentTitle}${loc}`
         const crossLink = crossLinkChunkIds.has(String(c._id))
-          ? " (from the wider library — not linked to this asset)"
+          ? " (from the wider library, not linked to this asset)"
           : ""
         return `[${i + 1}] ${header}${crossLink}\n${c.text}`
       })
@@ -483,6 +485,12 @@ async function prepareAskContext(
   }
 
   const promptParts: string[] = []
+  try {
+    const briefing: string = await ctx.runQuery(internal.plant.context.forAi, {})
+    if (briefing) promptParts.push(briefing, "")
+  } catch (err) {
+    console.warn("Ask: plant briefing failed", err)
+  }
   if (overviewText) {
     promptParts.push(`SCOPE OVERVIEW:\n${overviewText}`, "")
   }

@@ -16,7 +16,6 @@ import { Doc, Id } from "../_generated/dataModel"
 import { isPublished, publishedVersion } from "../lib/published"
 import { bodyChunks } from "../lib/chunking"
 import { allocateNamingCode } from "../naming"
-import { DEFAULT_REVIEW_MONTHS } from "../documents"
 import { EXPIRING_WINDOW_DAYS, effectiveLevel, isExpired, shiftOf } from "../skills"
 import { BLOCK_FORMAT, CALLOUT_LEVELS, MAX_DRAFTS_PER_HOUR } from "./tools"
 import { ImportBlock, blocksToTiptap, tiptapToText } from "./render"
@@ -89,7 +88,9 @@ export const structure = internalQuery({
       .sort((a, b) => a.code.localeCompare(b.code))
       .filter((d, i, all) => i === 0 || d.code.split("-").slice(0, 3).join("-") !== all[i - 1].code.split("-").slice(0, 3).join("-"))
       .slice(0, 6)
+    const cover = await ctx.db.query("coverSettings").first()
     return {
+      companyName: cover?.companyName?.trim() || null,
       areas: locations
         .filter((l) => inAreas(args.areas, l.code))
         .sort((a, b) => a.code.localeCompare(b.code))
@@ -594,7 +595,6 @@ export const importDraft = internalMutation({
       approverId: null,
       tags: [],
       updatedAt: now,
-      reviewIntervalMonths: DEFAULT_REVIEW_MONTHS,
       origin: "mcp",
     })
     await ctx.db.insert("documentVersions", {

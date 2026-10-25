@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils"
 import { KindBadge, SideCard } from "./findingUi"
 import { TRIGGER_LABEL, whenText, type FindingView } from "./findingUtils"
 import { DismissFindingDialog, PrepareRevisionDialog } from "./FindingDialogs"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 const REVISION_STATE: Record<string, string> = {
   generating: "is being prepared",
@@ -20,7 +21,7 @@ const REVISION_STATE: Record<string, string> = {
 /** One Finding: what disagrees, both passages side by side, and what to do next. */
 export function FindingCard({ finding, highlighted }: { finding: FindingView; highlighted?: boolean }) {
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer" ? person : null
+  const engineer = isEngineerOrAdmin(person) ? person : null
   const [dismissOpen, setDismissOpen] = useState(false)
   const [reviseOpen, setReviseOpen] = useState(false)
   const open = finding.status === "open"

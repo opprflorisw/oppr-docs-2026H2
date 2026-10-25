@@ -205,7 +205,7 @@ const HANDLERS: Record<ToolName, (ctx: ActionCtx, key: Key, args: Args) => Promi
   async oppr_get_structure(ctx, key) {
     const s = await ctx.runQuery(internal.mcp.data.structure, { areas: key.areaCodes })
     const lines = [
-      `Plant structure of Oppr Knowledge (Pijpwerk Noord).${key.areaCodes.length ? ` This key is limited to ${areaLimitText(key)}.` : ""}`,
+      `Plant structure of Oppr Knowledge${s.companyName ? ` (${s.companyName})` : ""}.${key.areaCodes.length ? ` This key is limited to ${areaLimitText(key)}.` : ""}`,
       "",
       "Areas (area code):",
       ...s.areas.map((a) => `- ${a.code}: ${a.label}`),

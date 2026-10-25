@@ -30,6 +30,7 @@ import {
   typeBadgeClass,
   typeIcon,
 } from "@/lib/typeMeta"
+import { errorText, useEditorMutation } from "@/components/settings/SettingsBits"
 
 type Kind = "location" | "discipline"
 
@@ -84,8 +85,8 @@ function VocabCard({
   description: string
   rows: { _id: string; code: string; label: string }[] | undefined
 }) {
-  const add = useMutation(api.naming.addVocabulary)
-  const remove = useMutation(api.naming.removeVocabulary)
+  const add = useEditorMutation(api.naming.addVocabulary)
+  const remove = useEditorMutation(api.naming.removeVocabulary)
   const [code, setCode] = useState("")
   const [label, setLabel] = useState("")
   const [busy, setBusy] = useState(false)
@@ -98,7 +99,7 @@ function VocabCard({
       setCode("")
       setLabel("")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      toast.error(errorText(err))
     } finally {
       setBusy(false)
     }
@@ -108,7 +109,7 @@ function VocabCard({
     try {
       await remove({ kind, id })
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      toast.error(errorText(err))
     }
   }
 
@@ -197,10 +198,10 @@ interface TypeRow {
 }
 
 function TypesCard({ rows }: { rows: TypeRow[] | undefined }) {
-  const add = useMutation(api.namingTypes.add)
-  const update = useMutation(api.namingTypes.update)
-  const setActive = useMutation(api.namingTypes.setActive)
-  const remove = useMutation(api.namingTypes.remove)
+  const add = useEditorMutation(api.namingTypes.add)
+  const update = useEditorMutation(api.namingTypes.update)
+  const setActive = useEditorMutation(api.namingTypes.setActive)
+  const remove = useEditorMutation(api.namingTypes.remove)
 
   const [token, setToken] = useState("")
   const [label, setLabel] = useState("")
@@ -218,7 +219,7 @@ function TypesCard({ rows }: { rows: TypeRow[] | undefined }) {
       setIcon(TYPE_ICONS[0].id)
       setColor(TYPE_COLORS[0].id)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      toast.error(errorText(err))
     } finally {
       setBusy(false)
     }
@@ -228,7 +229,7 @@ function TypesCard({ rows }: { rows: TypeRow[] | undefined }) {
     try {
       await fn()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      toast.error(errorText(err))
     }
   }
 

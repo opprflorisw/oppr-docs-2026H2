@@ -44,7 +44,7 @@ export const runMapping = action({
     if (!job.extractedMarkdown) {
       await ctx.runMutation(internal.importer.jobs.recordMappingFailure, {
         jobId: args.jobId,
-        error: "Cannot map — no extracted markdown on this job.",
+        error: "Cannot map: this job has no extracted text.",
       })
       return { ok: false, error: "No extracted markdown" }
     }

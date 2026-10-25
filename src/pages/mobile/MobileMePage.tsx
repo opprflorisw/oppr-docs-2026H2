@@ -18,11 +18,11 @@ import { LEVEL_WORDS } from "@/components/learn/training/lib"
 import { useCheckIn } from "@/lib/checkIn"
 import { formatDate } from "@/lib/time"
 import { cn } from "@/lib/utils"
-
-const SHIFT_WORDS: Record<string, string> = { early: "Early shift", late: "Late shift", night: "Night shift", day: "Day shift" }
+import { useShifts } from "@/components/learn/skills/skillUi"
 
 export function MobileMePage() {
   const { person, people, checkOut } = useCheckIn()
+  const shifts = useShifts()
   const { openCheckIn } = useMobileShell()
 
   if (people === undefined) {
@@ -57,7 +57,7 @@ export function MobileMePage() {
     )
   }
 
-  const shift = (person as typeof person & { shift?: string | null }).shift
+  const shift = person.shift ? shifts.label(person.shift) : null
 
   return (
     <div className="flex flex-col">
@@ -68,7 +68,7 @@ export function MobileMePage() {
           <div className="min-w-0 flex-1">
             <p className="truncate text-lg font-semibold leading-tight">{person.name}</p>
             <p className="text-sm leading-snug text-muted-foreground">
-              {[person.role, shift && !person.role.toLowerCase().includes(shift) ? SHIFT_WORDS[shift] : null].filter(Boolean).join(" · ")}
+              {[person.role, shift && !person.role.toLowerCase().includes(shift.replace(/\s*shift$/i, "").toLowerCase()) ? shift : null].filter(Boolean).join(" · ")}
             </p>
           </div>
           <button

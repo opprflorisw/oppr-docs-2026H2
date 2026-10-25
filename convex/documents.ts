@@ -10,10 +10,18 @@ import { regenerateWikisForDocument } from "./wikis"
 import { isPublished, publishedVersion } from "./lib/published"
 import { scheduleStamp } from "./manuals"
 import { getVersion, quoteIn } from "./trainings"
+import { isEngineerOrAdmin, requireEngineerOrAdmin } from "./lib/roles"
+import { readOrgSettings } from "./orgSettings"
 
 // Periodic review (CONTEXT.md): every Published Document is due for review
-// this many months after it was published or last confirmed.
+// this many months after it was published or last confirmed. The company
+// default is Settings, Documents (orgSettings.documents.reviewIntervalMonths);
+// this is only the fallback for code that has no ctx.
 export const DEFAULT_REVIEW_MONTHS = 12
+
+async function reviewMonths(ctx: QueryCtx | MutationCtx, doc: Doc<"documents">): Promise<number> {
+  return doc.reviewIntervalMonths ?? (await readOrgSettings(ctx)).documents.reviewIntervalMonths
+}
 
 export function addMonths(at: number, months: number): number {
   const d = new Date(at)
@@ -583,7 +591,7 @@ export const create = mutation({
       ownerPersonId:
         args.ownerPersonId !== undefined
           ? args.ownerPersonId
-          : author?.kind === "engineer"
+          : isEngineerOrAdmin(author)
             ? author._id
             : null,
       reviewerPersonId: args.reviewerPersonId ?? null,
@@ -715,7 +723,7 @@ export const saveContent = mutation({
       const discipline = (args.discipline ?? doc.discipline ?? "").trim()
       if (!location || !discipline) {
         throw new Error(
-          "Set a location and discipline before saving — that allocates the document's naming code.",
+          "Set a location and discipline before saving. That allocates the document's naming code.",
         )
       }
       patch.location = location
@@ -905,9 +913,13 @@ async function checkRolePeople(
   ] as const) {
     if (!pid) continue
     const p = await ctx.db.get(pid)
-    if (!p || p.kind !== "engineer") throw new ConvexError(`The ${label} must be an Engineer.`)
+    if (!isEngineerOrAdmin(p)) throw new ConvexError(`The ${label} must be an Engineer.`)
   }
-  if (roles.reviewerPersonId && roles.reviewerPersonId === roles.approverPersonId)
+  if (
+    roles.reviewerPersonId &&
+    roles.reviewerPersonId === roles.approverPersonId &&
+    (await readOrgSettings(ctx)).documents.fourEyes
+  )
     throw new ConvexError("The reviewer and the approver must be two different Engineers.")
 }
 
@@ -936,11 +948,12 @@ export const submitForReview = mutation({
     const row = await workingRow(ctx, doc)
     const authors = authorsOf(row)
     if (args.personId) authors.add(String(args.personId))
-    if (reviewerPersonId && authors.has(String(reviewerPersonId)))
+    const rules = (await readOrgSettings(ctx)).documents
+    if (rules.fourEyes && reviewerPersonId && authors.has(String(reviewerPersonId)))
       throw new ConvexError("You wrote this version. Another Engineer must review it.")
 
     const note = args.changeNote?.trim() || row?.changeNote?.trim() || ""
-    if (doc.liveVersion != null && !note)
+    if (rules.requireChangeNote && doc.liveVersion != null && !note)
       throw new ConvexError("Write what changed and why before submitting a new version.")
 
     const now = Date.now()
@@ -974,10 +987,7 @@ export async function requireEngineer(
   ctx: import("./_generated/server").MutationCtx,
   personId: Id<"people">,
 ) {
-  const person = await ctx.db.get(personId)
-  if (!person || person.kind !== "engineer")
-    throw new ConvexError("Check in as an Engineer to sign this off.")
-  return person
+  return await requireEngineerOrAdmin(ctx, personId, "Check in as an Engineer to sign this off.")
 }
 
 async function nameOfPerson(ctx: QueryCtx, pid: Id<"people"> | null | undefined) {
@@ -993,14 +1003,15 @@ async function approveBlocker(
 ): Promise<string | null> {
   if (doc.status !== "in_review") return "Only a document in review can be approved."
   if (!doc.approverId && !doc.approverPersonId) return "Choose who approves it before approving."
-  if (doc.reviewerPersonId && doc.reviewerPersonId === doc.approverPersonId)
+  const { fourEyes } = (await readOrgSettings(ctx)).documents
+  if (fourEyes && doc.reviewerPersonId && doc.reviewerPersonId === doc.approverPersonId)
     return "The reviewer and the approver must be two different Engineers."
-  if (doc.approverPersonId && personId === doc.approverPersonId)
+  if (fourEyes && doc.approverPersonId && personId === doc.approverPersonId)
     return "You are the approver of this version. Another Engineer must review it."
   if (doc.reviewerPersonId && personId !== doc.reviewerPersonId)
     return `Waiting for ${await nameOfPerson(ctx, doc.reviewerPersonId)}, the named reviewer.`
   const row = await workingRow(ctx, doc)
-  if (authorsOf(row).has(String(personId))) return "You wrote this version. Another Engineer must review it."
+  if (fourEyes && authorsOf(row).has(String(personId))) return "You wrote this version. Another Engineer must review it."
   return null
 }
 
@@ -1045,9 +1056,10 @@ export const publish = mutation({
       throw new ConvexError(`Waiting for ${await nameOfPerson(ctx, doc.approverPersonId)}, the named approver.`)
     const row = await workingRow(ctx, doc)
     const reviewer = [...(row?.signoffs ?? [])].reverse().find((s) => s.role === "reviewer")
-    if (reviewer?.personId && reviewer.personId === args.personId)
+    const { fourEyes } = (await readOrgSettings(ctx)).documents
+    if (fourEyes && reviewer?.personId && reviewer.personId === args.personId)
       throw new ConvexError("You reviewed this version. Another Engineer must approve it.")
-    if (authorsOf(row).has(String(args.personId)))
+    if (fourEyes && authorsOf(row).has(String(args.personId)))
       throw new ConvexError("You wrote this version. Another Engineer must approve it.")
 
     let significantChange = false
@@ -1279,7 +1291,7 @@ export async function publishApproved(
     status: "published",
     liveVersion: doc.currentVersion,
     updatedAt: now,
-    nextReviewAt: addMonths(now, doc.reviewIntervalMonths ?? DEFAULT_REVIEW_MONTHS),
+    nextReviewAt: addMonths(now, await reviewMonths(ctx, doc)),
     lastReviewedAt: now,
   })
   await recordSignoff(ctx, doc, "approver", userId, personId)
@@ -1334,7 +1346,7 @@ export const confirmReview = mutation({
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
     const person = await ctx.db.get(args.personId)
-    if (!person || person.kind !== "engineer")
+    if (!isEngineerOrAdmin(person))
       throw new Error("Check in as an Engineer to confirm a periodic review.")
     const doc = await ctx.db.get(args.id)
     if (!doc) throw new Error("Document not found")
@@ -1344,7 +1356,7 @@ export const confirmReview = mutation({
     const now = Date.now()
     await ctx.db.patch(args.id, {
       lastReviewedAt: now,
-      nextReviewAt: addMonths(now, doc.reviewIntervalMonths ?? DEFAULT_REVIEW_MONTHS),
+      nextReviewAt: addMonths(now, await reviewMonths(ctx, doc)),
     })
     // Audit trail: who confirmed which version, and when.
     const row = await ctx.db
@@ -1547,7 +1559,7 @@ export const refile = mutation({
       args.type === doc.type
     ) {
       throw new Error(
-        "That is the document's current filing — pick a different location, discipline, or type.",
+        "That is the document's current filing. Pick a different location, discipline or type.",
       )
     }
 
@@ -1728,7 +1740,7 @@ async function withdrawBlocker(
 ): Promise<string | null> {
   if (!args.personId) return "Check in as an Engineer to withdraw a document."
   const person = await ctx.db.get(args.personId)
-  if (!person || person.kind !== "engineer") return "Check in as an Engineer to withdraw a document."
+  if (!isEngineerOrAdmin(person)) return "Check in as an Engineer to withdraw a document."
   if (!args.reason?.trim()) return "Write why this document is withdrawn."
   if (doc.status === "archived") return `${doc.namingCode} is already withdrawn.`
   if (args.replacedById) {
@@ -1748,7 +1760,7 @@ export const controlSelfTest = internalQuery({
   handler: async (ctx) => {
     const docs = await ctx.db.query("documents").take(500)
     const people = await ctx.db.query("people").take(200)
-    const engineers = people.filter((p) => p.kind === "engineer")
+    const engineers = people.filter((p) => isEngineerOrAdmin(p))
     const published = docs.find((d) => d.liveVersion != null && d.status !== "archived")
     if (!published || engineers.length < 2) return { error: "Seed data missing" }
     const [a, b] = engineers
@@ -1928,7 +1940,7 @@ export const remove = mutation({
     await requireUserId(ctx)
     if (!args.personId) throw new ConvexError("Check in as an Engineer to delete a document.")
     const person = await ctx.db.get(args.personId)
-    if (!person || person.kind !== "engineer")
+    if (!isEngineerOrAdmin(person))
       throw new ConvexError("Check in as an Engineer to delete a document.")
     const doc = await ctx.db.get(args.id)
     if (!doc) throw new Error("Document not found")

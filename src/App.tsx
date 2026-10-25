@@ -1,6 +1,6 @@
 import { Link, Redirect, Route, Switch, useLocation, useRoute } from "wouter"
 import { useConvexAuth } from "convex/react"
-import { Boxes, FileQuestion, GraduationCap, Library } from "lucide-react"
+import { Factory, FileQuestion, GraduationCap, Library } from "lucide-react"
 import { isMobilePath } from "@/lib/utils"
 import { ThemeProvider } from "next-themes"
 import { Toaster } from "@/components/ui/sonner"
@@ -18,7 +18,8 @@ import { WikiListPage } from "@/pages/desktop/WikiListPage"
 import { WikiPage } from "@/pages/desktop/WikiPage"
 import { FloorSimulatorPage } from "@/pages/desktop/FloorSimulatorPage"
 import { LibraryPage } from "@/pages/desktop/LibraryPage"
-import { AssetsPage } from "@/pages/desktop/AssetsPage"
+import { ImageLibraryPage } from "@/pages/desktop/ImageLibraryPage"
+import { PlantPage } from "@/pages/desktop/PlantPage"
 import { AssetDetailPage } from "@/pages/desktop/AssetDetailPage"
 import { DocumentReadPage } from "@/pages/desktop/DocumentReadPage"
 import { DocumentEditPage } from "@/pages/desktop/DocumentEditPage"
@@ -80,8 +81,8 @@ function NotFound({ what }: { what?: string }) {
             </Link>
           </Button>
           <Button asChild variant="outline" size="sm">
-            <Link href="/assets">
-              <Boxes aria-hidden /> Assets
+            <Link href="/plant">
+              <Factory aria-hidden /> Plant
             </Link>
           </Button>
         </div>
@@ -98,6 +99,7 @@ function DesktopRoutes() {
       <Route path="/library/findings" component={FindingsPage} />
       <Route path="/library/health" component={KnowledgeHealthPage} />
       <Route path="/library/captures" component={CapturesPage} />
+      <Route path="/library/images" component={ImageLibraryPage} />
       <Route path="/library/captures/:id" component={CaptureDetailPage} />
       <Route path="/library/capture-sets/:id" component={CaptureSetPage} />
       <Route path="/documents">
@@ -109,7 +111,11 @@ function DesktopRoutes() {
       <Route path="/learn/people/:id" component={PersonSkillsPage} />
       <Route path="/wiki" component={WikiListPage} />
       <Route path="/wiki/:id" component={WikiPage} />
-      <Route path="/assets" component={AssetsPage} />
+      <Route path="/plant" component={PlantPage} />
+      <Route path="/plant/:tab" component={PlantPage} />
+      <Route path="/assets">
+        <Redirect to="/plant/assets" replace />
+      </Route>
       <Route path="/assets/:id" component={AssetDetailPage} />
       <Route path="/floor" component={FloorSimulatorPage} />
       <Route path="/docs/new" component={DocumentNewChooserPage} />
@@ -128,7 +134,7 @@ function DesktopRoutes() {
         <Redirect to="/settings?tab=naming" replace />
       </Route>
       <Route path="/images">
-        <Redirect to="/settings?tab=images" replace />
+        <Redirect to="/library/images" replace />
       </Route>
       <Route path="/import" component={ImportPage} />
       <Route path="/import/:jobId" component={ImportPage} />

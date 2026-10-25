@@ -18,13 +18,13 @@ import { errorText } from "@/components/learn/training/lib"
 import type { FloorBridge } from "@/components/mobile/floorBridge"
 import { useCheckIn } from "@/lib/checkIn"
 import { cn } from "@/lib/utils"
+import { useCompanyName } from "@/components/settings/useCompanyName"
 
 // Floor simulator (CONTEXT.md): a desktop-only page that stands in for being
 // in the field. The plan shows every Asset with its QR code; the phone next
 // to it runs the real mobile app. Clicking an Asset walks there and Scans it.
 // In Round mode a checked-in person walks a Round like a treasure hunt.
 
-const PLANT_NAME = "Pijpwerk Noord"
 const HINT_KEY = "oppr.floor.hintDismissed"
 const SCAN_MS = 650
 
@@ -41,6 +41,7 @@ function readHintDismissed() {
 export function FloorSimulatorPage() {
   const search = useSearch()
   const deepRound = useMemo(() => new URLSearchParams(search).get("round"), [search])
+  const plantName = useCompanyName() ?? "Your plant"
   const { person, people, checkIn } = useCheckIn()
   const assets = useQuery(api.floor.plan)
   const roundsData = useQuery(api.floor.rounds, { personId: person?._id ?? null })
@@ -285,7 +286,7 @@ export function FloorSimulatorPage() {
               ) : (
                 <FloorPlan
                   assets={assets}
-                  plantName={PLANT_NAME}
+                  plantName={plantName}
                   here={here}
                   walkTo={walk}
                   onPick={pick}

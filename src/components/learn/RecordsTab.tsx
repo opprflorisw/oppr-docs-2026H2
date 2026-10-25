@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils"
 import { daysAgo, KindIcon, ScoreBadge } from "./training/lib"
 import { downloadCsv, fileDate } from "./exportCsv"
 import { fmtScore } from "./skills/skillUi"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 const ALL = "all"
 
@@ -30,7 +31,7 @@ type Validity = { text: string; tone: "ok" | "warn" | "danger" | "muted" }
 // take exactly the rows on screen.
 export function RecordsTab() {
   const { person: me, people: checkInPeople } = useCheckIn()
-  const engineer = me?.kind === "engineer"
+  const engineer = isEngineerOrAdmin(me)
   const search = useSearch()
   const [location, navigate] = useLocation()
   const params = new URLSearchParams(search)

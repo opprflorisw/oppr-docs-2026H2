@@ -2,10 +2,9 @@ import { query } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 import { requireUser } from "./lib/auth"
 import { isPublished } from "./lib/published"
+import { readOrgSettings } from "./orgSettings"
 
 const DAY = 24 * 60 * 60 * 1000
-// A periodic review shows up in the inbox this long before it is due.
-export const REVIEW_WINDOW_DAYS = 30
 
 // Home for an Engineer: what needs a decision today, plus a small Knowledge
 // health snapshot. Every inbox item carries one obvious next action.
@@ -14,6 +13,8 @@ export const overview = query({
   handler: async (ctx) => {
     await requireUser(ctx)
     const now = Date.now()
+    // A periodic review shows up in the inbox this long before it is due (Settings, Documents).
+    const { dueSoonDays } = (await readOrgSettings(ctx)).documents
     const docs = await ctx.db.query("documents").take(2000)
     const wikis = await ctx.db.query("wikis").take(500)
 
@@ -35,7 +36,7 @@ export const overview = query({
         (d) =>
           isPublished(d) &&
           d.nextReviewAt != null &&
-          d.nextReviewAt <= now + REVIEW_WINDOW_DAYS * DAY,
+          d.nextReviewAt <= now + dueSoonDays * DAY,
       )
       .map((d) => ({
         _id: d._id,

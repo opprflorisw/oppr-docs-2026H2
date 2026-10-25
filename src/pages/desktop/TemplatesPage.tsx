@@ -4,7 +4,7 @@
 
 import { useState } from "react"
 import { useLocation } from "wouter"
-import { useMutation, useQuery } from "convex/react"
+import { useQuery } from "convex/react"
 import { toast } from "sonner"
 import { Copy, LayoutTemplate, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react"
 import {
@@ -37,12 +37,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { TypeBadge } from "@/components/docs/TypeBadge"
+import { errorText, useEditorMutation } from "@/components/settings/SettingsBits"
 
 export function TemplatesList() {
   const [, navigate] = useLocation()
   const templates = useQuery(api.templates.list, {})
-  const duplicate = useMutation(api.templates.duplicate)
-  const remove = useMutation(api.templates.remove)
+  const duplicate = useEditorMutation(api.templates.duplicate)
+  const remove = useEditorMutation(api.templates.remove)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
 
   async function onDuplicate(id: string) {
@@ -50,7 +51,7 @@ export function TemplatesList() {
       await duplicate({ id: id as Id<"templates"> })
       toast.success("Template duplicated")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      toast.error(errorText(err))
     }
   }
 
@@ -60,7 +61,7 @@ export function TemplatesList() {
       await remove({ id: deleteTarget.id as Id<"templates"> })
       toast.success("Template deleted")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      toast.error(errorText(err))
     } finally {
       setDeleteTarget(null)
     }

@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server"
 import { v } from "convex/values"
 import { requireUser, requireUserId } from "./lib/auth"
+import { requireEngineerOrAdmin } from "./lib/roles"
 
 // Factory PPE catalog (20). The first eight slugs match the original hardcoded
 // PPE node ids so documents authored before the configurator keep rendering.
@@ -50,9 +51,10 @@ export const getLanguage = query({
 })
 
 export const setLanguage = mutation({
-  args: { language: v.union(v.literal("en"), v.literal("nl")) },
+  args: { language: v.union(v.literal("en"), v.literal("nl")), personId: v.optional(v.id("people")) },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId)
     const row = await ctx.db
       .query("meta")
       .withIndex("by_key", (q) => q.eq("key", LANG_KEY))
@@ -105,9 +107,10 @@ export const seedIfEmpty = mutation({
 
 // For custom PPE items the author can upload their own pictogram image.
 export const generateUploadUrl = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { personId: v.optional(v.id("people")) },
+  handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId)
     return await ctx.storage.generateUploadUrl()
   },
 })
@@ -128,9 +131,11 @@ export const add = mutation({
     descriptionNl: v.optional(v.string()),
     pictogramId: v.string(),
     storageId: v.optional(v.id("_storage")),
+    personId: v.optional(v.id("people")),
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId)
     const label = args.label.trim()
     if (!label) throw new Error("Label is required")
     let slug = slugify(label)
@@ -166,9 +171,11 @@ export const update = mutation({
     description: v.optional(v.string()),
     descriptionNl: v.optional(v.string()),
     pictogramId: v.optional(v.string()),
+    personId: v.optional(v.id("people")),
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId)
     const row = await ctx.db.get(args.id)
     if (!row) throw new Error("PPE item not found")
     const patch: Record<string, unknown> = {}
@@ -187,9 +194,10 @@ export const update = mutation({
 })
 
 export const setActive = mutation({
-  args: { id: v.id("ppeItems"), active: v.boolean() },
+  args: { id: v.id("ppeItems"), active: v.boolean(), personId: v.optional(v.id("people")) },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId)
     const row = await ctx.db.get(args.id)
     if (!row) throw new Error("PPE item not found")
     await ctx.db.patch(args.id, { active: args.active })
@@ -197,9 +205,10 @@ export const setActive = mutation({
 })
 
 export const remove = mutation({
-  args: { id: v.id("ppeItems") },
+  args: { id: v.id("ppeItems"), personId: v.optional(v.id("people")) },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId)
     const row = await ctx.db.get(args.id)
     if (!row) throw new Error("PPE item not found")
     if (row.builtIn)

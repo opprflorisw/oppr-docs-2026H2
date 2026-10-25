@@ -10,6 +10,7 @@ import { SkillMatrixTab } from "@/components/learn/SkillMatrixTab"
 import { MyLearningTab } from "@/components/learn/MyLearningTab"
 import { SkillsSettings } from "@/components/learn/SkillsSettings"
 import { useCheckIn } from "@/lib/checkIn"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 // Learn (CONTEXT.md) is the pillar that builds and keeps up what people can
 // do: Trainings (and Rounds), Skills and the proof. One page with a flat row
@@ -55,7 +56,7 @@ export function LearnPage() {
   const search = useSearch()
   const [location, navigate] = useLocation()
   const { person, people } = useCheckIn()
-  const engineer = person?.kind === "engineer"
+  const engineer = isEngineerOrAdmin(person)
   const hydrated = people !== undefined
   const tabs = TABS.filter((t) => !t.engineerOnly || engineer)
   const allowed = (v: string | null): v is TabValue => tabs.some((t) => t.value === v)

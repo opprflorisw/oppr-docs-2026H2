@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils"
 import { formatAgo } from "@/lib/time"
 import { useCheckIn } from "@/lib/checkIn"
 import { PrepareRevisionButton, errorText } from "./PrepareRevisionDialog"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 type Severity = "info" | "unclear" | "gap"
 const SEVERITY: Record<Severity, { label: string; dot: string; text: string }> = {
@@ -25,7 +26,7 @@ export function DocumentInsightsCard({ documentId }: { documentId: Id<"documents
   const data = useQuery(api.insights.documentInsights, { documentId })
   const refresh = useAction(api.ai.insights.refreshReport)
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer"
+  const engineer = isEngineerOrAdmin(person)
   const [requesting, setRequesting] = useState(false)
   const [openTheme, setOpenTheme] = useState<number | null>(null)
 

@@ -9,6 +9,7 @@ import {
 import { internal } from "../_generated/api"
 import { Id } from "../_generated/dataModel"
 import { requireUser } from "../lib/auth"
+import { requireEngineerOrAdmin } from "../lib/roles"
 import {
   EMBEDDING_DIM,
   EMBEDDING_MODEL,
@@ -127,54 +128,32 @@ export const clearAllEmbeddings = internalMutation({
   },
 })
 
+/** Settings button: index passages that have no embedding yet. Engineer or Admin only. */
 export const embedMissing = action({
-  args: { documentId: v.optional(v.id("documents")) },
+  args: { personId: v.id("people"), documentId: v.optional(v.id("documents")) },
   handler: async (ctx, args): Promise<{ embedded: number; total: number }> => {
     await requireUser(ctx)
-    const apiKey = process.env.GEMINI_API_KEY
-    if (!apiKey) throw new Error("GEMINI_API_KEY is not set on this deployment")
+    await ctx.runQuery(internal.ai.embed.checkEditor, { personId: args.personId })
+    return await ctx.runAction(internal.ai.embed.embedMissingInternal, { documentId: args.documentId })
+  },
+})
 
-    const missing: { _id: Id<"chunks">; text: string }[] = await ctx.runQuery(
-      internal.ai.embed.listMissingChunks,
-      { documentId: args.documentId },
-    )
-    if (missing.length === 0) return { embedded: 0, total: 0 }
-
-    const CONCURRENCY = 4
-    let next = 0
-    let done = 0
-
-    async function worker() {
-      while (true) {
-        const i = next++
-        if (i >= missing.length) return
-        const row = missing[i]
-        const vector = await embedOne(row.text, apiKey!)
-        await ctx.runMutation(internal.ai.embed.writeEmbedding, {
-          chunkId: row._id,
-          embedding: vector,
-        })
-        done += 1
-      }
-    }
-
-    await Promise.all(
-      Array.from(
-        { length: Math.min(CONCURRENCY, missing.length) },
-        () => worker(),
-      ),
-    )
-
-    return { embedded: done, total: missing.length }
+export const checkEditor = internalQuery({
+  args: { personId: v.id("people") },
+  handler: async (ctx, args) => {
+    await requireEngineerOrAdmin(ctx, args.personId, "Check in as an Engineer or Admin to rebuild the search index.")
+    return null
   },
 })
 
 export const reembedAll = action({
-  args: {},
+  args: { personId: v.id("people") },
   handler: async (
     ctx,
+    args,
   ): Promise<{ cleared: number; embedded: number; total: number }> => {
     await requireUser(ctx)
+    await ctx.runQuery(internal.ai.embed.checkEditor, { personId: args.personId })
     const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey) throw new Error("GEMINI_API_KEY is not set on this deployment")
     const cleared: number = await ctx.runMutation(

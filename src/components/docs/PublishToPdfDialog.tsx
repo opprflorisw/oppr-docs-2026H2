@@ -46,6 +46,7 @@ import { useCheckIn } from "@/lib/checkIn"
 import { loadPrintHtml, openPrintShell } from "@/lib/pdf-export/openPrintWindow"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -85,7 +86,7 @@ export function PublishToPdfDialog({
   const [options, setOptions] = useState<PdfExportOptions>(DEFAULT_PDF_OPTIONS)
   const [preparing, setPreparing] = useState(false)
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer"
+  const engineer = isEngineerOrAdmin(person)
 
   const docResult = useQuery(
     api.documents.getWithAssets,

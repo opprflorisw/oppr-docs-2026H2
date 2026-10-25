@@ -38,6 +38,7 @@ import {
 import { cn } from "@/lib/utils"
 import { PPE_PICTOGRAM_IDS, ppeDataUrl } from "@/lib/ppePictograms"
 import { ppeImageSrc } from "@/lib/ppeCatalog"
+import { errorText, useEditorMutation } from "@/components/settings/SettingsBits"
 
 interface PpeRow {
   _id: Id<"ppeItems">
@@ -79,7 +80,7 @@ export function PpeConfigurator() {
   const rows = useQuery(api.ppe.list) as PpeRow[] | undefined
   const seed = useMutation(api.ppe.seedIfEmpty)
   const language = (useQuery(api.ppe.getLanguage) ?? "en") as Lang
-  const setLanguage = useMutation(api.ppe.setLanguage)
+  const setLanguage = useEditorMutation(api.ppe.setLanguage)
   const [addOpen, setAddOpen] = useState(false)
 
   useEffect(() => {
@@ -154,16 +155,16 @@ export function PpeConfigurator() {
 }
 
 function PpeItemRow({ row, language }: { row: PpeRow; language: Lang }) {
-  const setActive = useMutation(api.ppe.setActive)
-  const update = useMutation(api.ppe.update)
-  const remove = useMutation(api.ppe.remove)
+  const setActive = useEditorMutation(api.ppe.setActive)
+  const update = useEditorMutation(api.ppe.update)
+  const remove = useEditorMutation(api.ppe.remove)
   const [editing, setEditing] = useState(false)
 
   async function guard(fn: () => Promise<unknown>) {
     try {
       await fn()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      toast.error(errorText(err))
     }
   }
 
@@ -307,8 +308,8 @@ function AddPpeDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const add = useMutation(api.ppe.add)
-  const generateUploadUrl = useMutation(api.ppe.generateUploadUrl)
+  const add = useEditorMutation(api.ppe.add)
+  const generateUploadUrl = useEditorMutation(api.ppe.generateUploadUrl)
   const [labelEn, setLabelEn] = useState("")
   const [labelNl, setLabelNl] = useState("")
   const [descEn, setDescEn] = useState("")
@@ -370,7 +371,7 @@ function AddPpeDialog({
       onOpenChange(false)
       toast.success("Safety icon added")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      toast.error(errorText(err))
     } finally {
       setBusy(false)
     }

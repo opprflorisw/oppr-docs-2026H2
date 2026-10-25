@@ -42,6 +42,7 @@ import type { Doc } from "@/types"
 import { api } from "../../../convex/_generated/api"
 import { STATUS_LABELS, StatusBadge } from "./StatusBadge"
 import { TypeBadge } from "./TypeBadge"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 export interface AssetPreview {
   id: string
@@ -336,7 +337,7 @@ function RowActionsMenu({
 }) {
   // Withdrawing and deleting are Engineer sign-offs; the server checks again.
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer"
+  const engineer = isEngineerOrAdmin(person)
   const canWithdraw = engineer && doc.status !== "archived"
   const canDelete = engineer && neverPublished(doc)
   return (

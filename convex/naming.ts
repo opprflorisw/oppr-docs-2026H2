@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server"
 import { v } from "convex/values"
 import { MutationCtx, QueryCtx } from "./_generated/server"
 import { requireUser, requireUserId } from "./lib/auth"
+import { requireEngineerOrAdmin } from "./lib/roles"
 
 // Naming code format: {LOCATION}-{DISCIPLINE}-{TYPE}-{NNNN}
 // e.g. HOL-OPS-SOP-0001. The sequence is per (location, discipline, type)
@@ -151,9 +152,11 @@ export const addVocabulary = mutation({
     kind: v.union(v.literal("location"), v.literal("discipline")),
     code: v.string(),
     label: v.string(),
+    personId: v.optional(v.id("people")),
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId)
     const code = args.code.trim().toUpperCase()
     const label = args.label.trim()
     if (!code) throw new Error("Code is required")
@@ -174,9 +177,11 @@ export const updateVocabulary = mutation({
     kind: v.union(v.literal("location"), v.literal("discipline")),
     id: v.string(),
     label: v.string(),
+    personId: v.optional(v.id("people")),
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId)
     const table = ENTITY[args.kind]
     const typed = ctx.db.normalizeId(table, args.id)
     if (!typed) throw new Error("Not found")
@@ -188,9 +193,11 @@ export const removeVocabulary = mutation({
   args: {
     kind: v.union(v.literal("location"), v.literal("discipline")),
     id: v.string(),
+    personId: v.optional(v.id("people")),
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId)
     const table = ENTITY[args.kind]
     const typed = ctx.db.normalizeId(table, args.id)
     if (!typed) throw new Error("Not found")

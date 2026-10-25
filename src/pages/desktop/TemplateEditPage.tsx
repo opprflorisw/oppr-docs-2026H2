@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from "react"
 import { useLocation, useRoute } from "wouter"
-import { useMutation, useQuery } from "convex/react"
+import { useQuery } from "convex/react"
 import { toast } from "sonner"
 import { Eye, LayoutTemplate } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
@@ -36,6 +36,7 @@ import { PageHeader } from "@/components/layout/PageHeader"
 import { templateForType } from "@/components/docs/DocumentTemplates"
 import { useDocTypes } from "@/lib/typeMeta"
 import type { DocumentType } from "@/types"
+import { useEditorMutation } from "@/components/settings/SettingsBits"
 
 export function TemplateEditPage() {
   const [, editParams] = useRoute<{ id: string }>("/templates/:id/edit")
@@ -47,8 +48,8 @@ export function TemplateEditPage() {
     api.templates.get,
     id ? { id: id as Id<"templates"> } : "skip",
   )
-  const create = useMutation(api.templates.create)
-  const update = useMutation(api.templates.update)
+  const create = useEditorMutation(api.templates.create)
+  const update = useEditorMutation(api.templates.update)
   const { types: docTypes } = useDocTypes()
 
   const [name, setName] = useState("")

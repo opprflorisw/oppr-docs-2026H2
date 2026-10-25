@@ -24,13 +24,14 @@ import { requireUser, requireUserId } from "./lib/auth"
 import { requireEngineer } from "./documents"
 import { isPublished } from "./lib/published"
 import { BLOCKED_REASON } from "./trainings"
-import { createAssignments } from "./assignments"
+import { createAssignments, defaultDueAt } from "./assignments"
+import { isEngineerOrAdmin } from "./lib/roles"
+import { loadShifts, shiftKeyOf } from "./people/shifts"
 
 const DAY = 24 * 60 * 60 * 1000
 /** A level that expires within this many days shows as "expiring". */
 export const EXPIRING_WINDOW_DAYS = 30
 /** Re-train after a Significant change is due this many days later. */
-export const RETRAIN_DAYS = 14
 
 export type CellStatus = "ok" | "gap" | "expired" | "expiring" | "retrain" | "none"
 
@@ -45,18 +46,12 @@ export function addMonths(at: number, months: number): number {
   return d.getTime()
 }
 
-/** The plant's shifts: early 06:00-14:00, late 14:00-22:00, night 22:00-06:00. */
-export type Shift = "early" | "late" | "night"
-export const SHIFTS: Shift[] = ["early", "late", "night"]
+/** A shift key from the shifts table (Settings, People and roles), such as "early". */
+export type Shift = string
 
 /** The person's shift: the shift field, else derived from the role text ("Line operator, night shift"). */
 export function shiftOf(person: Doc<"people">): Shift | null {
-  if (person.shift === "early" || person.shift === "day") return "early"
-  if (person.shift === "late" || person.shift === "night") return person.shift
-  if (/\bnight\b/i.test(person.role)) return "night"
-  if (/\blate\b/i.test(person.role)) return "late"
-  if (/\b(early|day)\b/i.test(person.role)) return "early"
-  return null
+  return shiftKeyOf(person)
 }
 
 // ---- Pure rules ---------------------------------------------------------------
@@ -157,7 +152,7 @@ async function allProfiles(ctx: Ctx) {
 
 async function allPeople(ctx: Ctx) {
   const people = await ctx.db.query("people").take(500)
-  return people.sort((a, b) => a.sortOrder - b.sortOrder)
+  return people.filter((p) => !p.archived).sort((a, b) => a.sortOrder - b.sortOrder)
 }
 
 /** Area codes with their labels ("EXT" → "Hall 2 · Extrusion"). */
@@ -303,18 +298,24 @@ export const coverage = query({
     profileId: v.optional(v.id("skillProfiles")),
     skillIds: v.optional(v.array(v.id("skills"))),
     minLevel: v.optional(v.number()),
-    /** Only people of this shift ("early", "late" or "night"). */
-    shift: v.optional(v.union(v.literal("early"), v.literal("late"), v.literal("night"), v.null())),
+    /** Only people of this shift (a shift key, such as "night"). */
+    shift: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     await requireUser(ctx)
     const now = Date.now()
-    const [skills, profiles, people] = await Promise.all([
+    const [skills, profiles, people, shifts] = await Promise.all([
       allSkills(ctx),
       allProfiles(ctx),
       allPeople(ctx),
+      loadShifts(ctx),
     ])
     const skillById = new Map(skills.map((s) => [s._id, s]))
+    const knownShifts = new Set(shifts.map((s) => s.key))
+    const shiftOfKnown = (p: Doc<"people">) => {
+      const k = shiftOf(p)
+      return k && knownShifts.has(k) ? k : null
+    }
 
     let profile: Doc<"skillProfiles"> | null = null
     let requirements: { skillId: Id<"skills">; level: number }[]
@@ -345,7 +346,7 @@ export const coverage = query({
     }[] = []
     if (requirements.length > 0) {
       for (const person of people) {
-        if (args.shift && shiftOf(person) !== args.shift) continue
+        if (args.shift && shiftOfKnown(person) !== args.shift) continue
         const levels = await levelsOf(ctx, person._id)
         const missing: { skillName: string; reason: string }[] = []
         const expiringSoon: string[] = []
@@ -359,7 +360,7 @@ export const coverage = query({
           else if (row?.expiresAt != null && row.expiresAt - now <= EXPIRING_WINDOW_DAYS * DAY)
             expiringSoon.push(name)
         }
-        const base = { _id: person._id, name: person.name, role: person.role, shift: shiftOf(person) }
+        const base = { _id: person._id, name: person.name, role: person.role, shift: shiftOfKnown(person) }
         // "Not yet" lists the people this is about: holders of the profile,
         // or (for a list of Skills) people who hold at least one of them.
         const relevant = profile
@@ -370,10 +371,12 @@ export const coverage = query({
       }
     }
 
-    // Every shift someone works, in the order of the day: early, late, night
-    // ("tonight" is the night shift).
-    const worked = new Set(people.map(shiftOf))
-    const shiftNames = SHIFTS.filter((s) => worked.has(s) && (!args.shift || s === args.shift))
+    // Every shift someone works, in the order set in Settings ("tonight" is
+    // the night shift).
+    const worked = new Set(people.map(shiftOfKnown))
+    const shiftNames = shifts
+      .map((s) => s.key)
+      .filter((s) => worked.has(s) && (!args.shift || s === args.shift))
     const groups: { shift: Shift | null; people: typeof qualified }[] = shiftNames.map((shift) => ({
       shift,
       people: qualified.filter((p) => p.shift === shift),
@@ -961,7 +964,7 @@ export const signOff = mutation({
     const skill = await ctx.db.get(args.skillId)
     if (!skill) throw new Error("This Skill no longer exists.")
     const now = Date.now()
-    if (engineer.kind !== "engineer") {
+    if (!isEngineerOrAdmin(engineer)) {
       const own = await getLevelRow(ctx, engineer._id, skill._id)
       if (args.level === 3) throw new Error("Only an Engineer signs off level 3 (Can teach it).")
       if (effectiveLevel(own, now) < 3)
@@ -1162,7 +1165,8 @@ export async function skillsAfterPublish(ctx: MutationCtx, event: PublishEvent) 
   if (!doc) return { flagged: 0 }
   const reason = `${doc.namingCode} v${event.version} was published with a Significant change`
   const now = Date.now()
-  const dueAt = now + RETRAIN_DAYS * DAY
+  // Re-train due date follows the company default (Settings, Training).
+  const dueAt = await defaultDueAt(ctx, now)
   let flagged = 0
   const live = new Set((await publishedTrainings(ctx)).filter((t) => !t.isPractice).map((t) => String(t._id)))
   for (const skill of await allSkills(ctx)) {

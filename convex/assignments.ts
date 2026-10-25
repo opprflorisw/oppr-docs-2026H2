@@ -10,18 +10,21 @@ import { internalMutation, mutation, MutationCtx, query, QueryCtx } from "./_gen
 import { Doc, Id } from "./_generated/dataModel"
 import { requireUserId } from "./lib/auth"
 import { addMonths } from "./skills"
+import { requireEngineerOrAdmin } from "./lib/roles"
+import { readOrgSettings } from "./orgSettings"
 
 const DAY = 24 * 60 * 60 * 1000
-export const DEFAULT_DUE_DAYS = 14
+
+/** The default due date: the company's due days (Settings, Training) from now. */
+export async function defaultDueAt(ctx: Ctx, from = Date.now()): Promise<number> {
+  return from + (await readOrgSettings(ctx)).training.dueDays * DAY
+}
 
 type Ctx = QueryCtx | MutationCtx
 type Source = Doc<"trainingAssignments">["source"]
 
-async function requireEngineerPerson(ctx: Ctx, personId: Id<"people">) {
-  const person = await ctx.db.get(personId)
-  if (!person || person.kind !== "engineer")
-    throw new ConvexError("Check in as an Engineer to assign Trainings.")
-  return person
+function requireEngineerPerson(ctx: Ctx, personId: Id<"people">) {
+  return requireEngineerOrAdmin(ctx, personId, "Check in as an Engineer to assign Trainings.")
 }
 
 /**
@@ -118,7 +121,8 @@ export const assign = mutation({
   args: {
     trainingId: v.id("trainings"),
     personIds: v.array(v.id("people")),
-    dueAt: v.number(),
+    /** Omitted: the company's default due days from now. */
+    dueAt: v.optional(v.number()),
     reason: v.optional(v.union(v.string(), v.null())),
     personId: v.id("people"),
   },
@@ -130,11 +134,12 @@ export const assign = mutation({
     if (t.status === "archived") throw new ConvexError("This Training is archived. Assign its replacement instead.")
     if (t.isPractice) throw new ConvexError("This is a practice Training. It is not assigned to people.")
     if (args.personIds.length === 0) throw new ConvexError("Pick at least one person.")
-    if (args.dueAt < Date.now() - DAY) throw new ConvexError("Pick a due date that is not in the past.")
+    const dueAt = args.dueAt ?? (await defaultDueAt(ctx))
+    if (dueAt < Date.now() - DAY) throw new ConvexError("Pick a due date that is not in the past.")
     return await createAssignments(ctx, {
       trainingId: t._id,
       personIds: args.personIds,
-      dueAt: args.dueAt,
+      dueAt,
       reason: args.reason?.trim() || null,
       source: "manual",
       assignedBy: args.personId,

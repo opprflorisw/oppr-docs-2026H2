@@ -15,6 +15,8 @@ import { normalise, withTableHeaders } from "./ai/grounding"
 import type { PublishEvent } from "./lib/onPublish"
 import { bodyChunks } from "./lib/chunking"
 import { createAssignments } from "./assignments"
+import { readOrgSettings } from "./orgSettings"
+import { isEngineerOrAdmin } from "./lib/roles"
 
 const DAY = 24 * 60 * 60 * 1000
 export const DEFAULT_PASS_MARK = 80
@@ -133,7 +135,7 @@ export function isTrainingLive(t: Doc<"trainings">): boolean {
 
 export async function requireEngineerPerson(ctx: Ctx, personId: Id<"people">) {
   const person = await ctx.db.get(personId)
-  if (!person || person.kind !== "engineer")
+  if (!person || !isEngineerOrAdmin(person))
     throw new ConvexError("Check in as an Engineer to sign this off.")
   return person
 }
@@ -263,9 +265,10 @@ export async function validateDraft(ctx: MutationCtx, draft: TrainingDraft) {
   if (!title) throw new ConvexError("Give the Training a title.")
   if (draft.objectives.length > MAX_OBJECTIVES)
     throw new ConvexError(`A Training has at most ${MAX_OBJECTIVES} Learning objectives. Split it in two.`)
-  const passMark = Math.round(draft.passMark ?? DEFAULT_PASS_MARK)
+  const defaults = (await readOrgSettings(ctx)).training
+  const passMark = Math.round(draft.passMark ?? defaults.passMark)
   if (passMark < 50 || passMark > 100) throw new ConvexError("The pass mark must be between 50 and 100 percent.")
-  const perObjective = Math.round(draft.questionsPerObjective ?? 1)
+  const perObjective = Math.round(draft.questionsPerObjective ?? defaults.questionsPerObjective)
   if (perObjective < 1 || perObjective > MAX_QUESTIONS_PER_OBJECTIVE)
     throw new ConvexError(`Questions per objective must be 1 to ${MAX_QUESTIONS_PER_OBJECTIVE}.`)
 
@@ -690,7 +693,7 @@ export const submitForReview = mutation({
     await assertFindingsAcked(ctx, row)
     if (args.reviewerPersonId) {
       const reviewer = await ctx.db.get(args.reviewerPersonId)
-      if (!reviewer || reviewer.kind !== "engineer") throw new ConvexError("The reviewer must be an Engineer.")
+      if (!reviewer || !isEngineerOrAdmin(reviewer)) throw new ConvexError("The reviewer must be an Engineer.")
       if (authorsOf(row).has(String(reviewer._id)) || reviewer._id === args.personId)
         throw new ConvexError("The reviewer cannot be an author of this version. Pick another Engineer.")
     }

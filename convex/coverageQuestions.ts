@@ -8,10 +8,11 @@ import { mutation, query } from "./_generated/server"
 import type { MutationCtx } from "./_generated/server"
 import type { Id } from "./_generated/dataModel"
 import { requireUser, requireUserId } from "./lib/auth"
-import { requireEngineer } from "./documents"
+import { requireEngineerOrAdmin } from "./lib/roles"
+import { loadShifts } from "./people/shifts"
 
-const SHIFTS = ["early", "late", "night"] as const
-const shiftValidator = v.union(v.literal("early"), v.literal("late"), v.literal("night"))
+// A shift key from the shifts table (Settings, People and roles).
+const shiftValidator = v.string()
 const MAX_LABEL = 120
 
 export const list = query({
@@ -19,6 +20,7 @@ export const list = query({
   handler: async (ctx) => {
     await requireUser(ctx)
     const rows = await ctx.db.query("coverageQuestions").withIndex("by_order").take(100)
+    const shifts = new Set((await loadShifts(ctx)).map((s) => s.key))
     const out = []
     for (const q of rows) {
       const profile = await ctx.db.get(q.profileId)
@@ -27,7 +29,7 @@ export const list = query({
         label: q.label,
         profileId: q.profileId,
         profileName: profile?.name ?? null,
-        shift: SHIFTS.find((s) => s === q.shift) ?? null,
+        shift: q.shift && shifts.has(q.shift) ? q.shift : null,
         order: q.order,
         showOnHome: q.showOnHome ?? false,
       })
@@ -38,11 +40,14 @@ export const list = query({
 
 async function engineerFor(ctx: MutationCtx, personId: Id<"people">) {
   await requireUserId(ctx)
-  try {
-    return await requireEngineer(ctx, personId)
-  } catch {
-    throw new Error("Check in as an Engineer to change coverage questions.")
-  }
+  return await requireEngineerOrAdmin(ctx, personId, "Check in as an Engineer to change coverage questions.")
+}
+
+/** The shift key when it exists; null means every shift. */
+async function checkShift(ctx: MutationCtx, shift: string | null | undefined) {
+  if (!shift) return undefined
+  if (!(await loadShifts(ctx)).some((s) => s.key === shift)) throw new Error("That shift no longer exists.")
+  return shift
 }
 
 function cleanLabel(label: string) {
@@ -73,7 +78,7 @@ export const create = mutation({
     return await ctx.db.insert("coverageQuestions", {
       label: cleanLabel(args.label),
       profileId: args.profileId,
-      shift: args.shift ?? undefined,
+      shift: await checkShift(ctx, args.shift),
       order,
       showOnHome: args.showOnHome ?? false,
       createdBy: engineer._id,
@@ -106,7 +111,7 @@ export const update = mutation({
       await checkProfile(ctx, args.profileId)
       patch.profileId = args.profileId
     }
-    if (args.shift !== undefined) patch.shift = args.shift ?? undefined
+    if (args.shift !== undefined) patch.shift = await checkShift(ctx, args.shift)
     if (args.showOnHome !== undefined) patch.showOnHome = args.showOnHome
     await ctx.db.patch(row._id, patch)
   },
@@ -144,21 +149,17 @@ export const remove = mutation({
 export const setPersonShift = mutation({
   args: {
     personId: v.id("people"),
-    shift: v.union(v.literal("early"), v.literal("late"), v.literal("night"), v.literal("day"), v.null()),
+    shift: v.union(v.string(), v.null()),
     team: v.union(v.string(), v.null()),
     engineerPersonId: v.id("people"),
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
-    try {
-      await requireEngineer(ctx, args.engineerPersonId)
-    } catch {
-      throw new Error("Check in as an Engineer to change someone's shift or team.")
-    }
+    await requireEngineerOrAdmin(ctx, args.engineerPersonId, "Check in as an Engineer to change someone's shift or team.")
     const person = await ctx.db.get(args.personId)
     if (!person) throw new Error("This person no longer exists.")
     const team = args.team?.trim().replace(/\s+/g, " ") || undefined
     if (team && team.length > 60) throw new Error("Keep the team name under 60 characters.")
-    await ctx.db.patch(person._id, { shift: args.shift ?? undefined, team })
+    await ctx.db.patch(person._id, { shift: await checkShift(ctx, args.shift), team })
   },
 })

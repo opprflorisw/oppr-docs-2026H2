@@ -9,6 +9,7 @@ import { AccessLevels } from "@/components/mcp/AccessLevels"
 import { ConnectPanel } from "@/components/mcp/ConnectPanel"
 import { AuditLog, KeysPanel } from "@/components/mcp/KeysPanel"
 import type { ModelHost } from "@/components/mcp/data"
+import { useCompanyName } from "@/components/settings/useCompanyName"
 
 // MCP (docs/adr/0004): connect the AI a company already uses to Oppr. The
 // messy pre-work happens in that model; Oppr keeps the structure, the
@@ -16,6 +17,7 @@ import type { ModelHost } from "@/components/mcp/data"
 // the New document chooser, not from the main navigation.
 export function McpPage() {
   const [host, setHost] = useState<ModelHost | null>(null)
+  const plant = useCompanyName()
 
   // Arriving with #connect (from Settings or a link): scroll to it.
   useEffect(() => {
@@ -49,7 +51,7 @@ export function McpPage() {
           <DoLess />
         </Section>
 
-        <Section id="scenarios" title="Scenarios" lead="Five real situations at Pijpwerk Noord. Pick one and step through it.">
+        <Section id="scenarios" title="Scenarios" lead={`Five real situations at ${plant ?? "your plant"}. Pick one and step through it.`}>
           <Scenarios highlight={host} />
         </Section>
 

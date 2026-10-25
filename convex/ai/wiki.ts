@@ -70,6 +70,7 @@ const WIKI_BASE = [
   "- Write numbers as digits with the unit exactly as the excerpt writes it (40 Nm, 190 °C, 20 %, 170-220 °C). Copy codes such as PX-4400 or EXL-201 exactly.",
   "- Keep every prohibition and warning as strong as the excerpt says it: never turn \"never\" or \"do not\" into a permission, and never drop a condition (\"while the line is only stopped\", \"at operating temperature\").",
   "- Do not invent step numbers, reasons, consequences, tolerances or best practices that the excerpts do not state.",
+  "- Never use em dashes. Use a comma, a colon or a full stop instead.",
   "- Do not add qualifiers the excerpt does not use: no \"usually\", \"likely\", \"always\", \"at least\", \"at most\", \"minimum\", \"maximum\" or \"only\" unless the cited excerpt says it. Keep \"or\" as \"or\". A table row lists its values in the order of its columns; do not label them minimum or maximum unless the cited excerpt does.",
   "",
   "Citing:",
@@ -268,7 +269,16 @@ export const generate = internalAction({
       blocks.push("")
     }
 
+    // Background only: helps the model use the plant's own words. Every point
+    // must still come from an excerpt (checkPoint drops anything else).
+    let briefing = ""
+    try {
+      briefing = await ctx.runQuery(internal.plant.context.forAi, {})
+    } catch (err) {
+      console.warn("Wiki: plant briefing failed", err)
+    }
     const prompt = [
+      ...(briefing ? [briefing, "Use the briefing only to understand the plant's words. Never write a point from it.", ""] : []),
       `WIKI TITLE: ${input.title}`,
       `PURPOSE AND AUDIENCE: ${input.purpose || "(not specified)"}`,
       "",
@@ -534,6 +544,8 @@ export const guide = action({
       ...options.documents.map(
         (d) => `- ${d.namingCode}: ${d.title} [area ${d.area ?? "-"}, discipline ${d.discipline ?? "-"}]`,
       ),
+      // The plant's own words (incl. Dutch), so "de zeefwissel" finds its area.
+      await ctx.runQuery(internal.plant.context.forAi, {}).catch(() => ""),
     ].join("\n")
 
     const currentFormat: WikiFormat = args.draft.format ?? "overview"

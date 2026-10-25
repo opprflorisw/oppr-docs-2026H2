@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server"
 import { v } from "convex/values"
 import { requireUser, requireUserId } from "./lib/auth"
+import { requireEngineerOrAdmin } from "./lib/roles"
 
 // Document type vocabulary. The four originals plus Toolbox talk and Policy.
 // icon/color are string ids resolved client-side (src/lib/typeMeta.ts) so the
@@ -61,9 +62,11 @@ export const add = mutation({
     label: v.string(),
     icon: v.string(),
     color: v.string(),
+    personId: v.optional(v.id("people")),
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId)
     const token = args.token.trim().toUpperCase()
     const label = args.label.trim()
     if (!token) throw new Error("Token is required")
@@ -106,9 +109,11 @@ export const update = mutation({
     label: v.optional(v.string()),
     icon: v.optional(v.string()),
     color: v.optional(v.string()),
+    personId: v.optional(v.id("people")),
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId)
     const row = await ctx.db.get(args.id)
     if (!row) throw new Error("Type not found")
     const patch: Record<string, unknown> = {}
@@ -121,9 +126,10 @@ export const update = mutation({
 })
 
 export const setActive = mutation({
-  args: { id: v.id("namingTypes"), active: v.boolean() },
+  args: { id: v.id("namingTypes"), active: v.boolean(), personId: v.optional(v.id("people")) },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId)
     const row = await ctx.db.get(args.id)
     if (!row) throw new Error("Type not found")
     await ctx.db.patch(args.id, { active: args.active })
@@ -131,17 +137,18 @@ export const setActive = mutation({
 })
 
 export const remove = mutation({
-  args: { id: v.id("namingTypes") },
+  args: { id: v.id("namingTypes"), personId: v.optional(v.id("people")) },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId)
     const row = await ctx.db.get(args.id)
     if (!row) throw new Error("Type not found")
     if (row.builtIn)
-      throw new Error("Built-in types can't be deleted — deactivate it instead")
+      throw new Error("Built-in types can't be deleted. Turn it off instead.")
     // Refuse if any document uses this type slug — its naming code is immutable.
     const docs = await ctx.db.query("documents").take(2000)
     if (docs.some((d) => d.type === row.slug))
-      throw new Error("Documents use this type — deactivate it instead")
+      throw new Error("Documents use this type. Turn it off instead.")
     await ctx.db.delete(args.id)
   },
 })

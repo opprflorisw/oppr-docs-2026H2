@@ -28,6 +28,7 @@ import { formatDate } from "@/lib/time"
 import { cn } from "@/lib/utils"
 import { SkillCellSheet } from "./skills/SkillCellSheet"
 import { errorText, expiryText, fmtDate, fmtScore, LevelDots, levelWords, StatusChip, type SkillStatus } from "./skills/skillUi"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 // Learn tab: for the checked-in person, their Skill profile progress, what
 // to learn next (the Training to start, or the try-out to request), re-training
@@ -36,7 +37,7 @@ export function MyLearningTab() {
   const { person, people } = useCheckIn()
   if (people === undefined) return <Loading />
   if (!person) return <CheckInPrompt />
-  return <MyLearning personId={person._id} engineer={person.kind === "engineer"} />
+  return <MyLearning personId={person._id} engineer={isEngineerOrAdmin(person)} />
 }
 
 function Loading() {

@@ -44,6 +44,7 @@ import {
   StatusChip,
   type SkillStatus,
 } from "@/components/learn/skills/skillUi"
+import { KIND_LABEL, isEngineerOrAdmin } from "@/lib/roles"
 
 // /learn/people/:id: one person's Skills with levels and validity, what they
 // still need against their Skill profiles, how each level was reached, and
@@ -102,12 +103,12 @@ export function PersonSkillsPage() {
           <span className="inline-flex items-center gap-1">
             {ShiftIcon && <ShiftIcon className="h-3 w-3" />}
             {person.role}
-            {person.kind === "engineer" ? " · Engineer" : " · Operator"}
+            {` · ${KIND_LABEL[person.kind]}`}
           </span>
         }
         actions={
           <>
-            {me?.kind === "engineer" && (
+            {isEngineerOrAdmin(me) && (
               <ProfilesPopover personId={person._id} current={data.profiles.map((p) => p._id)} engineerId={me._id} />
             )}
             <Button size="sm" variant="outline" className="gap-1.5" onClick={() => navigate(`${location}?view=file`)}>
@@ -472,7 +473,7 @@ function TrainingFile({ data, onClose }: { data: Detail; onClose: () => void }) 
           <p className="text-xs uppercase tracking-wide text-muted-foreground">Training file</p>
           <h2 className="text-xl font-semibold">{person.name}</h2>
           <p className="text-muted-foreground">
-            {person.role} · {person.kind === "engineer" ? "Engineer" : "Operator"}
+            {person.role} · {KIND_LABEL[person.kind]}
             {data.profiles.length > 0 && ` · ${data.profiles.map((p) => `${p.name} (${p.atTarget} of ${p.targets} at target)`).join(", ")}`}
           </p>
           <p className="text-xs text-muted-foreground">Printed {formatDateTime(Date.now())}</p>

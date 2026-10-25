@@ -23,6 +23,7 @@ import {
   PanelRightClose,
   Plus,
   Quote,
+  Search,
   Send,
   ShieldAlert,
   Sparkles,
@@ -62,8 +63,8 @@ import { AudiencePicker, useCatalogue } from "./AssignDialog"
 import {
   builderChecks,
   checklistFromBreakdown,
-  EMPTY_TRAINING_DRAFT,
   F,
+  newTrainingDraft,
   hasSafety,
   mergeGuide,
   passRuleText,
@@ -75,6 +76,8 @@ import {
   type CheckTab,
   type TrainingDraft,
 } from "./builderModel"
+import { isEngineerOrAdmin } from "@/lib/roles"
+import { KnowledgeSearchPanel } from "@/components/find/KnowledgeSearchPanel"
 
 export type { TrainingDraft } from "./builderModel"
 export { EMPTY_TRAINING_DRAFT, trainingDraftChanges } from "./builderModel"
@@ -88,7 +91,7 @@ const TABS: { value: BuilderTab; label: string; icon: typeof FileText }[] = [
   { value: "tryout", label: "Try-out and refresher", icon: BookOpenCheck },
   { value: "people", label: "People", icon: Users },
   { value: "preview", label: "Preview", icon: Eye },
-  { value: "signals", label: "Still on point?", icon: TrendingDown },
+  { value: "signals", label: "Answers and signals", icon: TrendingDown },
 ]
 
 const EXAMPLES = [
@@ -140,12 +143,16 @@ export function TrainingGuidedCreation({
   const update = useMutation(api.trainings.update)
   const submit = useMutation(api.trainings.submitForReview)
   const options = useQuery(api.trainings.draftOptions, open ? {} : "skip")
+  // Company defaults for a new Training (Settings, Training).
+  const trainingDefaults = useQuery(api.orgSettings.get)?.training
   const catalogue = useCatalogue()
   const { person } = useCheckIn()
   const [, navigate] = useLocation()
   const editing = trainingId !== undefined
   const [tab, setTab] = useState<BuilderTab>(initialTab)
   const [assistantOpen, setAssistantOpen] = useState(false)
+  // "Find images and passages": a found passage becomes a Learning objective.
+  const [findOpen, setFindOpen] = useState(false)
   // A new Training starts with one choice: which Published document.
   const [skipStart, setSkipStart] = useState(false)
   const [kindLocked, setKindLocked] = useState(Boolean(initialKind) || editing)
@@ -155,7 +162,7 @@ export function TrainingGuidedCreation({
   const startDraft = useMemo<TrainingDraft>(
     () =>
       initial ?? {
-        ...EMPTY_TRAINING_DRAFT,
+        ...newTrainingDraft(trainingDefaults),
         kind: initialKind ?? "course",
         purpose: initialPurpose ?? "",
         documentIds: initialDocumentIds ?? [],
@@ -215,7 +222,7 @@ export function TrainingGuidedCreation({
   }, [savedFindings, draftFindings])
   const unsettled = draft.objectives.findIndex((o) => (findings.get(o.id) ?? []).some((f) => !f.acked))
   const checks: BuilderCheck[] = [
-    ...builderChecks(draft, { version }),
+    ...builderChecks(draft, { version, tryOutForSafety: trainingDefaults?.tryOutForSafety }),
     ...(unsettled >= 0
       ? [
           {
@@ -354,11 +361,29 @@ export function TrainingGuidedCreation({
               size="sm"
               variant={assistantOpen ? "secondary" : "outline"}
               className="gap-1.5"
-              onClick={() => setAssistantOpen(!assistantOpen)}
+              onClick={() => {
+                setAssistantOpen(!assistantOpen)
+                setFindOpen(false)
+              }}
               aria-pressed={assistantOpen}
+              title="Say what the Training is for; the assistant drafts objectives from Published passages"
             >
               {assistantOpen ? <PanelRightClose className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
-              {assistantOpen ? "Hide assistant" : "Assistant"}
+              {assistantOpen ? "Hide assistant" : "Draft with assistant"}
+            </Button>
+            <Button
+              size="sm"
+              variant={findOpen ? "secondary" : "outline"}
+              className="gap-1.5"
+              onClick={() => {
+                setFindOpen(!findOpen)
+                setAssistantOpen(false)
+              }}
+              aria-pressed={findOpen}
+              title="Search the image library and Published passages by words or a photo"
+            >
+              {findOpen ? <PanelRightClose className="h-4 w-4" /> : <Search className="h-4 w-4" />}
+              Find images and passages
             </Button>
           </div>
 
@@ -407,7 +432,7 @@ export function TrainingGuidedCreation({
           </div>
 
           {/* Body */}
-          <div className={cn("grid min-h-0 flex-1", assistantOpen && "lg:grid-cols-[minmax(0,1fr)_400px]")}>
+          <div className={cn("grid min-h-0 flex-1", (assistantOpen || findOpen) && "lg:grid-cols-[minmax(0,1fr)_400px]")}>
             <div
               className={cn("min-h-0 overflow-y-auto p-5 transition-opacity", session.phase === "asking" && "pointer-events-none opacity-60")}
               aria-busy={session.phase === "asking"}
@@ -466,6 +491,38 @@ export function TrainingGuidedCreation({
                 )}
               </div>
             </div>
+            {findOpen && (
+              <aside className="hidden min-h-0 flex-col border-l lg:flex" aria-label="Find images and passages">
+                <KnowledgeSearchPanel
+                  className="min-h-0 flex-1"
+                  onClose={() => setFindOpen(false)}
+                  areaCodes={draft.area ? [draft.area] : undefined}
+                  passageActionLabel="Add as objective"
+                  imageHint="Images of the source Documents can be put on questions in the Questions tab."
+                  onInsertPassage={(p) => {
+                    if (draft.objectives.some((o) => o.chunkId === p.chunkId)) {
+                      toast.info("That passage is already a Learning objective.")
+                      return
+                    }
+                    let n = draft.objectives.length + 1
+                    while (draft.objectives.some((o) => o.id === `o${n}`)) n += 1
+                    setDraft({
+                      ...draft,
+                      objectives: [
+                        ...draft.objectives,
+                        { id: `o${n}`, text: "", documentId: p.documentId, chunkId: p.chunkId, quote: p.text },
+                      ],
+                      documentIds: draft.documentIds.includes(p.documentId)
+                        ? draft.documentIds
+                        : [...draft.documentIds, p.documentId],
+                    })
+                    setSkipStart(true)
+                    setTab("source")
+                    toast.success(`Added from ${p.namingCode}. Write what the person must know or do.`)
+                  }}
+                />
+              </aside>
+            )}
             {assistantOpen && (
               <aside className="hidden min-h-0 flex-col border-l bg-muted/20 lg:flex" aria-label="Assistant">
                 <div className="flex items-center gap-1.5 border-b px-4 py-2">
@@ -608,7 +665,7 @@ function SendForReview({
   busy,
   onSend,
 }: {
-  people: { _id: Id<"people">; name: string; role: string; kind: "operator" | "engineer" }[]
+  people: { _id: Id<"people">; name: string; role: string; kind: "operator" | "engineer" | "admin" }[]
   excludeId: Id<"people"> | null
   value: Id<"people"> | null
   onChange: (id: Id<"people"> | null) => void
@@ -617,7 +674,7 @@ function SendForReview({
   onSend: () => void
 }) {
   const [open, setOpen] = useState(false)
-  const engineers = people.filter((p) => p.kind === "engineer" && p._id !== excludeId)
+  const engineers = people.filter((p) => isEngineerOrAdmin(p) && p._id !== excludeId)
   const chosen = engineers.find((p) => p._id === value)
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -1179,7 +1236,7 @@ function FindingMarker({
           <Button
             size="sm"
             variant="outline"
-            disabled={busy || reason.trim().length < 10 || person?.kind !== "engineer"}
+            disabled={busy || reason.trim().length < 10 || !isEngineerOrAdmin(person)}
             onClick={async () => {
               if (!person || !trainingId) return
               setBusy(true)
@@ -1377,7 +1434,8 @@ function PeopleTab({
   const suggested = skills.filter((s) => !draft.skillIds.includes(s._id) && s.documentIds.some((d) => draft.documentIds.includes(d)))
   const others = skills.filter((s) => !draft.skillIds.includes(s._id) && !suggested.includes(s))
   const [pick, setPick] = useState(false)
-  const audience = draft.audience ?? { profileIds: [], personIds: [], dueDays: 14 }
+  const defaultDueDays = useQuery(api.orgSettings.get)?.training.dueDays ?? 14
+  const audience = draft.audience ?? { profileIds: [], personIds: [], dueDays: defaultDueDays }
   const setAudience = (p: Partial<typeof audience>) => onChange({ ...draft, audience: { ...audience, ...p } })
   const setSkills = (skillIds: Id<"skills">[]) => {
     // A Skill with a validity sets the refresher by default.
@@ -1404,7 +1462,7 @@ function PeopleTab({
             const s = skills.find((x) => x._id === id)
             return (
               <span key={id} className="inline-flex min-h-8 items-center gap-1 rounded-full border border-primary bg-primary/10 px-3 text-sm">
-                Proves: {s?.name ?? "Unknown Skill"}
+                Counts towards: {s?.name ?? "Unknown Skill"}
                 <button
                   type="button"
                   aria-label={`Remove ${s?.name ?? "Skill"}`}
@@ -1490,7 +1548,7 @@ function PeopleTab({
             min={1}
             max={365}
             value={audience.dueDays}
-            onChange={(e) => setAudience({ dueDays: Math.max(1, Math.min(365, Number(e.target.value) || 14)) })}
+            onChange={(e) => setAudience({ dueDays: Math.max(1, Math.min(365, Number(e.target.value) || defaultDueDays)) })}
             className="h-9 w-20"
           />
           <span className="text-sm text-muted-foreground">days after publishing</span>

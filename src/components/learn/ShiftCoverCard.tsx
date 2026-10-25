@@ -6,7 +6,7 @@ import type { Id } from "../../../convex/_generated/dataModel"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
-import { coverTone, nextShift, SHIFT_META, SHIFT_ORDER, shiftKey } from "./skills/skillUi"
+import { coverTone, useShifts } from "./skills/skillUi"
 
 // Home: shift cover. For every Skill profile in a coverage question marked
 // "show on Home", how many fully qualified people work each shift. Red for
@@ -52,7 +52,8 @@ export function ShiftCoverCard({ engineer }: { engineer: boolean }) {
 
 function ProfileCover({ profileId, name }: { profileId: Id<"skillProfiles">; name: string }) {
   const coverage = useQuery(api.skills.coverage, { profileId })
-  const next = nextShift()
+  const shifts = useShifts()
+  const next = shifts.next()
   return (
     <Card>
       <CardContent className="p-0">
@@ -67,10 +68,10 @@ function ProfileCover({ profileId, name }: { profileId: Id<"skillProfiles">; nam
           </div>
         ) : (
           <ul className="divide-y">
-            {SHIFT_ORDER.map((s) => {
-              const people = coverage.byShift.filter((g) => shiftKey(g.shift) === s).flatMap((g) => g.people)
+            {shifts.cover.map((meta) => {
+              const s = meta.key
+              const people = coverage.byShift.filter((g) => g.shift === s).flatMap((g) => g.people)
               const n = people.length
-              const meta = SHIFT_META[s]
               return (
                 <li key={s}>
                   <Link

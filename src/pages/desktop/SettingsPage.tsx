@@ -1,66 +1,46 @@
-import { useState, type ComponentType, type ReactNode } from "react"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { useAction, useQuery } from "convex/react"
-import { useAuthActions } from "@convex-dev/auth/react"
-import { api } from "../../../convex/_generated/api"
-import {
-  CHAT_MODEL,
-  EMBEDDING_DIM,
-  EMBEDDING_MODEL,
-} from "../../../convex/ai/constants"
-import { toast } from "sonner"
-import { Link, useSearch } from "wouter"
+import type { ComponentType } from "react"
+import { Link, Redirect, useSearch } from "wouter"
 import type { LucideProps } from "lucide-react"
 import {
-  ArrowUpRight,
-  BadgeCheck,
-  Cable,
+  Building2,
+  CalendarClock,
+  ClipboardCheck,
   FileDown,
   GraduationCap,
   Hash,
-  Image as ImageIcon,
   LayoutTemplate,
-  Loader2,
-  LogOut,
-  RefreshCw,
+  Layers,
   Settings as SettingsIcon,
   ShieldCheck,
+  SlidersHorizontal,
+  Smartphone,
   Sparkles,
-  User as UserIcon,
   Users,
 } from "lucide-react"
 import { TemplatesList } from "./TemplatesPage"
 import { NamingSettings } from "./NamingSettingsPage"
-import { ImageLibraryPage } from "./ImageLibraryPage"
 import { CoverSettingsEditor } from "@/components/docs/CoverSettingsEditor"
 import { PpeConfigurator } from "@/components/docs/PpeConfigurator"
 import { PeopleSettings } from "@/components/people/PeopleSettings"
+import { ShiftsSettings } from "@/components/people/ShiftsSettings"
+import { SkillsSettings } from "@/components/learn/SkillsSettings"
+import { SkillLevelsSettings } from "@/components/learn/skills/SkillLevelsSettings"
+import { CompanySettings } from "@/components/settings/CompanySettings"
+import { DocumentRulesSettings } from "@/components/settings/DocumentRulesSettings"
+import { TrainingDefaultsSettings } from "@/components/settings/TrainingDefaultsSettings"
+import { FloorSettings } from "@/components/settings/FloorSettings"
+import { ConnectionsSettings } from "@/components/settings/ConnectionsSettings"
+import { MyPreferences } from "@/components/settings/MyPreferences"
+import { EditorOnly } from "@/components/settings/SettingsBits"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { cn } from "@/lib/utils"
-import { formatDateTime } from "@/lib/time"
-import { SkillsSettings } from "@/components/learn/SkillsSettings"
 
-// Settings holds setup only, in four groups with a left sub-nav. The section
-// lives in ?tab= so other pages can link straight to it (?tab=templates).
-// MCP and ISO 9001 have their own pages; their Settings entries go there.
+// Settings holds setup only: six groups, each holding one kind of option, and
+// My preferences for this device below them. The section lives in ?tab= so
+// other pages can link straight to it (?tab=templates). Places with their own
+// page (Images under Documents, Assets under Plant, MCP, ISO 9001) are not
+// listed; their old ?tab= links still open them.
 
 type Section = {
   value: string
@@ -68,30 +48,28 @@ type Section = {
   icon: ComponentType<LucideProps>
   /** One line under the section heading. */
   lead: string
-  /** Opens another page instead of a section here. */
-  href?: string
 }
 
 const GROUPS: { label: string; sections: Section[] }[] = [
   {
-    label: "Account",
+    label: "Company",
     sections: [
       {
-        value: "account",
-        label: "Signed-in account",
-        icon: UserIcon,
-        lead: "Who is logged in on this device, and how to sign out.",
+        value: "company",
+        label: "Company",
+        icon: Building2,
+        lead: "Name, logo and languages, used everywhere the company is named.",
       },
     ],
   },
   {
-    label: "People",
+    label: "People and roles",
     sections: [
       {
         value: "people",
         label: "People",
         icon: Users,
-        lead: "Everyone who can check in, and whether they are an Operator or an Engineer.",
+        lead: "Everyone who can check in: Operator, Engineer or Admin, with area, shift and team.",
       },
       {
         value: "skills",
@@ -99,11 +77,29 @@ const GROUPS: { label: string; sections: Section[] }[] = [
         icon: GraduationCap,
         lead: "Skills, Skill profiles and coverage questions for the Skill matrix and Home.",
       },
+      {
+        value: "skill-levels",
+        label: "Skill levels",
+        icon: Layers,
+        lead: "Your own names for the four Skill levels, for example ILUO.",
+      },
+      {
+        value: "shifts",
+        label: "Shifts",
+        icon: CalendarClock,
+        lead: "The plant's shifts, their times and whether they count for shift cover.",
+      },
     ],
   },
   {
-    label: "Document setup",
+    label: "Documents",
     sections: [
+      {
+        value: "naming",
+        label: "Naming and types",
+        icon: Hash,
+        lead: "How document codes like EXT-OPS-SOP-0001 are built, and the document types.",
+      },
       {
         value: "templates",
         label: "Templates",
@@ -112,9 +108,9 @@ const GROUPS: { label: string; sections: Section[] }[] = [
       },
       {
         value: "title-page",
-        label: "Title page",
+        label: "Title page and PDF",
         icon: FileDown,
-        lead: "What the first page of an exported PDF shows.",
+        lead: "What the first page and the header and footer of an exported PDF show.",
       },
       {
         value: "safety",
@@ -123,58 +119,138 @@ const GROUPS: { label: string; sections: Section[] }[] = [
         lead: "The PPE and safety pictograms authors can place in a document.",
       },
       {
-        value: "naming",
-        label: "Naming",
-        icon: Hash,
-        lead: "How document codes like EXT-OPS-SOP-0001 are built.",
-      },
-      {
-        value: "images",
-        label: "Images",
-        icon: ImageIcon,
-        lead: "Shared images for documents, Assets and Trainings.",
+        value: "review",
+        label: "Review and approval",
+        icon: ClipboardCheck,
+        lead: "Periodic review defaults and the rules for approving a version.",
       },
     ],
   },
   {
-    label: "Integrations",
+    label: "Training",
+    sections: [
+      {
+        value: "training",
+        label: "Training defaults",
+        icon: SlidersHorizontal,
+        lead: "What a new Training starts with, and when a walk-through is asked for.",
+      },
+    ],
+  },
+  {
+    label: "Floor",
+    sections: [
+      {
+        value: "floor",
+        label: "Phones and Captures",
+        icon: Smartphone,
+        lead: "Check-in on shared phones, and what Operators are told before a Capture.",
+      },
+    ],
+  },
+  {
+    label: "AI and connections",
     sections: [
       {
         value: "ai",
-        label: "AI",
+        label: "AI and schedules",
         icon: Sparkles,
-        lead: "How Ask finds the passages it answers from.",
-      },
-      {
-        value: "mcp",
-        label: "MCP",
-        icon: Cable,
-        lead: "Connect the AI your company already uses.",
-        href: "/mcp",
-      },
-    ],
-  },
-  {
-    label: "Quality",
-    sections: [
-      {
-        value: "iso-9001",
-        label: "ISO 9001",
-        icon: BadgeCheck,
-        lead: "What ISO 9001 asks for, and what Oppr already does about it.",
-        href: "/iso-9001",
+        lead: "Which models do what, the search index, what runs by itself, and notifications.",
       },
     ],
   },
 ]
 
-const SECTIONS = GROUPS.flatMap((g) => g.sections)
+const PREFERENCES: Section = {
+  value: "preferences",
+  label: "My preferences",
+  icon: SettingsIcon,
+  lead: "Your account, who is checked in, and what this browser remembers. Only for this device.",
+}
+
+const SECTIONS = [...GROUPS.flatMap((g) => g.sections), PREFERENCES]
+
+// Places with their own page: old or guessed ?tab= values open them.
+const LINK_OUT: Record<string, string> = {
+  images: "/library/images",
+  image: "/library/images",
+  photos: "/library/images",
+  "iso-9001": "/iso-9001",
+  iso: "/iso-9001",
+  assets: "/plant/assets",
+  plant: "/plant",
+  mcp: "/mcp",
+}
+
+// Other words for a section, so a typed or old link lands on the right page.
+const ALIASES: Record<string, string> = {
+  account: "preferences",
+  device: "preferences",
+  "this-device": "preferences",
+  "my-preferences": "preferences",
+  logo: "company",
+  languages: "company",
+  roles: "people",
+  "people-and-roles": "people",
+  "skill-profiles": "skills",
+  profiles: "skills",
+  coverage: "skills",
+  levels: "skill-levels",
+  iluo: "skill-levels",
+  types: "naming",
+  vocabulary: "naming",
+  codes: "naming",
+  titlepage: "title-page",
+  cover: "title-page",
+  pdf: "title-page",
+  ppe: "safety",
+  icons: "safety",
+  approval: "review",
+  "periodic-review": "review",
+  phones: "floor",
+  phone: "floor",
+  captures: "floor",
+  "check-in": "floor",
+  connections: "ai",
+  embeddings: "ai",
+  schedules: "ai",
+  notifications: "ai",
+  models: "ai",
+}
+
+const compact = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "")
+
+/** Where a ?tab= value lands: a section here, another page, or nothing known. */
+function resolveTab(raw: string): { section?: Section; href?: string } {
+  const key = raw.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
+  if (!key) return { section: SECTIONS[0] }
+  const exact = SECTIONS.find((s) => s.value === key)
+  if (exact) return { section: exact }
+  if (LINK_OUT[key]) return { href: LINK_OUT[key] }
+  if (ALIASES[key]) return { section: SECTIONS.find((s) => s.value === ALIASES[key]) }
+  // Closest match: the typed word starts, contains or is part of a section's name.
+  const c = compact(key)
+  if (c.length >= 3) {
+    const near =
+      SECTIONS.find((s) => compact(s.value).startsWith(c) || compact(s.label).startsWith(c)) ??
+      SECTIONS.find((s) => c.startsWith(compact(s.value))) ??
+      SECTIONS.find((s) => compact(s.label).includes(c))
+    if (near) return { section: near }
+  }
+  return {}
+}
 
 export function SettingsPage() {
   const search = useSearch()
-  const requested = new URLSearchParams(search).get("tab")
-  const section =
-    SECTIONS.find((s) => s.value === requested && !s.href) ?? SECTIONS[0]
+  const raw = new URLSearchParams(search).get("tab") ?? ""
+  const resolved = resolveTab(raw)
+
+  if (resolved.href) return <Redirect to={resolved.href} replace />
+  if (resolved.section && raw && raw !== resolved.section.value) {
+    return <Redirect to={`/settings?tab=${resolved.section.value}`} replace />
+  }
+  const unknown = !resolved.section
+  const section = resolved.section ?? SECTIONS[0]
 
   return (
     <div className="flex flex-col">
@@ -195,34 +271,25 @@ export function SettingsPage() {
           {GROUPS.map((g) => (
             <div key={g.label} className="space-y-1">
               <p className="px-3 text-xs font-medium text-muted-foreground">{g.label}</p>
-              {g.sections.map((s) => {
-                const active = s.value === section.value
-                const Icon = s.icon
-                return (
-                  <Link
-                    key={s.value}
-                    href={s.href ?? `/settings?tab=${s.value}`}
-                    aria-current={active ? "page" : undefined}
-                    className={cn(
-                      "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
-                      active
-                        ? "bg-accent font-medium text-accent-foreground"
-                        : "text-foreground/80 hover:bg-muted hover:text-foreground",
-                    )}
-                  >
-                    <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-                    <span className="flex-1">{s.label}</span>
-                    {s.href && (
-                      <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" aria-label="Opens its own page" />
-                    )}
-                  </Link>
-                )
-              })}
+              {g.sections.map((s) => (
+                <SectionLink key={s.value} s={s} active={s.value === section.value} />
+              ))}
             </div>
           ))}
+          <div className="border-t pt-4">
+            <SectionLink s={PREFERENCES} active={PREFERENCES.value === section.value} />
+          </div>
         </nav>
 
         <section aria-labelledby="settings-section-title" className="min-w-0 space-y-4">
+          {unknown && (
+            <p
+              role="status"
+              className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+            >
+              There is no Settings page called &ldquo;{raw}&rdquo;. This is Company; pick the page you need on the left.
+            </p>
+          )}
           <div className="space-y-1">
             <h2 id="settings-section-title" className="text-base font-semibold">
               {section.label}
@@ -236,253 +303,70 @@ export function SettingsPage() {
   )
 }
 
+function SectionLink({ s, active }: { s: Section; active: boolean }) {
+  const Icon = s.icon
+  return (
+    <Link
+      href={`/settings?tab=${s.value}`}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+        active
+          ? "bg-accent font-medium text-accent-foreground"
+          : "text-foreground/80 hover:bg-muted hover:text-foreground",
+      )}
+    >
+      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+      <span className="flex-1">{s.label}</span>
+    </Link>
+  )
+}
+
 function SectionBody({ value }: { value: string }) {
   switch (value) {
     case "people":
       return <PeopleSettings />
     case "skills":
+      return <SkillsSettings />
+    case "skill-levels":
+      return <SkillLevelsSettings />
+    case "shifts":
+      return <ShiftsSettings />
+    case "naming":
       return (
-        <>
-          <p className="text-sm text-muted-foreground">
-            Engineers also find this in Learn, next to the Skill matrix:{" "}
-            <Link href="/learn?tab=setup" className="font-medium text-primary underline-offset-2 hover:underline">
-              Learn, Skills setup
-            </Link>
-            .
-          </p>
-          <SkillsSettings />
-        </>
+        <EditorOnly>
+          <NamingSettings />
+        </EditorOnly>
       )
     case "templates":
-      return <TemplatesList />
+      return (
+        <EditorOnly>
+          <TemplatesList />
+        </EditorOnly>
+      )
     case "title-page":
-      return <CoverSettingsEditor />
+      return (
+        <EditorOnly>
+          <CoverSettingsEditor />
+        </EditorOnly>
+      )
     case "safety":
-      return <PpeConfigurator />
-    case "naming":
-      return <NamingSettings />
-    case "images":
-      return <ImageLibraryPage embedded />
+      return (
+        <EditorOnly>
+          <PpeConfigurator />
+        </EditorOnly>
+      )
+    case "review":
+      return <DocumentRulesSettings />
+    case "training":
+      return <TrainingDefaultsSettings />
+    case "floor":
+      return <FloorSettings />
     case "ai":
-      return <AiSection />
+      return <ConnectionsSettings />
+    case "preferences":
+      return <MyPreferences />
     default:
-      return <AccountSection />
+      return <CompanySettings />
   }
-}
-
-function AccountSection() {
-  const { signOut } = useAuthActions()
-  const me = useQuery(api.users.me)
-  const email = me?.email ?? ""
-  const name = me?.name ?? null
-
-  return (
-    <>
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">Signed-in account (device)</CardTitle>
-          <CardDescription className="text-sm">
-            People act through check-in. This login only opens Oppr on this
-            device; who reads, trains or signs is the person checked in.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-3">
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
-              {(email.slice(0, 1) || "?").toUpperCase()}
-            </span>
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium">
-                {me === undefined ? "Loading" : (name ?? (email || "Signed in"))}
-              </div>
-              {name && email && (
-                <div className="truncate text-xs text-muted-foreground">{email}</div>
-              )}
-            </div>
-          </div>
-          <Button size="sm" variant="outline" onClick={() => void signOut()}>
-            <LogOut aria-hidden />
-            Sign out of this device
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">About</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1 rounded-md bg-muted/40 p-3 text-xs">
-            <Row label="Product" value="Oppr Knowledge" />
-            <Row label="Release" value="Internal showcase" />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Build notes (team only) live under{" "}
-            <Link href="/analysis" className="underline underline-offset-2">
-              analysis pages
-            </Link>
-            .
-          </p>
-        </CardContent>
-      </Card>
-    </>
-  )
-}
-
-function AiSection() {
-  const embedStatus = useQuery(api.ai.embed.embedStatus)
-  const embedMissingAction = useAction(api.ai.embed.embedMissing)
-  const reembedAllAction = useAction(api.ai.embed.reembedAll)
-  const [embedding, setEmbedding] = useState(false)
-  const [reembedDialogOpen, setReembedDialogOpen] = useState(false)
-
-  async function handleEmbed(reembed: boolean) {
-    setEmbedding(true)
-    const toastId = toast.loading(
-      reembed ? "Clearing and re-embedding…" : "Embedding chunks…",
-    )
-    try {
-      const result = reembed
-        ? await reembedAllAction({})
-        : await embedMissingAction({})
-      if ("cleared" in result) {
-        toast.success(
-          `Cleared ${result.cleared}, re-embedded ${result.embedded} of ${result.total}`,
-          { id: toastId },
-        )
-      } else if (result.total === 0) {
-        toast.success("All chunks already embedded.", { id: toastId })
-      } else {
-        toast.success(`Embedded ${result.embedded} of ${result.total} chunks`, {
-          id: toastId,
-        })
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err), {
-        id: toastId,
-      })
-    } finally {
-      setEmbedding(false)
-    }
-  }
-
-  const outstanding = embedStatus?.outstanding ?? 0
-
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm">AI retrieval (Ask)</CardTitle>
-        <CardDescription className="text-sm">
-          Ask answers questions from the most relevant passages of Published
-          documents only. Each saved document is split into text chunks and
-          turned into embedding vectors, and a question is matched against
-          those vectors to find supporting passages. Keep every chunk indexed
-          so answers stay grounded.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="space-y-1 rounded-md bg-muted/40 p-3 font-mono text-xs">
-          <Row label="Embedding model" value={`${EMBEDDING_MODEL} · ${EMBEDDING_DIM}d`} />
-          <Row label="Chat model" value={CHAT_MODEL} />
-          <Row
-            label="Last embedding"
-            value={
-              embedStatus === undefined
-                ? "…"
-                : embedStatus.lastEmbeddedAt
-                  ? formatDateTime(embedStatus.lastEmbeddedAt)
-                  : "Never"
-            }
-          />
-          <Row
-            label="Indexed chunks"
-            value={
-              embedStatus === undefined
-                ? "…"
-                : `${embedStatus.embedded} of ${embedStatus.total}`
-            }
-          />
-          <Row
-            label="Outstanding"
-            value={
-              embedStatus === undefined
-                ? "…"
-                : outstanding === 0
-                  ? "0, all indexed"
-                  : `${outstanding} to embed`
-            }
-            highlight={outstanding > 0}
-          />
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void handleEmbed(false)}
-            disabled={embedding || outstanding === 0}
-          >
-            {embedding ? (
-              <>
-                <Loader2 className="animate-spin" aria-hidden />
-                Working…
-              </>
-            ) : (
-              "Embed missing chunks"
-            )}
-          </Button>
-          {outstanding === 0 && embedStatus !== undefined && !embedding && (
-            <span className="text-xs text-muted-foreground">Nothing to embed: every chunk is indexed.</span>
-          )}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setReembedDialogOpen(true)}
-            disabled={embedding}
-          >
-            <RefreshCw aria-hidden />
-            Re-embed all
-          </Button>
-          <AlertDialog open={reembedDialogOpen} onOpenChange={setReembedDialogOpen}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Re-embed all chunks?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Every chunk embedding is cleared and rebuilt. Ask answers may
-                  be weaker until it finishes, in about 30 seconds.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => void handleEmbed(true)}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                >
-                  Clear and re-embed
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function Row({
-  label,
-  value,
-  highlight,
-}: {
-  label: string
-  value: ReactNode
-  highlight?: boolean
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={highlight ? "font-semibold text-status-review" : undefined}>
-        {value}
-      </span>
-    </div>
-  )
 }

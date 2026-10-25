@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useCheckIn } from "@/lib/checkIn"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 /** The readable message of a Convex or JS error. */
 export function errorText(err: unknown): string {
@@ -57,7 +58,7 @@ export function PrepareRevisionDialog({
 }) {
   const propose = useAction(api.ai.revision.propose)
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer" ? person : null
+  const engineer = isEngineerOrAdmin(person) ? person : null
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
 

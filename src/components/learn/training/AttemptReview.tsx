@@ -9,6 +9,8 @@ import { useCheckIn } from "@/lib/checkIn"
 import { cn } from "@/lib/utils"
 import { answerKind, Feedback, isAnswered, isRight, QuestionImage } from "./QuestionCard"
 import { errorText, fmtDate, fmtDateTime, KIND_LABEL, LEVEL_WORDS, SourceChip, VERDICT_WORDS, type Verdict } from "./lib"
+import { isEngineerOrAdmin } from "@/lib/roles"
+import { useCompanyName } from "@/components/settings/useCompanyName"
 
 export type AttemptView = NonNullable<FunctionReturnType<typeof api.attempts.get>>
 
@@ -27,6 +29,8 @@ export function AttemptReview({ a }: { a: AttemptView }) {
   const passed = a.status === "passed"
   const { person } = useCheckIn()
   const printedAt = fmtDateTime(Date.now())
+  const company = useCompanyName()
+  const from = company ? `Oppr Knowledge, ${company}` : "Oppr Knowledge"
   const recordId = a.recordId ?? a._id
   const critical = a.questions.filter((q) => q.critical)
   const criticalRight = critical.filter((q) => isRight(q) === true).length
@@ -40,10 +44,10 @@ export function AttemptReview({ a }: { a: AttemptView }) {
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2 border-b pb-2">
           <p className="text-sm font-semibold">{passed ? "Training record" : a.status === "failed" ? "Attempt (not passed)" : "Attempt"}</p>
           <p className="text-xs text-muted-foreground">
-            <span className="print:hidden">Oppr Knowledge, Pijpwerk Noord</span>
+            <span className="print:hidden">{from}</span>
             <span className="hidden print:inline">
               Printed {printedAt}
-              {person ? ` by ${person.name}` : ""} from Oppr Knowledge, Pijpwerk Noord
+              {person ? ` by ${person.name}` : ""} from {from}
             </span>
           </p>
         </div>
@@ -289,7 +293,7 @@ function GradeOverride({ a, q }: { a: AttemptView; q: Q }) {
   const { person } = useCheckIn()
   const override = useMutation(api.attempts.overrideGrade)
   const [busy, setBusy] = useState<Verdict | null>(null)
-  if (!person || person.kind !== "engineer" || person._id === a.personId) return null
+  if (!isEngineerOrAdmin(person) || person._id === a.personId) return null
   return (
     <div className="flex flex-wrap items-center gap-2 pl-6 print:hidden">
       <span className="text-xs text-muted-foreground">{q.grade ? "Change the grade:" : "Grade it:"}</span>

@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server"
 import { v } from "convex/values"
 import { requireUser, requireUserId } from "./lib/auth"
+import { requireEngineerOrAdmin } from "./lib/roles"
 
 // Type slug references the editable namingTypes vocabulary.
 const docTypeValidator = v.string()
@@ -32,9 +33,11 @@ export const create = mutation({
     type: docTypeValidator,
     description: v.union(v.string(), v.null()),
     bodyJson: v.any(),
+    personId: v.optional(v.id("people")),
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId)
     const name = args.name.trim()
     if (!name) throw new Error("Template name is required")
     return await ctx.db.insert("templates", {
@@ -54,9 +57,11 @@ export const update = mutation({
     type: docTypeValidator,
     description: v.union(v.string(), v.null()),
     bodyJson: v.any(),
+    personId: v.optional(v.id("people")),
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId)
     const t = await ctx.db.get(args.id)
     if (!t) throw new Error("Template not found")
     await ctx.db.patch(args.id, {
@@ -70,9 +75,10 @@ export const update = mutation({
 })
 
 export const duplicate = mutation({
-  args: { id: v.id("templates") },
+  args: { id: v.id("templates"), personId: v.optional(v.id("people")) },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId)
     const t = await ctx.db.get(args.id)
     if (!t) throw new Error("Template not found")
     return await ctx.db.insert("templates", {
@@ -86,9 +92,10 @@ export const duplicate = mutation({
 })
 
 export const remove = mutation({
-  args: { id: v.id("templates") },
+  args: { id: v.id("templates"), personId: v.optional(v.id("people")) },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId)
     await ctx.db.delete(args.id)
   },
 })

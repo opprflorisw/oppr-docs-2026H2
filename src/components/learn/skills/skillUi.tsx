@@ -1,13 +1,19 @@
+import { useMemo } from "react"
+import { useQuery } from "convex/react"
+import { api } from "../../../../convex/_generated/api"
 import { formatDate } from "@/lib/time"
+import { LEVEL_NAMES } from "@/lib/skillLevelNames"
 import { AlertTriangle, RotateCcw } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 // Shared look for Skill levels (CONTEXT.md: Skill, Skill matrix).
-// Levels in plain words: 0 Not trained, 1 Knows it, 2 Can do it, 3 Can teach it.
+// Levels in plain words, by default 0 Not trained, 1 Knows it, 2 Can do it, 3 Can teach it.
 
 export type SkillStatus = "ok" | "gap" | "expired" | "expiring" | "retrain" | "none"
 
-export const LEVEL_NAMES = ["Not trained", "Knows it", "Can do it", "Can teach it"] as const
+// The words are the plant's own (Settings, People and roles); LEVEL_NAMES is
+// kept in step with the server by useCheckIn.
+export { LEVEL_NAMES, useLevelNames } from "@/lib/skillLevelNames"
 
 /** "2 Can do it". */
 export function levelWords(level: number) {
@@ -136,8 +142,8 @@ export function SkillLegend({ className }: { className?: string }) {
       <span className="flex items-center gap-1.5">
         <LevelDots level={1} target={2} status="gap" />
         <span>
-          = level 1 of target 2 (filled dots: the level, the ringed dot: the target). Levels: 1 Knows it, 2 Can do it, 3 Can
-          teach it.
+          = level 1 of target 2 (filled dots: the level, the ringed dot: the target). Levels: 1 {LEVEL_NAMES[1]}, 2{" "}
+          {LEVEL_NAMES[2]}, 3 {LEVEL_NAMES[3]}.
         </span>
       </span>
       <span className="flex items-center gap-1">{swatch("ok")} At target</span>
@@ -175,32 +181,99 @@ export function sourceText(source: "training" | "signoff" | "seed" | null, signe
 }
 
 // ---- Shifts ------------------------------------------------------------------
+// The plant's shifts come from Settings, People and roles (api.people.shifts).
+// Until they load, the standard early, late, night and day shifts stand in.
 
-export type ShiftKey = "early" | "late" | "night"
-export const SHIFT_ORDER: ShiftKey[] = ["early", "late", "night"]
-export const SHIFT_META: Record<ShiftKey, { label: string; short: string; hours: string; start: number }> = {
-  early: { label: "Early shift", short: "Early", hours: "06-14", start: 6 },
-  late: { label: "Late shift", short: "Late", hours: "14-22", start: 14 },
-  night: { label: "Night shift", short: "Night", hours: "22-06", start: 22 },
+export type ShiftKey = string
+export type ShiftMeta = {
+  key: ShiftKey
+  label: string
+  short: string
+  hours: string
+  /** Start in minutes after midnight. */
+  start: number
+  active: boolean
+  cover: boolean
 }
 
-/** The shift as early, late or night, whatever form it comes in ("day" counts as early). */
-export function shiftKey(shift: string | null | undefined): ShiftKey | null {
-  if (!shift) return null
-  const s = shift.toLowerCase()
+type ShiftRow = { key: string; name: string; start: string; end: string; active: boolean; cover: boolean }
+
+const FALLBACK_SHIFTS: ShiftRow[] = [
+  { key: "early", name: "Early shift", start: "06:00", end: "14:00", active: true, cover: true },
+  { key: "late", name: "Late shift", start: "14:00", end: "22:00", active: true, cover: true },
+  { key: "night", name: "Night shift", start: "22:00", end: "06:00", active: true, cover: true },
+  { key: "day", name: "Day shift", start: "08:00", end: "17:00", active: true, cover: false },
+]
+
+const hh = (t: string) => (t.endsWith(":00") ? t.slice(0, 2) : t)
+const minutes = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
+
+function toMeta(r: ShiftRow): ShiftMeta {
+  const short = r.name.replace(/\s*shift$/i, "").trim() || r.name
+  return {
+    key: r.key,
+    label: r.name,
+    short,
+    hours: `${hh(r.start)}-${hh(r.end)}`,
+    start: minutes(r.start),
+    active: r.active,
+    cover: r.cover,
+  }
+}
+
+/** The shift key a raw value stands for: an exact key, else words like "night" in a role. */
+export function shiftKey(raw: string | null | undefined, keys?: readonly string[]): ShiftKey | null {
+  if (!raw) return null
+  if (keys ? keys.includes(raw) : FALLBACK_SHIFTS.some((s) => s.key === raw)) return raw
+  const s = raw.toLowerCase()
   if (s.includes("night")) return "night"
   if (s.includes("late")) return "late"
-  if (s.includes("early") || s.includes("day")) return "early"
+  if (s.includes("early")) return "early"
+  if (/\bday\b/.test(s)) return "day"
   return null
 }
 
-/** The next shift to start, by the clock: before 06:00 early, before 14:00 late, before 22:00 night. */
-export function nextShift(now = new Date()): ShiftKey {
-  const h = now.getHours()
-  if (h < 6) return "early"
-  if (h < 14) return "late"
-  if (h < 22) return "night"
-  return "early"
+/** The shift that starts next among `shifts`, by the clock. */
+export function nextShiftOf(shifts: readonly ShiftMeta[], now = new Date()): ShiftKey | null {
+  if (shifts.length === 0) return null
+  const m = now.getHours() * 60 + now.getMinutes()
+  let best: ShiftMeta | null = null
+  let bestGap = Infinity
+  for (const s of shifts) {
+    let gap = s.start - m
+    if (gap <= 0) gap += 24 * 60
+    if (gap < bestGap) {
+      best = s
+      bestGap = gap
+    }
+  }
+  return best?.key ?? null
+}
+
+/**
+ * The plant's shifts. `cover` holds the active shifts that count for shift
+ * cover, in order; `meta(key)` names any shift, also an inactive one.
+ */
+export function useShifts() {
+  const rows = useQuery(api.people.shifts.list)
+  return useMemo(() => {
+    const all = (rows ?? FALLBACK_SHIFTS).map(toMeta)
+    const byKey = new Map(all.map((s) => [s.key, s]))
+    const active = all.filter((s) => s.active)
+    const cover = active.filter((s) => s.cover)
+    const keys = all.map((s) => s.key)
+    return {
+      loading: rows === undefined,
+      all,
+      active,
+      cover,
+      keys,
+      meta: (key: string | null | undefined): ShiftMeta | null => (key ? byKey.get(key) ?? null : null),
+      label: (key: string | null | undefined) => (key ? byKey.get(key)?.label ?? key : "No shift"),
+      normalize: (raw: string | null | undefined) => shiftKey(raw, keys),
+      next: (now?: Date) => nextShiftOf(cover, now) ?? cover[0]?.key ?? null,
+    }
+  }, [rows])
 }
 
 /** Red for nobody, amber for one person, green for two or more. */
@@ -215,7 +288,9 @@ export function coverTone(count: number) {
 /** The readable part of a Convex error ("Uncaught Error: ... at handler"). */
 export function errorText(err: unknown, fallback = "That did not work.") {
   if (!(err instanceof Error)) return fallback
-  const m = err.message.match(/Uncaught Error: ([\s\S]*?)(?:\n\s+at |$)/)
+  const data = (err as Error & { data?: unknown }).data
+  if (typeof data === "string" && data.trim()) return data.trim()
+  const m = err.message.match(/Uncaught (?:Convex)?Error: ([\s\S]*?)(?:\n\s+at |$)/)
   return (m ? m[1] : err.message).trim() || fallback
 }
 

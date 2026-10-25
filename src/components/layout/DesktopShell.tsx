@@ -2,7 +2,7 @@ import { ReactNode } from "react"
 import { Link, useLocation } from "wouter"
 import {
   BookOpenText,
-  Boxes,
+  Factory,
   FileText,
   GraduationCap,
   Home,
@@ -41,7 +41,7 @@ const NAV: NavItem[] = [
     label: "Documents",
     to: "/library",
     icon: Library,
-    // /library also covers Findings, Knowledge health and Captures.
+    // /library also covers Findings, Knowledge health, Captures and Images.
     match: (p) =>
       p.startsWith("/library") || p.startsWith("/docs") || p.startsWith("/import"),
   },
@@ -58,10 +58,11 @@ const NAV: NavItem[] = [
     match: (p) => p.startsWith("/wiki"),
   },
   {
-    label: "Assets",
-    to: "/assets",
-    icon: Boxes,
-    match: (p) => p.startsWith("/assets"),
+    label: "Plant",
+    to: "/plant",
+    icon: Factory,
+    // Assets is a tab of Plant; /assets/:id still opens an Asset (ADR 0006).
+    match: (p) => p.startsWith("/plant") || p.startsWith("/assets"),
   },
 ]
 
@@ -74,7 +75,6 @@ const SETTINGS: NavItem = {
     p.startsWith("/settings/") ||
     p.startsWith("/templates") ||
     p.startsWith("/mcp") ||
-    p.startsWith("/images") ||
     p.startsWith("/analysis"),
 }
 

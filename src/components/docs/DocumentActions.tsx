@@ -34,6 +34,7 @@ import { useCheckIn } from "@/lib/checkIn"
 import type { Doc } from "@/types"
 import type { DocumentRowAction } from "./DocumentLibraryTable"
 import { DeleteDocumentDialog } from "./DeleteDocumentDialog"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 function errorText(err: unknown, fallback: string): string {
   if (err && typeof err === "object" && "data" in err && typeof (err as { data: unknown }).data === "string")
@@ -61,7 +62,7 @@ export function WithdrawDocumentDialog({
   onDone?: () => void
 }) {
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer" ? person : null
+  const engineer = isEngineerOrAdmin(person) ? person : null
   const archive = useMutation(api.documents.archive)
   const docs = useQuery(api.documents.list, open ? { publishedOnly: true } : "skip")
   const [reason, setReason] = useState("")
@@ -173,7 +174,7 @@ export function WithdrawDocumentDialog({
 export function useDocumentRowActions() {
   const [, navigate] = useLocation()
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer" ? person : null
+  const engineer = isEngineerOrAdmin(person) ? person : null
   const remove = useMutation(api.documents.remove)
   const [toWithdraw, setToWithdraw] = useState<Doc | null>(null)
   const [toDelete, setToDelete] = useState<Doc | null>(null)

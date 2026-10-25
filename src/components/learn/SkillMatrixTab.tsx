@@ -46,15 +46,14 @@ import {
   expiryText,
   LevelDots,
   levelWords,
-  nextShift,
-  SHIFT_META,
-  SHIFT_ORDER,
   shiftKey,
   SkillLegend,
   STATUS_META,
   type ShiftKey,
+  useShifts,
   type SkillStatus,
 } from "./skills/skillUi"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 const ALL = "all"
 
@@ -94,7 +93,7 @@ export function SkillMatrixTab() {
   const [location, navigate] = useLocation()
   const params = useMemo(() => new URLSearchParams(search), [search])
   const { person: me } = useCheckIn()
-  const engineer = me?.kind === "engineer"
+  const engineer = isEngineerOrAdmin(me)
   const narrow = useNarrow()
   const [open, setOpen] = useState<{ personId: Id<"people">; skillId: Id<"skills"> } | null>(null)
   const [makeFor, setMakeFor] = useState<Id<"skills"> | null>(null)
@@ -103,8 +102,9 @@ export function SkillMatrixTab() {
   const questions = useQuery(api.coverageQuestions.list)
   const profileParam = params.get("profile")
   const area = params.get("area") ?? ALL
-  const shiftFilter = shiftKey(params.get("shift"))
-  const cover = shiftKey(params.get("cover"))
+  const shifts = useShifts()
+  const shiftFilter = shifts.normalize(params.get("shift"))
+  const cover = shifts.normalize(params.get("cover"))
   const status = STATUS_FILTERS.find((s) => s === params.get("status")) ?? null
 
   function setParams(patch: Record<string, string | null>) {
@@ -141,11 +141,11 @@ export function SkillMatrixTab() {
   })
   const coverProfileId = (profileId ?? questions?.[0]?.profileId ?? undefined) as Id<"skillProfiles"> | undefined
   const coverage = useQuery(api.skills.coverage, cover ? { profileId: coverProfileId } : "skip")
-  const coverShift: ShiftKey = cover ?? nextShift()
+  const coverShift: ShiftKey = cover ?? shifts.next() ?? "early"
   const qualifiedOnShift = useMemo(
     () =>
       new Set<string>(
-        (coverage?.byShift ?? []).filter((g) => shiftKey(g.shift) === coverShift).flatMap((g) => g.people.map((p) => p._id)),
+        (coverage?.byShift ?? []).filter((g) => g.shift === coverShift).flatMap((g) => g.people.map((p) => p._id)),
       ),
     [coverage, coverShift],
   )
@@ -207,7 +207,7 @@ export function SkillMatrixTab() {
     )
   }
 
-  const rows = data.people.filter((p) => !shiftFilter || shiftKey(p.shift) === shiftFilter)
+  const rows = data.people.filter((p) => !shiftFilter || p.shift === shiftFilter)
   const matchesStatus = (p: (typeof rows)[number]) =>
     !status || data.skills.some((s) => p.cells[s._id]?.status === status)
   const profileName = data.profiles.find((p) => p._id === (coverProfileId ?? profileId))?.name ?? coverage?.profile?.name ?? "this profile"
@@ -231,7 +231,7 @@ export function SkillMatrixTab() {
               aria-pressed={active}
               className={cn("h-8 gap-1.5 text-xs", active && "border-primary bg-primary/10 text-primary-strong hover:bg-primary/15")}
               onClick={() =>
-                active ? setParams({ cover: null }) : setParams({ profile: q.profileId, cover: q.shift ?? nextShift() })
+                active ? setParams({ cover: null }) : setParams({ profile: q.profileId, cover: q.shift ?? shifts.next() })
               }
             >
               <ShiftIcon shift={q.shift} className="h-3.5 w-3.5" />
@@ -302,9 +302,9 @@ export function SkillMatrixTab() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={ALL}>Every shift</SelectItem>
-                    {SHIFT_ORDER.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {SHIFT_META[s].short} only
+                    {shifts.active.map((m) => (
+                      <SelectItem key={m.key} value={m.key}>
+                        {m.short} only
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -318,9 +318,9 @@ export function SkillMatrixTab() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {SHIFT_ORDER.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {SHIFT_META[s].label}
+                      {shifts.cover.map((m) => (
+                        <SelectItem key={m.key} value={m.key}>
+                          {m.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -770,6 +770,7 @@ function CoverPanel({
   profileName: string
   onClose: () => void
 }) {
+  const shifts = useShifts()
   if (coverage === undefined) return <Skeleton className="h-28 w-full" />
   if (coverage.requirements.length === 0) {
     return (
@@ -784,12 +785,13 @@ function CoverPanel({
       </Card>
     )
   }
-  const meta = SHIFT_META[shift]
-  const onShift = coverage.byShift.filter((g) => shiftKey(g.shift) === shift).flatMap((g) => g.people)
+  const meta = shifts.meta(shift)
+  const onShift = coverage.byShift.filter((g) => g.shift === shift).flatMap((g) => g.people)
   const n = onShift.length
-  const headline = `${meta.label} (starts ${String(meta.start).padStart(2, "0")}:00): ${n} ${n === 1 ? "person" : "people"} can run ${coverage.profile?.name ?? profileName}`
+  const startsAt = meta ? `${String(Math.floor(meta.start / 60)).padStart(2, "0")}:${String(meta.start % 60).padStart(2, "0")}` : null
+  const headline = `${meta?.label ?? shift}${startsAt ? ` (starts ${startsAt})` : ""}: ${n} ${n === 1 ? "person" : "people"} can run ${coverage.profile?.name ?? profileName}`
   const almost = coverage.almost
-    .filter((p) => shiftKey(p.shift) === shift || shiftKey(p.shift) === null)
+    .filter((p) => p.shift === shift || p.shift === null)
     .sort((a, b) => a.missing.length - b.missing.length)
   return (
     <Card className="border-primary/30">
@@ -808,11 +810,11 @@ function CoverPanel({
             </p>
           </div>
           <div className="flex flex-wrap gap-1">
-            {SHIFT_ORDER.filter((s) => s !== shift).map((s) => {
-              const c = coverage.byShift.filter((g) => shiftKey(g.shift) === s).flatMap((g) => g.people).length
+            {shifts.cover.filter((m) => m.key !== shift).map((m) => {
+              const c = coverage.byShift.filter((g) => g.shift === m.key).flatMap((g) => g.people).length
               return (
-                <span key={s} className={cn("rounded-full border px-2 py-0.5 text-xs", coverTone(c))}>
-                  {SHIFT_META[s].short} {c}
+                <span key={m.key} className={cn("rounded-full border px-2 py-0.5 text-xs", coverTone(c))}>
+                  {m.short} {c}
                 </span>
               )
             })}
@@ -844,7 +846,7 @@ function CoverPanel({
                   <Link href={`/learn/people/${p._id}`} className="font-medium hover:underline">
                     {p.name}
                   </Link>
-                  {shiftKey(p.shift) && <span className="text-muted-foreground">({SHIFT_META[shiftKey(p.shift)!].short.toLowerCase()})</span>}
+                  {shifts.meta(p.shift) && <span className="text-muted-foreground">({shifts.meta(p.shift)!.short.toLowerCase()})</span>}
                   {p.missing.map((m) => {
                     const tone: SkillStatus = m.reason === "expired" ? "expired" : m.reason.startsWith("re-train") ? "retrain" : "gap"
                     return (

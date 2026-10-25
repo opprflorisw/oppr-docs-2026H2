@@ -60,13 +60,12 @@ import { FORMAT_LABEL, sectionSlugs, type WikiView } from "@/components/wiki/wik
 import { AskIdaSheet } from "@/components/ai/AskIdaSheet"
 import type { AnyAskScope } from "@/components/ai/ScopeChip"
 import { AssetQrSvg } from "@/components/docs/AssetQrSvg"
-import {
-  EMPTY_TRAINING_DRAFT,
-  TrainingGuidedCreation,
-} from "@/components/learn/training/TrainingGuidedCreation"
+import { TrainingGuidedCreation } from "@/components/learn/training/TrainingGuidedCreation"
+import { newTrainingDraft } from "@/components/learn/training/builderModel"
 import { useCheckIn } from "@/lib/checkIn"
 import { formatAgo, formatDate, formatDateTime } from "@/lib/time"
 import { cn } from "@/lib/utils"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 export function WikiPage() {
   const [, params] = useRoute<{ id: string }>("/wiki/:id")
@@ -122,12 +121,13 @@ function WikiReaderPage({ wiki }: { wiki: WikiView }) {
   const remove = useMutation(api.wikis.remove)
   const setStartHere = useMutation(api.wikis.setStartHere)
   const { person } = useCheckIn()
-  const isEngineer = person?.kind === "engineer"
+  const isEngineer = isEngineerOrAdmin(person)
   const [, navigate] = useLocation()
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [makeTraining, setMakeTraining] = useState(false)
+  const trainingDefaults = useQuery(api.orgSettings.get)?.training
   const [askScope, setAskScope] = useState<AnyAskScope | null>(null)
   const [printMode, setPrintMode] = useState<"full" | "one-pager">("full")
 
@@ -408,7 +408,7 @@ function WikiReaderPage({ wiki }: { wiki: WikiView }) {
           open={makeTraining}
           onOpenChange={setMakeTraining}
           initial={{
-            ...EMPTY_TRAINING_DRAFT,
+            ...newTrainingDraft(trainingDefaults),
             title: wiki.title,
             purpose: wiki.purpose,
             documentIds: wiki.sources.map((s) => s.documentId),

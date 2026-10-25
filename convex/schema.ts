@@ -372,9 +372,49 @@ export default defineSchema({
     altText: v.string(),
     uploadedBy: v.union(v.id("users"), v.null()),
     createdAt: v.number(),
+    // Library metadata (images lane). All optional so old rows stay valid.
+    description: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
+    kind: v.optional(
+      v.union(
+        v.literal("photo"),
+        v.literal("illustration"),
+        v.literal("diagram"),
+        v.literal("safety"),
+        v.literal("generated"),
+      ),
+    ),
+    assetIds: v.optional(v.array(v.id("assets"))),
+    areaCodes: v.optional(v.array(v.string())),
+    collectionIds: v.optional(v.array(v.id("imageCollections"))),
+    // The prompt a generated image was made from.
+    generatedPrompt: v.optional(v.string()),
+    // When the AI last wrote the description and tags.
+    describedAt: v.optional(v.number()),
+    // Multimodal embedding (IMAGE_EMBEDDING_MODEL), same vector space as chunks.
+    // embedSource says whether the image itself or its caption was embedded.
+    embedding: v.optional(v.array(v.float64())),
+    embeddingModel: v.optional(v.string()),
+    embeddedAt: v.optional(v.number()),
+    embedSource: v.optional(v.union(v.literal("image"), v.literal("caption"))),
+    lastUsedAt: v.optional(v.number()),
+    useCount: v.optional(v.number()),
+    favorite: v.optional(v.boolean()),
   })
     .index("by_sha256", ["sha256"])
-    .index("by_uploadedBy", ["uploadedBy"]),
+    .index("by_uploadedBy", ["uploadedBy"])
+    .index("by_lastUsedAt", ["lastUsedAt"])
+    .index("by_favorite", ["favorite"])
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: 768,
+      filterFields: ["kind", "embedSource"],
+    }),
+
+  imageCollections: defineTable({
+    name: v.string(),
+    createdAt: v.number(),
+  }).index("by_name", ["name"]),
 
   imageUsages: defineTable({
     imageId: v.id("images"),
@@ -484,16 +524,21 @@ export default defineSchema({
   // ---- People ----------------------------------------------------------------
   // Showcase people (CONTEXT.md: Operator, Engineer). Not login accounts: a
   // person "checks in" by picking their name; Anonymous is the default.
+  // Admin passes every Engineer check (convex/lib/roles.ts).
   people: defineTable({
     name: v.string(),
-    kind: v.union(v.literal("operator"), v.literal("engineer")),
+    kind: v.union(v.literal("operator"), v.literal("engineer"), v.literal("admin")),
+    email: v.optional(v.string()),
+    // Archived people keep their records but can no longer check in.
+    archived: v.optional(v.boolean()),
+    archivedAt: v.optional(v.number()),
     role: v.string(),
     area: v.union(v.string(), v.null()),
     sortOrder: v.number(),
     // Skill profiles this person is measured against (Skill matrix).
     profileIds: v.optional(v.array(v.id("skillProfiles"))),
-    // The shift the person works (shift cover); derived from role when absent.
-    shift: v.optional(v.union(v.literal("early"), v.literal("late"), v.literal("night"), v.literal("day"))),
+    // The key of the shift the person works (shifts table); derived from role when absent.
+    shift: v.optional(v.string()),
     team: v.optional(v.string()),
   }),
 

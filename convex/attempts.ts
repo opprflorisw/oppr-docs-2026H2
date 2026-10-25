@@ -37,6 +37,8 @@ import {
   resolveObjective,
 } from "./trainings"
 import { completeAssignments } from "./assignments"
+import { isEngineerOrAdmin } from "./lib/roles"
+import { readOrgSettings } from "./orgSettings"
 
 type Ctx = QueryCtx | MutationCtx
 type Attempt = Doc<"trainingAttempts">
@@ -591,6 +593,7 @@ export const get = query({
       attemptNumber,
       earlierFails,
       failStreak: failStreakOf(mine, a.trainingId),
+      walkthroughAfter: (await readOrgSettings(ctx)).training.failsBeforeWalkthrough,
       // What to wear, for the Prepare card (only before the Attempt is scored).
       ppe: finished ? [] : await ppeFor(ctx, (row?.objectives ?? []).map((o) => o.documentId)),
       tryOutRequired: row?.tryOut?.required ?? false,
@@ -768,7 +771,7 @@ export const retryGrade = mutation({
     const a = await ctx.db.get(args.id)
     if (!a) throw new ConvexError("This Attempt no longer exists.")
     const me = await requirePerson(ctx, args.personId)
-    if (a.personId !== me._id && me.kind !== "engineer") throw new ConvexError("Only the person or an Engineer can do this.")
+    if (a.personId !== me._id && !isEngineerOrAdmin(me)) throw new ConvexError("Only the person or an Engineer can do this.")
     const qi = a.questions.findIndex((q) => q.id === args.questionId)
     const q = a.questions[qi]
     if (!q || q.answeredAt === null || q.grade?.gradedBy === "engineer") return
@@ -1020,7 +1023,8 @@ export const finish = mutation({
         recordId,
       })
     } else {
-      // Two not passed in a row: ask an Engineer for a walk-through at the line.
+      // Not passed this many times in a row (Settings, Training): ask an
+      // Engineer for a walk-through at the line.
       const mine = await ctx.db
         .query("trainingAttempts")
         .withIndex("by_personId", (q) => q.eq("personId", a.personId))
@@ -1029,7 +1033,7 @@ export const finish = mutation({
         mine.map((x) => (x._id === a._id ? { ...x, status: "failed" as const, finishedAt: now } : x)),
         a.trainingId,
       )
-      if (streak >= 2) {
+      if (streak >= (await readOrgSettings(ctx)).training.failsBeforeWalkthrough) {
         const requests = await ctx.db
           .query("tryOutRequests")
           .withIndex("by_personId", (q) => q.eq("personId", a.personId))
@@ -1173,7 +1177,7 @@ export const listRecords = query({
   handler: async (ctx, args) => {
     await requireUserId(ctx)
     const viewer = args.viewerPersonId ? await ctx.db.get(args.viewerPersonId) : null
-    const isEngineer = viewer?.kind === "engineer"
+    const isEngineer = isEngineerOrAdmin(viewer)
     const personId = args.personId ?? (viewer && !isEngineer && !args.trainingId ? viewer._id : undefined)
     const includeFailed = args.includeFailed ?? true
     const records = personId

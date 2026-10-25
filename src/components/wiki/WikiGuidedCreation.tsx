@@ -21,6 +21,7 @@ import {
 import { useCheckIn } from "@/lib/checkIn"
 import { cn } from "@/lib/utils"
 import { FORMAT_HINT, FORMAT_LABEL, type WikiFormat } from "./wikiShared"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 export interface WikiDraft {
   title: string
@@ -123,7 +124,7 @@ export function WikiGuidedCreation({
       )}
       renderSummary={(d) => <BuiltFromSummary scope={d.scope} />}
       blockedReason={(d) =>
-        person?.kind !== "engineer"
+        !isEngineerOrAdmin(person)
           ? "Check in as an Engineer to create or change a Wiki."
           : !d.title.trim()
             ? "Give the Wiki a title."

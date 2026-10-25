@@ -18,6 +18,8 @@ import { AssetPreviewModal } from "@/components/docs/AssetPreviewModal"
 import { LogReferenceModal } from "@/components/docs/LogReferenceModal"
 import { useCheckIn } from "@/lib/checkIn"
 import { toast } from "sonner"
+import { isEngineerOrAdmin } from "@/lib/roles"
+import { useShifts } from "@/components/learn/skills/skillUi"
 
 type AssetPatch = Omit<Parameters<ReturnType<typeof useMutation<typeof api.assets.update>>>[0], "id">
 
@@ -29,14 +31,18 @@ export function AssetDetailPage() {
   const [activeLog, setActiveLog] = useState<AssetLog | null>(null)
   const [editing, setEditing] = useState(false)
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer"
+  const engineer = isEngineerOrAdmin(person)
 
-  const result = useQuery(api.assets.getWithDocs, id ? { id: id as Id<"assets"> } : "skip")
+  // A typed or stale link may not be an Asset id at all; check it first so the
+  // id-validated queries below never throw into the page.
+  const resolved = useQuery(api.assets.resolveMany, id ? { ids: [id] } : "skip")
+  const validId = resolved?.[0]?.exists ? (id as Id<"assets">) : null
+  const result = useQuery(api.assets.getWithDocs, validId ? { id: validId } : "skip")
   const previewBundle = useQuery(api.documents.listWithAssetPreviews, {})
-  const photoUrl = useQuery(api.assets.imageUrlFor, id ? { id: id as Id<"assets"> } : "skip")
+  const photoUrl = useQuery(api.assets.imageUrlFor, validId ? { id: validId } : "skip")
   const updateAssetMut = useMutation(api.assets.update)
   const { handleAction, dialogs } = useDocumentRowActions()
-  const ready = result !== undefined
+  const ready = resolved !== undefined && (!validId || result !== undefined)
 
   const asset = useMemo(() => (result ? toLegacyAsset(result.asset) : null), [result])
   const docs = useMemo(() => (result ? result.documents.map(toLegacyDoc) : []), [result])
@@ -49,7 +55,7 @@ export function AssetDetailPage() {
   async function save(patch: AssetPatch): Promise<boolean> {
     if (!asset) return false
     try {
-      await updateAssetMut({ id: asset.id as Id<"assets">, ...patch })
+      await updateAssetMut({ id: asset.id as Id<"assets">, ...patch, personId: person?._id })
       toast.success("Asset updated")
       return true
     } catch (err) {
@@ -61,7 +67,7 @@ export function AssetDetailPage() {
   if (!ready) {
     return (
       <div className="flex flex-col">
-        <TopBar breadcrumb={[{ label: "Assets", href: "/assets" }]} />
+        <TopBar breadcrumb={[{ label: "Plant", href: "/plant" }, { label: "Assets", href: "/plant/assets" }]} />
         <div className="space-y-4 p-6">
           <Skeleton className="h-10 w-72" />
           <Skeleton className="h-40 w-full" />
@@ -74,11 +80,11 @@ export function AssetDetailPage() {
   if (!asset) {
     return (
       <div className="flex flex-col">
-        <TopBar breadcrumb={[{ label: "Assets", href: "/assets" }]} />
+        <TopBar breadcrumb={[{ label: "Plant", href: "/plant" }, { label: "Assets", href: "/plant/assets" }]} />
         <PageHeader icon={Factory} title="Asset not found" />
         <div className="space-y-3 p-6">
           <p className="text-sm text-muted-foreground">There is no Asset with this link. It may have been removed.</p>
-          <Link href="/assets" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+          <Link href="/plant/assets" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
             <ArrowLeft className="h-3.5 w-3.5" />
             Back to Assets
           </Link>
@@ -93,7 +99,8 @@ export function AssetDetailPage() {
     <div className="flex flex-col">
       <TopBar
         breadcrumb={[
-          { label: "Assets", href: "/assets" },
+          { label: "Plant", href: "/plant" },
+          { label: "Assets", href: "/plant/assets" },
           { label: `${asset.code} · ${asset.name}` },
         ]}
       />
@@ -225,18 +232,12 @@ function OpenFindingsBanner({ assetId }: { assetId: Id<"assets"> }) {
   )
 }
 
-const SHIFT_LABEL: Record<string, string> = {
-  early: "Early shift",
-  late: "Late shift",
-  night: "Night shift",
-  day: "Day shift",
-}
-
 /** People qualified on every Skill needed here, by shift (skills.coverage). */
 function WhoCanWorkHere({ assetId }: { assetId: Id<"assets"> }) {
   const ctx = useQuery(api.assets.workContext, { id: assetId })
   const skillIds = ctx?.skills.map((s) => s._id) ?? []
   const coverage = useQuery(api.skills.coverage, skillIds.length > 0 ? { skillIds } : "skip")
+  const shifts = useShifts()
   return (
     <Card>
       <CardContent className="space-y-3 p-4">
@@ -267,7 +268,7 @@ function WhoCanWorkHere({ assetId }: { assetId: Id<"assets"> }) {
             <ul className="divide-y rounded-md border">
               {(coverage?.byShift ?? []).map((g) => (
                 <li key={g.shift ?? "none"} className="flex items-start gap-3 px-3 py-2 text-sm" data-testid="shift-row">
-                  <span className="w-24 shrink-0 font-medium">{g.shift ? (SHIFT_LABEL[g.shift] ?? g.shift) : "No shift"}</span>
+                  <span className="w-24 shrink-0 font-medium">{shifts.label(g.shift)}</span>
                   <span className={g.people.length === 0 ? "text-muted-foreground" : ""}>
                     {g.people.length === 0 ? "Nobody yet" : g.people.map((p) => p.name).join(", ")}
                   </span>

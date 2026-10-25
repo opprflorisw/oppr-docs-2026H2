@@ -11,10 +11,10 @@
 //   published  -> read-only; this page redirects to the reader. Editing a
 //                published doc forks a new draft via documents.createNewVersion.
 
-import { useEffect, useLayoutEffect, useMemo, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useRoute, useSearch } from "wouter"
 import { toast } from "sonner"
-import { Eye, EyeOff, FileDown, LayoutTemplate, Lightbulb, RotateCcw, X } from "lucide-react"
+import { Eye, EyeOff, FileDown, LayoutTemplate, Lightbulb, RotateCcw, Search, Sparkles, X } from "lucide-react"
 import { useMutation, useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
@@ -52,6 +52,11 @@ import type { DocumentType } from "@/types"
 import { WrappedManualEditor } from "@/components/manuals/WrappedManualEditor"
 import { PublishDocumentDialog, SubmitForReviewDialog, serverMessage } from "@/components/docs/LifecycleDialogs"
 import { formatDateTime } from "@/lib/time"
+import { DocumentGuidedWriter } from "@/components/guided/DocumentGuidedWriter"
+import { KNOWLEDGE_DOCK_PAD, KnowledgeSearchDock } from "@/components/find/KnowledgeSearchPanel"
+import { appendToBody, imageNode, insertAtCursor, passageNodes, type TNode } from "@/components/find/editorInsert"
+import { isEngineerOrAdmin } from "@/lib/roles"
+import { useEditorMutation } from "@/components/settings/SettingsBits"
 
 const EMPTY_DOC = { type: "doc", content: [{ type: "paragraph" }] }
 const META_VISIBLE_KEY = "oppr-docs:edit-metadata-visible"
@@ -89,7 +94,7 @@ export function DocumentEditPage() {
   const saveContent = useMutation(api.documents.saveContent)
   const approveDoc = useMutation(api.documents.approve)
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer" ? person : null
+  const engineer = isEngineerOrAdmin(person) ? person : null
   const [signOff, setSignOff] = useState<"approve" | null>(null)
   const [submitOpen, setSubmitOpen] = useState(false)
   const [publishOpen, setPublishOpen] = useState(false)
@@ -100,7 +105,7 @@ export function DocumentEditPage() {
   const fixFinding = findings?.find((f) => f._id === fixFindingId) ?? null
   const [fixDismissed, setFixDismissed] = useState(false)
   const revertToDraft = useMutation(api.documents.revertToDraft)
-  const createTemplate = useMutation(api.templates.create)
+  const createTemplate = useEditorMutation(api.templates.create)
 
   const docResult = useQuery(
     api.documents.getWithAssets,
@@ -129,6 +134,21 @@ export function DocumentEditPage() {
     null,
   )
   const [savingTemplate, setSavingTemplate] = useState(false)
+  // Guided writer and "Find images and passages" (both insert at the cursor).
+  // A new, empty document arrives with ?assistant=1 and opens the writer once.
+  const [writerOpen, setWriterOpen] = useState(() => new URLSearchParams(search).get("assistant") === "1")
+  useEffect(() => {
+    if (!docId || new URLSearchParams(search).get("assistant") !== "1") return
+    setLocation(`/docs/${docId}/edit`, { replace: true })
+  }, [docId, search, setLocation])
+  const [findOpen, setFindOpen] = useState(false)
+  // Until the person clicks into the text, inserts go to the end.
+  const cursorPlaced = useRef(false)
+  function insertNodes(nodes: TNode[]) {
+    const root = document.getElementById("doc-edit-body")
+    if (!insertAtCursor(root, nodes, cursorPlaced.current)) setBody((b: unknown) => appendToBody(b, nodes))
+    cursorPlaced.current = true
+  }
 
   // Where the ribbon + metadata panel dock when scrolling: GAP px below the
   // sticky page header, measured so it survives button/title wrapping.
@@ -432,7 +452,7 @@ export function DocumentEditPage() {
   const isNewVersion = doc.liveVersion != null
 
   return (
-    <div className="flex flex-col">
+    <div className={cn("flex flex-col", findOpen && KNOWLEDGE_DOCK_PAD)}>
       <TopBar
         breadcrumb={[
           { label: "Documents", href: "/library" },
@@ -473,6 +493,20 @@ export function DocumentEditPage() {
               {!metaVisible && errorCount > 0 && (
                 <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-destructive" />
               )}
+            </Button>
+            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setWriterOpen(true)}>
+              <Sparkles className="h-3.5 w-3.5" />
+              Write with the assistant
+            </Button>
+            <Button
+              variant={findOpen ? "secondary" : "ghost"}
+              size="sm"
+              className="gap-1.5"
+              aria-pressed={findOpen}
+              onClick={() => setFindOpen((o) => !o)}
+            >
+              <Search className="h-3.5 w-3.5" />
+              Find
             </Button>
             <Button
               variant="outline"
@@ -613,7 +647,7 @@ export function DocumentEditPage() {
           metaVisible && "lg:grid-cols-[minmax(0,1fr)_320px]",
         )}
       >
-        <div className="min-w-0">
+        <div className="min-w-0" id="doc-edit-body" onFocusCapture={() => (cursorPlaced.current = true)}>
           <DocumentEditor
             content={body}
             onChange={(json) => setBody(json)}
@@ -638,6 +672,30 @@ export function DocumentEditPage() {
           </div>
         )}
       </div>
+
+      <DocumentGuidedWriter
+        open={writerOpen}
+        onOpenChange={setWriterOpen}
+        context={{
+          documentType: meta.type,
+          title: meta.title,
+          areaCode: meta.location || null,
+          assetIds: derivedAssets.map((a) => a.id as Id<"assets">),
+          whereSuggestions: [
+            ...derivedAssets.map((a) => `At ${a.code} ${a.name}`),
+            ...(meta.location ? [`In area ${meta.location}`] : []),
+          ],
+        }}
+        onInsert={(nodes) => insertNodes(nodes)}
+      />
+      <KnowledgeSearchDock
+        open={findOpen}
+        onClose={() => setFindOpen(false)}
+        areaCodes={meta.location ? [meta.location] : undefined}
+        assetIds={derivedAssets.length ? derivedAssets.map((a) => a.id as Id<"assets">) : undefined}
+        onInsertImage={(img) => insertNodes([imageNode(img)])}
+        onInsertPassage={(p) => insertNodes(passageNodes(p))}
+      />
 
       {namingCode && (
         <>

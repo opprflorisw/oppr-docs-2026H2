@@ -6,6 +6,7 @@ import {
   BadgeCheck,
   BookOpenText,
   Boxes,
+  Factory,
   FileText,
   GraduationCap,
   MessageSquareText,
@@ -25,6 +26,30 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { openAsk } from "@/components/ai/FloatingAskIda"
 import { STATUS_LABELS } from "@/components/docs/StatusBadge"
 import { api } from "../../../convex/_generated/api"
+
+// Plant items open on the tab that holds their kind (docs/adr/0006).
+const PLANT_TAB: Record<string, string> = {
+  site: "structure",
+  line: "structure",
+  process: "processes",
+  product: "processes",
+  material: "materials",
+  hazard: "materials",
+  role: "roles",
+  team: "roles",
+  term: "glossary",
+}
+const PLANT_KIND_LABEL: Record<string, string> = {
+  site: "Site",
+  line: "Line",
+  process: "Process",
+  product: "Product",
+  material: "Material",
+  hazard: "Hazard",
+  role: "Role",
+  team: "Team",
+  term: "Glossary",
+}
 
 // Global search (Ctrl+K). One field finds Documents, Assets, Trainings, Wikis
 // and People, grouped by place; the last row always asks the question.
@@ -111,6 +136,7 @@ function Results({
   const trainings = useQuery(api.trainings.list, {})
   const wikis = useQuery(api.wikis.list, {})
   const people = useQuery(api.people.list, {})
+  const plant = useQuery(api.plant.plant.searchIndex, {})
   const loading =
     docs === undefined ||
     assets === undefined ||
@@ -134,8 +160,9 @@ function Results({
         .slice(0, PER_GROUP),
       wikis: (wikis ?? []).filter((w) => matches(q, w.title, w.purpose)).slice(0, PER_GROUP),
       people: (people ?? []).filter((p) => matches(q, p.name, p.role)).slice(0, PER_GROUP),
+      plant: (plant ?? []).filter((i) => matches(q, i.name, i.code, ...i.synonyms)).slice(0, PER_GROUP),
     }
-  }, [q, docs, assets, trainings, wikis, people])
+  }, [q, docs, assets, trainings, wikis, people, plant])
 
   if (!q) {
     return (
@@ -144,7 +171,8 @@ function Results({
           <PlaceItem label="Documents" icon={FileText} onSelect={() => go("/library")} />
           <PlaceItem label="Learn" icon={GraduationCap} onSelect={() => go("/learn")} />
           <PlaceItem label="Wiki" icon={BookOpenText} onSelect={() => go("/wiki")} />
-          <PlaceItem label="Assets" icon={Boxes} onSelect={() => go("/assets")} />
+          <PlaceItem label="Plant" icon={Factory} onSelect={() => go("/plant")} />
+          <PlaceItem label="Glossary" icon={Factory} onSelect={() => go("/plant/glossary")} />
           <PlaceItem label="ISO 9001" icon={BadgeCheck} onSelect={() => go("/iso-9001")} />
         </CommandGroup>
         <p className="px-4 pb-3 pt-1 text-xs text-muted-foreground">
@@ -162,7 +190,8 @@ function Results({
       found.assets.length +
       found.trainings.length +
       found.wikis.length +
-      found.people.length
+      found.people.length +
+      found.plant.length
     : 0
 
   return (
@@ -260,6 +289,24 @@ function Results({
               <UserRound className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
               <span className="truncate">{p.name}</span>
               <span className="ml-auto shrink-0 pl-2 text-xs text-muted-foreground">{p.role}</span>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      )}
+      {found && found.plant.length > 0 && (
+        <CommandGroup heading="Plant">
+          {found.plant.map((i) => (
+            <CommandItem
+              key={i._id}
+              value={`plant-${i._id}`}
+              onSelect={() => go(`/plant/${PLANT_TAB[i.kind]}?item=${i._id}`)}
+            >
+              <Factory className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+              <span className="truncate">{i.name}</span>
+              {i.synonyms.length > 0 && (
+                <span className="ml-2 truncate text-xs text-muted-foreground">{i.synonyms.slice(0, 3).join(", ")}</span>
+              )}
+              <span className="ml-auto shrink-0 pl-2 text-xs text-muted-foreground">{PLANT_KIND_LABEL[i.kind]}</span>
             </CommandItem>
           ))}
         </CommandGroup>

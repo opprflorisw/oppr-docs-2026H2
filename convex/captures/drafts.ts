@@ -16,7 +16,6 @@ import { Doc, Id } from "../_generated/dataModel"
 import { requireUserId } from "../lib/auth"
 import { bodyChunks } from "../lib/chunking"
 import { allocateNamingCode } from "../naming"
-import { DEFAULT_REVIEW_MONTHS } from "../documents"
 import { Node, b, bullets, callout, doc, h, p, steps, t } from "../seed/builders"
 import { requireEngineerPerson } from "./access"
 import { OMIT } from "./sets"
@@ -329,7 +328,6 @@ export const makeDraft = mutation({
       approverId: null,
       tags: [...new Set(["capture", ...(form === "log" ? ["logs-proposal"] : [])])],
       updatedAt: now,
-      reviewIntervalMonths: DEFAULT_REVIEW_MONTHS,
       origin: "capture",
       // The Engineer who made the Draft owns it (people act through check-in).
       ownerPersonId: args.personId,

@@ -31,6 +31,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useCheckIn } from "@/lib/checkIn"
 import { cn } from "@/lib/utils"
 import { daysAgo, errorText, fmtDate, ProgressBar } from "./lib"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 type SignalKind = "misconception" | "unclear_question" | "document_gap" | "too_easy" | "practice_differs"
 
@@ -89,7 +90,7 @@ export function StillOnPointPanel({
   const data = useQuery(api.trainingBuilder.signals, { trainingId })
   const refresh = useAction(api.ai.trainingBuilder.refreshSignals)
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer"
+  const engineer = isEngineerOrAdmin(person)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [propose, setPropose] = useState<{ documentId: Id<"documents">; namingCode: string; note: string } | null>(null)
@@ -318,7 +319,7 @@ function ProposeRevisionDialog({
             Cancel
           </Button>
           <Button
-            disabled={busy || !value || person?.kind !== "engineer"}
+            disabled={busy || !value || !isEngineerOrAdmin(person)}
             onClick={async () => {
               if (!value || !person) return
               setBusy(true)

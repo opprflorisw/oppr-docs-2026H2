@@ -23,6 +23,7 @@ import { FindingCard } from "@/components/findings/FindingCard"
 import { errorText, whenText } from "@/components/findings/findingUtils"
 import { useCheckIn } from "@/lib/checkIn"
 import { DocumentsTabs } from "@/components/docs/DocumentsTabs"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 type Tab = "open" | "resolved" | "dismissed"
 const TABS: { value: Tab; label: string }[] = [
@@ -61,7 +62,7 @@ export function FindingsPage() {
   const run = useQuery(api.findings.latestRun)
   const runNow = useMutation(api.findings.runCheckNow)
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer" ? person : null
+  const engineer = isEngineerOrAdmin(person) ? person : null
   const search = useSearch()
   const [, navigate] = useLocation()
   const [starting, setStarting] = useState(false)

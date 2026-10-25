@@ -27,6 +27,7 @@ import { MakeDraftDialog } from "@/components/captures/MakeDraftDialog"
 import { ConfirmDelete, DeskNotice } from "@/components/captures/DeskBits"
 import { Avatar, MOMENT_META, StatusPill, errorText } from "@/components/captures/captureUi"
 import { SetStatus } from "./CapturesPage"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 type SetData = NonNullable<FunctionReturnType<typeof api.captures.sets.get>>
 type Step = NonNullable<SetData["combined"]>["steps"][number]
@@ -48,7 +49,7 @@ export function CaptureSetPage() {
   const { id } = useParams<{ id: string }>()
   const [, navigate] = useLocation()
   const { person, people } = useCheckIn()
-  const engineer = person?.kind === "engineer"
+  const engineer = isEngineerOrAdmin(person)
   const data = useQuery(api.captures.sets.get, person && engineer ? { setId: id as Id<"captureSets">, personId: person._id } : "skip")
   const combine = useMutation(api.captures.sets.combine)
   const remove = useMutation(api.captures.sets.remove)

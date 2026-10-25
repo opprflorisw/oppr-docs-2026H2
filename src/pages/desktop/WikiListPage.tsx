@@ -31,6 +31,7 @@ import { FORMAT_LABEL } from "@/components/wiki/wikiShared"
 import { useCheckIn } from "@/lib/checkIn"
 import { formatAgo } from "@/lib/time"
 import { cn } from "@/lib/utils"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 type WikiRow = FunctionReturnType<typeof api.wikis.list>[number]
 
@@ -46,7 +47,7 @@ const ONBOARDING_RE = /\b(new|first|start|starter|essentials?|basics?|induction|
 export function WikiListPage() {
   const wikis = useQuery(api.wikis.list)
   const { person } = useCheckIn()
-  const isEngineer = person?.kind === "engineer"
+  const isEngineer = isEngineerOrAdmin(person)
   const [creating, setCreating] = useState(false)
   const [q, setQ] = useState("")
   const [area, setArea] = useState<string | null>(null)

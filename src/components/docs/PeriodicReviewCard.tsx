@@ -25,6 +25,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 const DAY = 24 * 60 * 60 * 1000
 const INTERVALS = [6, 12, 24, 36]
@@ -49,18 +50,20 @@ export function PeriodicReviewCard({
   const setInterval = useMutation(api.documents.setReviewInterval)
   const record = useQuery(api.documents.reviewRecord, { documentId: doc._id })
   const { person } = useCheckIn()
+  const org = useQuery(api.orgSettings.get)
   const [confirming, setConfirming] = useState(false)
-  const engineer = person?.kind === "engineer" ? person : null
+  const engineer = isEngineerOrAdmin(person) ? person : null
 
   if (doc.liveVersion == null || doc.status === "archived") return null
 
-  const months = doc.reviewIntervalMonths ?? 12
+  // No interval of its own: the company default (Settings, Documents).
+  const months = doc.reviewIntervalMonths ?? org?.documents.reviewIntervalMonths ?? 12
   const intervals = INTERVALS.includes(months)
     ? INTERVALS
     : [...INTERVALS, months].sort((a, b) => a - b)
   const next = doc.nextReviewAt ?? null
   const daysLeft = next == null ? null : Math.ceil((next - Date.now()) / DAY)
-  const due = daysLeft != null && daysLeft <= 30
+  const due = daysLeft != null && daysLeft <= (org?.documents.dueSoonDays ?? 30)
   const revisionInProgress = doc.currentVersion !== doc.liveVersion
 
   async function run(p: Promise<unknown>, ok: string) {

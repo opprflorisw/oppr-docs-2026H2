@@ -1,5 +1,5 @@
 // The places under Documents, as tabs (design rule: places are tabs, actions
-// are buttons): All documents, Findings, Knowledge health and Captures.
+// are buttons): All documents, Findings, Knowledge health, Captures and Images.
 // Rendered right under the PageHeader of each of those pages.
 
 import { Link, useLocation } from "wouter"
@@ -12,6 +12,7 @@ const TABS = [
   { href: "/library/findings", label: "Findings", match: (p: string) => p.startsWith("/library/findings") },
   { href: "/library/health", label: "Knowledge health", match: (p: string) => p.startsWith("/library/health") },
   { href: "/library/captures", label: "Captures", match: (p: string) => p.startsWith("/library/captures") },
+  { href: "/library/images", label: "Images", match: (p: string) => p.startsWith("/library/images") },
 ] as const
 
 export function DocumentsTabs({ className }: { className?: string }) {

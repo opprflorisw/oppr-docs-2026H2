@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/docs/StatusBadge"
 import { useCheckIn } from "@/lib/checkIn"
 import { KindIcon } from "./training/lib"
 import { TrainingGuidedCreation } from "./training/TrainingGuidedCreation"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 // Aside card on a Document: Trainings built on it. A Significant change to
 // this Document sends them back to review, so the author sees them here.
@@ -27,7 +28,7 @@ export function DocumentTrainingsCard({
   const { person } = useCheckIn()
   const [creating, setCreating] = useState(false)
   if (trainings === undefined) return null
-  const canMake = published && person?.kind === "engineer"
+  const canMake = published && isEngineerOrAdmin(person)
   return (
     <div className="space-y-2 rounded-lg border p-3">
       <div className="flex items-center gap-2">

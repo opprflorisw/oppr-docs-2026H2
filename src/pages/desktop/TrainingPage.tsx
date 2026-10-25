@@ -55,6 +55,7 @@ import { TrainingLearnerView } from "@/components/learn/training/TrainingLearner
 import { AssignDialog, resolveAudience, useCatalogue } from "@/components/learn/training/AssignDialog"
 import { passRuleText, questionCount } from "@/components/learn/training/builderModel"
 import { TrainingPreview } from "@/components/learn/training/TrainingPreview"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 type SignOff = "approve" | "publish" | "archive" | "confirm"
 type PageTab = "overview" | "people" | "insights" | "versions"
@@ -108,7 +109,7 @@ export function TrainingPage() {
   }
 
   const t = data.training
-  if (person?.kind !== "engineer") {
+  if (!isEngineerOrAdmin(person)) {
     return (
       <div className="flex flex-col">
         <TopBar breadcrumb={[{ label: "Learn", href: "/learn" }, { label: t.title }]} />
@@ -131,7 +132,7 @@ type ObjectiveView = NonNullable<TrainingData["current"]>["objectives"]
 function EngineerTrainingPage({ data }: { data: TrainingData }) {
   const { training: t, current, live, versions } = data
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer" ? person : null
+  const engineer = isEngineerOrAdmin(person) ? person : null
   const [, navigate] = useLocation()
   const search = useSearch()
   const setup = useQuery(api.trainingBuilder.setup, { trainingId: t._id })

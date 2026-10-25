@@ -8,6 +8,8 @@ It is built inside the existing DOCS codebase, starting from a **fresh, minimal 
 
 The UX follows the Homerun approach: usable and understandable without explanation. Navigation is shallow, settings are never nested four levels deep, and the obvious next action is always visible.
 
+The desktop has exactly six places in the left nav: **Home, Documents, Learn, Wiki, Plant and Settings**. Everything else is reached from one of them, at most one level down (Assets is a tab of Plant, Findings and Captures sit under Documents). Anything deeper opens as a panel or dialog. A new feature goes inside one of the six; it never adds a seventh (docs/adr/0006).
+
 ## Language
 
 ### Knowledge and control
@@ -78,6 +80,26 @@ _Avoid_: floor plan page, demo mode, mobile app
 
 **Scan**:
 Reading an Asset's QR code to get to its Knowledge. Anonymous by default.
+
+### Plant
+
+**Plant**:
+The place that describes the organization and its plant for Knowledge: who we are (background, products, quality policy, key facts), its structure (site, area, line, Asset), its processes, products, materials, hazards, roles and teams, and the Glossary. It is background, not Knowledge: it is not Published, and steps, settings and limits only ever come from Published Documents. Later it merges into the platform's plant ontology (docs/adr/0006).
+_Avoid_: ontology (in the UI), master data, plant model
+
+**Area**:
+A part of the plant, such as MIX, EXT or QCL. Areas are the locations of the naming codes; there is one list. The Plant only adds a description and a site to each.
+_Avoid_: zone, hall (unless it is the area's name)
+
+**Line**:
+A set of Assets that together make the product, inside one Area, for example "Extrusion line 2".
+
+**Glossary**:
+The words people use on the floor, each with its meaning and its other words: abbreviations and Dutch synonyms. Ask, Wikis and the guided writer use it to understand a question; Ctrl+K and the phone find a term by any of its words.
+_Avoid_: dictionary, vocabulary (that is the naming vocabulary)
+
+**Plant briefing**:
+The short text about the Plant that Ask, Wikis and the guided writer get as background. Never cited, never a source.
 
 ### Training
 
@@ -210,6 +232,7 @@ A place where Captures in a Capture set do the same step differently, skip it, o
 - A **Capture** is made by one person and holds **Entries**. After hand-in the AI turns it into **Moments**. Several Captures make a **Capture set**, which shows **Variations**.
 - A Capture or a Capture set becomes a **Draft** (SOP, work instruction, LMRA or a proposal for a new LOGS checklist). It is never Published directly. A **Training** is made once that Draft is Published (docs/adr/0005).
 - A **Document** is linked to zero or more **Assets**. A **Scan** of an Asset shows its Published Documents.
+- The **Plant** holds a site, its **Areas**, their **Lines** and the **Assets** on them, plus processes, products, materials, hazards, roles, teams and **Glossary** terms. Each item can link to **Documents**, **Assets**, **Trainings** and **Skills**, and to other items by a typed relation (feeds into, uses, produces, hazards, done by...). The AI proposes items from Published Documents; an Engineer accepts or rejects each one.
 - A **Document** comes from the editor, from a **Convert**, as a **Wrapped manual**, or as an **Imported draft** through the **MCP server**.
 - An outside model does the messy pre-work (classifying, cleaning up, splitting and translating legacy files) before anything reaches Oppr. Oppr checks the result against its structure and Published Knowledge, and a person decides.
 - A **Training** is generated from one or more Published **Documents**. A **Round** also visits **Assets**.

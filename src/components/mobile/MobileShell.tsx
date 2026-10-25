@@ -20,7 +20,7 @@ import { CaptureRunningPill } from "@/components/captures/CaptureRunningPill"
 import { useActiveCapture, useCaptureClock } from "@/components/captures/useCapture"
 import { formatClock } from "@/components/captures/captureUi"
 import { initials, useCheckIn, type Person } from "@/lib/checkIn"
-import { useIdleCheckOut } from "@/lib/checkInIdle"
+import { useCheckInIdleMinutes, useIdleCheckOut } from "@/lib/checkInIdle"
 import { useNavStack, isRootPath, type NavStack } from "@/lib/navStack"
 import { cn } from "@/lib/utils"
 import { useOnline } from "./use-mobile-prefs"
@@ -242,7 +242,8 @@ export function MobileShell({ children, embedded = false }: { children: ReactNod
     }
   }, [location, convex])
 
-  // A shared phone: check out after 15 minutes without a touch.
+  // A shared phone: check out after the check-in timeout (Settings, Floor) without a touch.
+  const idleMinutes = useCheckInIdleMinutes()
   const idleToast = useRef<string | number | null>(null)
   useIdleCheckOut({
     root: column,
@@ -261,7 +262,7 @@ export function MobileShell({ children, embedded = false }: { children: ReactNod
     onExpire: () => {
       idleToast.current = null
       checkOut()
-      toast("Checked out", { description: "Nobody touched the phone for 15 minutes." })
+      toast("Checked out", { description: `Nobody touched the phone for ${idleMinutes} minute${idleMinutes === 1 ? "" : "s"}.` })
     },
   })
 

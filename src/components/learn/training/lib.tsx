@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn, isMobilePath } from "@/lib/utils"
 import { formatDate, formatDateTime } from "@/lib/time"
 import type { Id } from "../../../../convex/_generated/dataModel"
+import { LEVEL_NAMES } from "@/lib/skillLevelNames"
 
 export type TrainingKind = "course" | "round"
 
@@ -162,13 +163,8 @@ export function SourceChip({
   )
 }
 
-/** Skill levels in words (CONTEXT.md). */
-export const LEVEL_WORDS: Record<number, string> = {
-  0: "Not trained",
-  1: "Knows it",
-  2: "Can do it",
-  3: "Can teach it",
-}
+/** Skill levels in the plant's words (Settings, People and roles); a live array. */
+export const LEVEL_WORDS: Record<number, string> = LEVEL_NAMES
 
 export function levelWords(level: number): string {
   return `level ${level} (${LEVEL_WORDS[level] ?? "level " + level})`
@@ -258,7 +254,7 @@ export interface PersonRef {
   _id: Id<"people">
   name: string
   role?: string | null
-  kind?: "operator" | "engineer"
+  kind?: "operator" | "engineer" | "admin"
   level?: number | null
 }
 
@@ -272,6 +268,8 @@ export interface AttemptExtras {
   failStreak?: number | null
   attemptNumber?: number | null
   earlierFails?: number | null
+  /** Not passed this many times in a row asks for a walk-through (Settings, Training). */
+  walkthroughAfter?: number | null
   refresher?: boolean | null
   ppe?: string[] | null
   tryOutRequired?: boolean | null

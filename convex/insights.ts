@@ -9,10 +9,10 @@ import { Doc, Id } from "./_generated/dataModel"
 import { requireUser } from "./lib/auth"
 import { isPublished } from "./lib/published"
 import { proposalBlocker } from "./revisions"
+import { readOrgSettings } from "./orgSettings"
 
 const DAY = 24 * 60 * 60 * 1000
 export const WINDOW_DAYS = 90
-const REVIEW_WINDOW_DAYS = 30
 // "Asked but unclear": at least this many questions with this share unanswered,
 // or this many "unclear or wrong" marks.
 const UNCLEAR_MIN_QUESTIONS = 3
@@ -221,6 +221,7 @@ interface DocSignals {
 
 async function computeHealth(ctx: QueryCtx) {
   const now = Date.now()
+  const { dueSoonDays } = (await readOrgSettings(ctx)).documents
   const since = now - WINDOW_DAYS * DAY
   // Reads are capped to stay within Convex limits; the newest events come
   // first, so a cap drops the oldest days of the window, never the newest.
@@ -396,9 +397,9 @@ async function computeHealth(ctx: QueryCtx) {
   const overlaps = findingItems("duplicate")
   const contradictions = findingItems("contradiction")
 
-  // Reviews due in the next 30 days or overdue.
+  // Reviews due within the due-soon window (Settings, Documents) or overdue.
   const reviewsDue: (HealthItem & { days: number })[] = published
-    .filter((d) => d.nextReviewAt != null && d.nextReviewAt <= now + REVIEW_WINDOW_DAYS * DAY)
+    .filter((d) => d.nextReviewAt != null && d.nextReviewAt <= now + dueSoonDays * DAY)
     .map((d) => {
       const days = Math.ceil(((d.nextReviewAt as number) - now) / DAY)
       const inProgress = d.currentVersion !== d.liveVersion

@@ -6,6 +6,7 @@
 import { ConvexError } from "convex/values"
 import { MutationCtx, QueryCtx } from "../_generated/server"
 import { Doc, Id } from "../_generated/dataModel"
+import { isEngineerOrAdmin, requireEngineerOrAdmin } from "../lib/roles"
 
 type Ctx = QueryCtx | MutationCtx
 
@@ -16,12 +17,11 @@ export async function requirePerson(ctx: Ctx, personId: Id<"people">): Promise<D
 }
 
 export async function requireEngineerPerson(ctx: Ctx, personId: Id<"people">): Promise<Doc<"people">> {
-  const person = await requirePerson(ctx, personId)
-  if (person.kind !== "engineer") throw new ConvexError("Check in as an Engineer to do this.")
-  return person
+  await requirePerson(ctx, personId)
+  return await requireEngineerOrAdmin(ctx, personId, "Check in as an Engineer to do this.")
 }
 
-export const isEngineer = (p: Doc<"people"> | null | undefined) => p?.kind === "engineer"
+export const isEngineer = (p: Doc<"people"> | null | undefined) => isEngineerOrAdmin(p)
 
 /** True when `person` may read `capture`. */
 export function canSee(capture: Doc<"captures">, person: Doc<"people">): boolean {

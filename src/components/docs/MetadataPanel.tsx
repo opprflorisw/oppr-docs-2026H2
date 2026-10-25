@@ -28,6 +28,7 @@ import { api } from "../../../convex/_generated/api"
 import { useDocTypes } from "@/lib/typeMeta"
 import { useCheckIn } from "@/lib/checkIn"
 import { BookMarked, Factory, Hash, Play } from "lucide-react"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 export interface MetadataValue {
   title: string
@@ -120,7 +121,7 @@ export function MetadataPanel({
   const filingLocked = Boolean(fixedNamingCode)
   const { person, people } = useCheckIn()
   const vocab = useQuery(api.naming.listVocabulary)
-  const engineers = useMemo(() => (people ?? []).filter((p) => p.kind === "engineer"), [people])
+  const engineers = useMemo(() => (people ?? []).filter((p) => isEngineerOrAdmin(p)), [people])
 
   const locations = vocab?.locations ?? []
   const disciplines = vocab?.disciplines ?? []
@@ -155,7 +156,7 @@ export function MetadataPanel({
   }
 
   // "Set to me" is the checked-in Engineer; hidden when Anonymous.
-  const meId = person?.kind === "engineer" ? person._id : null
+  const meId = isEngineerOrAdmin(person) ? person._id : null
 
   return (
     <aside className="space-y-4 rounded-lg border bg-card p-4 text-card-foreground">

@@ -13,7 +13,7 @@ import { type BreakdownStep, SourceChip, useIsFloor } from "./lib"
 const KIND = {
   safety: { label: "Safety", icon: ShieldAlert, tone: "border-red-300 bg-red-50 text-red-800 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200" },
   quality: { label: "Quality", icon: Gem, tone: "border-sky-300 bg-sky-50 text-sky-900 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-100" },
-  knack: { label: "Knack", icon: Sparkles, tone: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100" },
+  knack: { label: "Tip", icon: Sparkles, tone: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100" },
 } as const
 
 export function PresentSteps({

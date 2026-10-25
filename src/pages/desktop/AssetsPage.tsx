@@ -42,11 +42,13 @@ import { DocsHoverPill, type DocPreview } from "@/components/docs/FloorplanModal
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { toast } from "sonner"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
-export function AssetsPage() {
+/** `embedded`: shown as the Assets tab of Plant, without its own header. */
+export function AssetsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [, navigate] = useLocation()
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer"
+  const engineer = isEngineerOrAdmin(person)
 
   const [tab, setTab] = useState<"list" | "hierarchy">("list")
   const [addOpen, setAddOpen] = useState(false)
@@ -91,6 +93,7 @@ export function AssetsPage() {
         code: patch.code,
         description: patch.description,
         level: patch.level,
+        personId: person?._id,
       })
       toast.success("Asset updated")
     } catch (err) {
@@ -100,20 +103,24 @@ export function AssetsPage() {
 
   return (
     <div className="flex flex-col">
-      <TopBar breadcrumb={[{ label: "Assets" }]} />
-      <PageHeader
-        icon={Factory}
-        title="Assets"
-        statusLine="The equipment in the plant. Each Asset's QR code leads to its documents."
-        secondary={[{ label: "Floor simulator", icon: MapIcon, href: "/floor" }]}
-        primary={
-          engineer
-            ? { label: "Add asset", icon: Plus, onClick: () => setAddOpen(true) }
-            : undefined
-        }
-      />
+      {!embedded && (
+        <>
+          <TopBar breadcrumb={[{ label: "Assets" }]} />
+          <PageHeader
+            icon={Factory}
+            title="Assets"
+            statusLine="The equipment in the plant. Each Asset's QR code leads to its documents."
+            secondary={[{ label: "Floor simulator", icon: MapIcon, href: "/floor" }]}
+            primary={
+              engineer
+                ? { label: "Add asset", icon: Plus, onClick: () => setAddOpen(true) }
+                : undefined
+            }
+          />
+        </>
+      )}
 
-      <div className="space-y-4 p-6">
+      <div className={embedded ? "space-y-4" : "space-y-4 p-6"}>
         <div className="flex flex-wrap items-center gap-3">
           <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
             <TabsList>
@@ -131,6 +138,18 @@ export function AssetsPage() {
           <span className="ml-auto text-sm text-muted-foreground">
             {assets.length} asset{assets.length === 1 ? "" : "s"}
           </span>
+          {embedded && (
+            <>
+              <Button variant="outline" size="sm" onClick={() => navigate("/floor")}>
+                <MapIcon className="h-4 w-4" aria-hidden /> Floor simulator
+              </Button>
+              {engineer && (
+                <Button size="sm" onClick={() => setAddOpen(true)}>
+                  <Plus className="h-4 w-4" aria-hidden /> Add asset
+                </Button>
+              )}
+            </>
+          )}
         </div>
 
         {!ready ? (

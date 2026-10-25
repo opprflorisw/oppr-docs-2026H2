@@ -3,7 +3,7 @@
 // approximating the export's title page.
 
 import { useEffect, useState } from "react"
-import { useMutation, useQuery } from "convex/react"
+import { useQuery } from "convex/react"
 import { toast } from "sonner"
 import { ImageOff, Loader2, Save } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
@@ -26,8 +26,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { InsertImageDialog } from "@/components/docs/InsertImageDialog"
+import { Link } from "wouter"
 import { cn } from "@/lib/utils"
+import { errorText, useEditorMutation } from "@/components/settings/SettingsBits"
 
 type TitleSize = "sm" | "md" | "lg"
 type WatermarkChoice = "none" | "controlled" | "draft" | "review" | "unset"
@@ -63,11 +64,10 @@ const HEX_PATTERN = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
 
 export function CoverSettingsEditor() {
   const settings = useQuery(api.coverSettings.get)
-  const upsert = useMutation(api.coverSettings.upsert)
+  const upsert = useEditorMutation(api.coverSettings.upsert)
   const [form, setForm] = useState<FormState>(DEFAULT_FORM)
   const [seeded, setSeeded] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [logoPickerOpen, setLogoPickerOpen] = useState(false)
 
   useEffect(() => {
     if (seeded || settings === undefined) return
@@ -101,11 +101,12 @@ export function CoverSettingsEditor() {
     setSaving(true)
     try {
       await upsert({
-        companyName: form.companyName.trim() || null,
+        // Name and logo are edited under Settings, Company (one source).
+        companyName: settings?.companyName ?? null,
         headerText: form.headerText.trim() || null,
         footerText: form.footerText.trim() || null,
         titleSize: form.titleSize,
-        logoImageId: form.logoImageId,
+        logoImageId: settings?.logoImageId ?? null,
         showPageNumbers: form.showPageNumbers,
         confidentialityLabel: form.confidentialityLabel.trim() || null,
         defaultWatermark:
@@ -114,7 +115,7 @@ export function CoverSettingsEditor() {
       })
       toast.success("PDF cover settings saved. Every export now uses them.")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      toast.error(errorText(err))
     } finally {
       setSaving(false)
     }
@@ -140,43 +141,20 @@ export function CoverSettingsEditor() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          <Field label="Company name" hint="Replaces 'Oppr Knowledge' in the cover eyebrow.">
-            <Input
-              value={form.companyName}
-              onChange={(e) => set("companyName", e.target.value)}
-              placeholder="e.g. Pijpwerk Noord"
-            />
-          </Field>
-
-          <Field label="Logo" hint="Shown at the top of the cover page. Reuses the image library.">
+          <Field label="Company name and logo" hint="One source for the whole app, edited under Settings, Company.">
             <div className="flex items-center gap-3">
               <div className="flex h-14 w-24 items-center justify-center overflow-hidden rounded-md border bg-muted/30">
-                {form.logoUrl ? (
-                  <img
-                    src={form.logoUrl}
-                    alt="Logo"
-                    className="max-h-full max-w-full object-contain"
-                  />
+                {settings?.logoUrl ? (
+                  <img src={settings.logoUrl} alt="Logo" className="max-h-full max-w-full object-contain" />
                 ) : (
                   <ImageOff className="h-4 w-4 text-muted-foreground/50" />
                 )}
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => setLogoPickerOpen(true)}>
-                  {form.logoImageId ? "Change" : "Choose logo"}
-                </Button>
-                {form.logoImageId && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      set("logoImageId", null)
-                      set("logoUrl", null)
-                    }}
-                  >
-                    Remove
-                  </Button>
-                )}
+              <div className="min-w-0 space-y-1">
+                <p className="truncate text-sm">{settings?.companyName || "No company name yet"}</p>
+                <Link href="/settings?tab=company" className="text-xs font-medium text-primary underline-offset-2 hover:underline">
+                  Change under Company
+                </Link>
               </div>
             </div>
           </Field>
@@ -232,7 +210,7 @@ export function CoverSettingsEditor() {
               <Input
                 value={form.footerText}
                 onChange={(e) => set("footerText", e.target.value)}
-                placeholder="e.g. Property of Pijpwerk Noord"
+                placeholder="e.g. Property of your company"
               />
             </Field>
             <Field
@@ -293,16 +271,10 @@ export function CoverSettingsEditor() {
         </CardContent>
       </Card>
 
-      <CoverPreview form={form} />
-
-      <InsertImageDialog
-        open={logoPickerOpen}
-        onOpenChange={setLogoPickerOpen}
-        onInsert={({ id, url }) => {
-          set("logoImageId", id)
-          set("logoUrl", url)
-        }}
+      <CoverPreview
+        form={{ ...form, companyName: settings?.companyName ?? "", logoUrl: settings?.logoUrl ?? null }}
       />
+
     </div>
   )
 }

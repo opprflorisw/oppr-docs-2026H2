@@ -2,6 +2,7 @@
 //
 // Entry point for "New document", reached from the chooser:
 //   /docs/new/compose?blank=1        empty editor
+//   /docs/new/compose?assistant=1    empty editor with the guided writer open
 //   /docs/new/compose?template=<id>  editor seeded from a DB template
 //   /docs/new/import                 PDF upload, embedded as an attachment
 //                                    node inside an otherwise normal doc
@@ -16,7 +17,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useLocation } from "wouter"
 import { toast } from "sonner"
-import { Upload, FileText, X } from "lucide-react"
+import { Upload, FileText, Sparkles, X } from "lucide-react"
 import * as pdfjs from "pdfjs-dist"
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import { useMutation, useQuery } from "convex/react"
@@ -47,6 +48,9 @@ import { walkBodyRefs } from "@/lib/bodyRefs"
 import { walkBodyLogs } from "@/lib/bodyLogs"
 import type { DocumentType } from "@/types"
 import { useCheckIn } from "@/lib/checkIn"
+import { isEngineerOrAdmin } from "@/lib/roles"
+import { DocumentGuidedWriter } from "@/components/guided/DocumentGuidedWriter"
+import { appendToBody } from "@/components/find/editorInsert"
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -110,6 +114,10 @@ export function DocumentNewPage() {
     bytes: Uint8Array
   } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // "Write with the assistant" from New document: the writer opens straight
+  // away and its Draft lands in this editor; the person then checks the
+  // details and creates the document as usual.
+  const [writerOpen, setWriterOpen] = useState(() => kind === "tiptap" && params.get("assistant") === "1")
 
   // Seed the body + type from the chosen template, once.
   useEffect(() => {
@@ -131,7 +139,7 @@ export function DocumentNewPage() {
       : undefined
     setMeta((m) => ({
       ...m,
-      ownerPersonId: m.ownerPersonId || (person.kind === "engineer" ? person._id : ""),
+      ownerPersonId: m.ownerPersonId || (isEngineerOrAdmin(person) ? person._id : ""),
       location: m.location || areaLocation || "",
     }))
   }, [person, vocab])
@@ -329,6 +337,11 @@ export function DocumentNewPage() {
             ? "Choose a PDF, fill in the details and create. The PDF is embedded so you can write around it."
             : "Write the body, fill in the details and create."
         }
+        secondary={
+          kind === "tiptap"
+            ? [{ label: "Write with the assistant", icon: Sparkles, onClick: () => setWriterOpen(true) }]
+            : undefined
+        }
         primary={
           <span className="flex items-center gap-2">
             {createBlocker && <span className="text-xs text-muted-foreground">{createBlocker}</span>}
@@ -437,6 +450,25 @@ export function DocumentNewPage() {
           />
         </div>
       </div>
+
+      {kind === "tiptap" && (
+        <DocumentGuidedWriter
+          open={writerOpen}
+          onOpenChange={setWriterOpen}
+          context={{
+            documentType: meta.type,
+            title: meta.title,
+            areaCode: meta.location || null,
+            assetIds: derivedAssets.map((a) => a.id as Id<"assets">),
+            whereSuggestions: derivedAssets.map((a) => `At ${a.code} ${a.name}`),
+          }}
+          onInsert={(nodes, draft) => {
+            setBody((b: unknown) => appendToBody(b, nodes))
+            if (draft.title.trim()) setMeta((m) => (m.title.trim() ? m : { ...m, title: draft.title.trim() }))
+            toast.success("The draft is in the editor. Check the details on the right, then create the document.")
+          }}
+        />
+      )}
     </div>
   )
 }

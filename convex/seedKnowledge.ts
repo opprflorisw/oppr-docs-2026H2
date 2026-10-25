@@ -62,6 +62,11 @@ const COMPANY = "Pijpwerk Noord"
 // Every app table, in delete order. Kept: users and auth tables, templates,
 // coverSettings, seedMedia.
 const WIPE_TABLES: TableNames[] = [
+  "plantProposals",
+  "plantRelations",
+  "plantAreas",
+  "plantItems",
+  "plantProfile",
   "captureMoments",
   "captureDrafts",
   "captureEntries",
@@ -95,6 +100,7 @@ const WIPE_TABLES: TableNames[] = [
   "chunks",
   "imageUsages",
   "images",
+  "imageCollections",
   "documentLogRefs",
   "documentAssets",
   "documentVersions",
@@ -109,6 +115,8 @@ const WIPE_TABLES: TableNames[] = [
   "namingLocations",
   "ppeItems",
   "people",
+  "shifts",
+  "skillLevelNames",
   "meta",
 ]
 
@@ -763,6 +771,8 @@ export const run = internalAction({
       await ctx.scheduler.runAfter(i * 1500, internal.ai.embed.embedMissingInternal, { documentId: d.id })
     }
     await ctx.scheduler.runAfter(90_000, internal.ai.consistency.runAll, { trigger: "seed" })
+    // Image search vectors (multimodal), after the passages so both stay under the rate limit.
+    await ctx.scheduler.runAfter(docs.length * 1500 + 5_000, internal.ai.imageEmbed.backfill, {})
 
     const totals: Record<string, number> = await ctx.runQuery(internal.seedKnowledge.counts, {})
     return {

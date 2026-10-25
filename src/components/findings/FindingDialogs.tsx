@@ -19,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useCheckIn } from "@/lib/checkIn"
 import { cn } from "@/lib/utils"
 import { errorText, type FindingSide, type FindingView } from "./findingUtils"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 const ENGINEER_NEEDED = "Check in as an Engineer (top right) to dismiss a Finding."
 
@@ -34,7 +35,7 @@ export function DismissFindingDialog({
 }) {
   const dismiss = useMutation(api.findings.dismiss)
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer" ? person : null
+  const engineer = isEngineerOrAdmin(person) ? person : null
   const [reason, setReason] = useState("")
   const [busy, setBusy] = useState(false)
 

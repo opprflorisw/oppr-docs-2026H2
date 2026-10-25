@@ -97,6 +97,26 @@ export const EMPTY_TRAINING_DRAFT: TrainingDraft = {
   changeNote: "",
 }
 
+/** The company's defaults for a new Training (Settings, Training; api.orgSettings.get). */
+export type TrainingDefaults = {
+  passMark: number
+  dueDays: number
+  refreshMonths: number | null
+  questionsPerObjective: number
+  tryOutForSafety: boolean
+}
+
+/** A new, empty Training Draft with the company's defaults (EMPTY_TRAINING_DRAFT while they load). */
+export function newTrainingDraft(defaults: TrainingDefaults | null | undefined): TrainingDraft {
+  if (!defaults) return EMPTY_TRAINING_DRAFT
+  return {
+    ...EMPTY_TRAINING_DRAFT,
+    passMark: defaults.passMark,
+    questionsPerObjective: defaults.questionsPerObjective,
+    refreshMonths: defaults.refreshMonths,
+  }
+}
+
 export const uid = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 8)}`
 
 /** Field labels, shared by "Changed in the draft" and the field highlights. */
@@ -171,7 +191,7 @@ export interface Check {
 }
 
 /** What is missing, per tab, before the Draft can be saved or sent for review. */
-export function builderChecks(d: TrainingDraft, opts: { version: number }): Check[] {
+export function builderChecks(d: TrainingDraft, opts: { version: number; tryOutForSafety?: boolean }): Check[] {
   const out: Check[] = []
   if (!d.title.trim()) out.push({ tab: "source", text: "Give the Training a title.", blocksSave: true, short: "title" })
   if (d.objectives.length === 0)
@@ -220,7 +240,7 @@ export function builderChecks(d: TrainingDraft, opts: { version: number }): Chec
     if (untested >= 0)
       out.push({ tab: "questions", text: `Learning objective ${untested + 1} has no question yet.`, blocksSave: false, short: "a question" })
   }
-  if (hasSafety(d) && !d.tryOut?.required)
+  if (opts.tryOutForSafety !== false && hasSafety(d) && !d.tryOut?.required)
     out.push({ tab: "tryout", text: "A safety key point needs a try-out at the line.", blocksSave: false, short: "try-out" })
   if (d.tryOut?.required && d.tryOut.checklist.length === 0)
     out.push({ tab: "tryout", text: "The try-out needs a checklist.", blocksSave: false, short: "a checklist" })

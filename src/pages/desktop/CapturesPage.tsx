@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils"
 import { setPhoneMode } from "@/components/phone/phoneStore"
 import { DeskNotice } from "@/components/captures/DeskBits"
 import { Avatar, StatusPill, errorText } from "@/components/captures/captureUi"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 type CaptureRow = FunctionReturnType<typeof api.captures.captures.list>[number]
 type SetRow = FunctionReturnType<typeof api.captures.sets.list>[number]
@@ -44,7 +45,7 @@ export function CapturesPage() {
   const urlSearch = useSearch()
   const tab = new URLSearchParams(urlSearch).get("tab") === "sets" ? "sets" : "captures"
   const { person, people } = useCheckIn()
-  const engineer = person?.kind === "engineer"
+  const engineer = isEngineerOrAdmin(person)
 
   const captures = useQuery(api.captures.captures.list, person ? { personId: person._id } : "skip")
   const sets = useQuery(api.captures.sets.list, person && engineer ? { personId: person._id } : "skip")

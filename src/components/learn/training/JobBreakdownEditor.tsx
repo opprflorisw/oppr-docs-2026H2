@@ -23,7 +23,7 @@ import {
   type TrainingDraft,
 } from "./builderModel"
 
-const KIND_LABEL: Record<KeyPointKind, string> = { safety: "Safety", quality: "Quality", knack: "Knack" }
+const KIND_LABEL: Record<KeyPointKind, string> = { safety: "Safety", quality: "Quality", knack: "Tip" }
 const KIND_ORDER: KeyPointKind[] = ["safety", "quality", "knack"]
 const KIND_CLASS: Record<KeyPointKind, string> = {
   safety: "border-red-300 bg-red-50 text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-300",
@@ -106,7 +106,7 @@ export function JobBreakdownEditor({
           </h3>
           <p className="text-sm text-muted-foreground">
             The important steps in the order the work is done. For each step: the key points that make or break it
-            (safety, quality or a knack) and why they matter. Operators read these steps before the questions, and a
+            (safety, quality or a tip that makes it easier) and why they matter. Operators read these steps before the questions, and a
             trainer checks them in the try-out.
           </p>
         </div>

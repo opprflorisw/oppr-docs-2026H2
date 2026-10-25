@@ -5,6 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton"
 import { initials, PHONE_CHECK_IN_KEY, useCheckIn, type Person } from "@/lib/checkIn"
 import { cn } from "@/lib/utils"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 // The desktop check-in key (src/lib/checkIn.ts KEY). Read here only to know
 // whether a check-in is pending, never written.
@@ -55,16 +56,35 @@ export function CheckInChip() {
   const [filter, setFilter] = useState("")
   const showFilter = (people?.length ?? 0) > 8
 
-  const { operators, engineers } = useMemo(() => {
+  // Operators far outnumber Engineers, so the list shows one side at a time;
+  // typing a name searches both.
+  const [side, setSide] = useState<"operators" | "engineers">(() =>
+    isEngineerOrAdmin(person) ? "engineers" : "operators",
+  )
+
+  const { operators, engineers, allOperators, allEngineers } = useMemo(() => {
     const q = filter.trim().toLowerCase()
+    // A name matches when one of its words starts with what was typed, so a
+    // single letter narrows the list instead of matching almost everyone. Roles
+    // join in from the second letter ("ext" finds the extrusion operators).
+    const words = (s: string) => s.toLowerCase().split(/[\s,.()/-]+/)
     const match = (p: Person) =>
-      !q || p.name.toLowerCase().includes(q) || (p.role ?? "").toLowerCase().includes(q)
-    const list = (people ?? []).filter(match)
+      !q ||
+      p.name.toLowerCase().startsWith(q) ||
+      words(p.name).some((w) => w.startsWith(q)) ||
+      (q.length > 1 && words(p.role ?? "").some((w) => w.startsWith(q)))
+    const all = people ?? []
+    const list = all.filter(match)
     return {
       operators: list.filter((p) => p.kind === "operator"),
-      engineers: list.filter((p) => p.kind === "engineer"),
+      engineers: list.filter((p) => isEngineerOrAdmin(p)),
+      allOperators: all.filter((p) => p.kind === "operator").length,
+      allEngineers: all.filter((p) => isEngineerOrAdmin(p)).length,
     }
   }, [people, filter])
+  const searching = filter.trim() !== ""
+  const hasAdmins = (people ?? []).some((p) => p.kind === "admin")
+  const engineersLabel = hasAdmins ? "Engineers and Admins" : "Engineers"
 
   const pick = (id: Person["_id"]) => {
     checkIn(id)
@@ -81,6 +101,7 @@ export function CheckInChip() {
       onOpenChange={(o) => {
         setOpen(o)
         if (!o) setFilter("")
+        if (o) setSide(isEngineerOrAdmin(person) ? "engineers" : "operators")
       }}
     >
       <PopoverTrigger asChild>
@@ -131,6 +152,31 @@ export function CheckInChip() {
             />
           </div>
         )}
+        {!searching && allOperators > 0 && allEngineers > 0 && (
+          <div role="group" aria-label="Show" className="flex gap-1 border-b p-1.5">
+            {(
+              [
+                ["operators", "Operators", allOperators],
+                ["engineers", "Engineers", allEngineers],
+              ] as const
+            ).map(([key, label, count]) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={side === key}
+                title={key === "engineers" ? engineersLabel : undefined}
+                onClick={() => setSide(key)}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                  side === key ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                )}
+              >
+                {label}
+                <span className="tabular-nums text-muted-foreground">{count}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="max-h-80 overflow-y-auto p-1">
           {people === undefined ? (
             <div className="space-y-2 p-2">
@@ -147,8 +193,12 @@ export function CheckInChip() {
             </p>
           ) : (
             <>
-              <Group label="Operators" people={operators} current={person} onPick={pick} />
-              <Group label="Engineers" people={engineers} current={person} onPick={pick} />
+              {(searching || side === "operators") && (
+                <Group label={searching ? "Operators" : undefined} people={operators} current={person} onPick={pick} />
+              )}
+              {(searching || side === "engineers") && (
+                <Group label={searching ? engineersLabel : undefined} people={engineers} current={person} onPick={pick} />
+              )}
             </>
           )}
         </div>
@@ -178,7 +228,7 @@ function Group({
   current,
   onPick,
 }: {
-  label: string
+  label?: string
   people: Person[]
   current: Person | null
   onPick: (id: Person["_id"]) => void
@@ -186,7 +236,7 @@ function Group({
   if (people.length === 0) return null
   return (
     <div className="py-1">
-      <p className="px-2 pb-1 text-xs font-semibold text-muted-foreground">{label}</p>
+      {label && <p className="px-2 pb-1 text-xs font-semibold text-muted-foreground">{label}</p>}
       {people.map((p) => (
         <button
           key={p._id}

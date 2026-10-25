@@ -329,7 +329,7 @@ function ResultActions({
     primary = <NextUp a={a} personId={personId!} floor={floor} />
   } else if (isOwner && a.status === "failed") {
     primary = <RetryButton a={a} personId={personId!} floor={floor} opened={opened} />
-    if ((x.failStreak ?? 0) >= 2) extra = <WalkThrough a={a} personId={personId!} floor={floor} />
+    if ((x.failStreak ?? 0) >= (x.walkthroughAfter ?? 2)) extra = <WalkThrough a={a} personId={personId!} floor={floor} />
   }
 
   if (floor) {
@@ -576,7 +576,7 @@ function WalkThrough({ a, personId, floor }: { a: AttemptView; personId: Id<"peo
   return (
     <div className="space-y-2 rounded-xl border bg-card p-4">
       <p className={cn("text-muted-foreground", floor ? "text-sm" : "text-sm")}>
-        Not passed twice. Someone can show you at the line, that often helps more than reading.
+        Not passed {ext(a).failStreak === 2 ? "twice" : `${ext(a).failStreak ?? 2} times`} in a row. Someone can show you at the line, that often helps more than reading.
       </p>
       <Button
         variant="outline"

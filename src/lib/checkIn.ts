@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useSyncExternalStore } from "re
 import { useQuery } from "convex/react"
 import { api } from "../../convex/_generated/api"
 import type { Doc, Id } from "../../convex/_generated/dataModel"
+import { applyLevelNames } from "./skillLevelNames"
 
 // Check-in (CONTEXT.md). Exactly two modes:
 //   - "anonymous"  : the default. Reading, Scanning and Asking need no name.
@@ -60,6 +61,8 @@ export function useCheckIn(): {
   const key = useContext(CheckInKeyContext)
   const storedId = useSyncExternalStore(subscribe, () => read(key), () => null)
   const people = useQuery(api.people.list)
+  // Every screen checks who is here, so the plant's Skill level names ride along.
+  applyLevelNames(useQuery(api.people.levels.list))
   const person = people?.find((p) => p._id === storedId) ?? null
   const checkIn = useCallback((id: Id<"people">) => write(key, id), [key])
   const checkOut = useCallback(() => write(key, null), [key])

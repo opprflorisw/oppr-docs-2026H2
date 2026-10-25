@@ -13,6 +13,7 @@ import { StatusBadge } from "@/components/docs/StatusBadge"
 import { cn } from "@/lib/utils"
 import { KindBadge, KindIcon } from "./training/lib"
 import { TrainingGuidedCreation } from "./training/TrainingGuidedCreation"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 type KindFilter = "all" | "course" | "round"
 type StatusFilter = "all" | "published" | "work" | "review"
@@ -36,7 +37,7 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
 export function TrainingsTabPrimary() {
   const { person } = useCheckIn()
   const [creating, setCreating] = useState(false)
-  if (person?.kind !== "engineer") return null
+  if (!isEngineerOrAdmin(person)) return null
   return (
     <>
       <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
@@ -52,7 +53,7 @@ export function TrainingsTabPrimary() {
 export function TrainingsTab() {
   const trainings = useQuery(api.trainings.list, {})
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer"
+  const engineer = isEngineerOrAdmin(person)
   const [creating, setCreating] = useState(false)
   const [kind, setKind] = useState<KindFilter>("all")
   const [status, setStatus] = useState<StatusFilter>("all")

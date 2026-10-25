@@ -55,6 +55,7 @@ import { STATUS_LABELS } from "@/components/docs/StatusBadge"
 import { SubmitForReviewDialog } from "@/components/docs/LifecycleDialogs"
 import { WithdrawDocumentDialog } from "@/components/docs/DocumentActions"
 import { formatDate } from "@/lib/time"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 export function DocumentReadPage() {
   const [, params] = useRoute<{ id: string }>("/docs/:id")
@@ -95,7 +96,7 @@ export function DocumentReadPage() {
   // Authoring is an Engineer's job (CONTEXT.md): only a checked-in Engineer
   // sees New version, Edit and the editor entries.
   const { person } = useCheckIn()
-  const canRevise = person?.kind === "engineer"
+  const canRevise = isEngineerOrAdmin(person)
 
   const initialPage = useMemo(() => {
     const p = new URLSearchParams(search).get("page")

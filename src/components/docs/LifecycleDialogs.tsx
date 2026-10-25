@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/select"
 import { useCheckIn } from "@/lib/checkIn"
 import { cn } from "@/lib/utils"
+import { isEngineerOrAdmin } from "@/lib/roles"
 
 export function serverMessage(err: unknown, fallback: string): string {
   if (err && typeof err === "object" && "data" in err && typeof (err as { data: unknown }).data === "string")
@@ -59,7 +60,7 @@ function EngineerPicker({
   exclude?: string[]
 }) {
   const { people } = useCheckIn()
-  const engineers = (people ?? []).filter((p) => p.kind === "engineer")
+  const engineers = (people ?? []).filter((p) => isEngineerOrAdmin(p))
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id}>{label}</Label>
@@ -107,6 +108,10 @@ export function SubmitForReviewDialog({
 }) {
   const { person } = useCheckIn()
   const submit = useMutation(api.documents.submitForReview)
+  // Approval rules (Settings, Documents): four-eyes and the change note.
+  const rules = useQuery(api.orgSettings.get)?.documents
+  const fourEyes = rules?.fourEyes ?? true
+  const noteRequired = isNewVersion && (rules?.requireChangeNote ?? true)
   const [reviewer, setReviewer] = useState("")
   const [approver, setApprover] = useState("")
   const [note, setNote] = useState("")
@@ -126,11 +131,11 @@ export function SubmitForReviewDialog({
     ? "Check in to submit it in your name."
     : !reviewer
       ? "Choose who reviews it."
-      : person && reviewer === person._id
+      : fourEyes && person && reviewer === person._id
         ? "You are writing it, so another Engineer must review it."
-        : approver && approver === reviewer
+        : fourEyes && approver && approver === reviewer
           ? "The reviewer and the approver must be two different Engineers."
-          : isNewVersion && !note.trim()
+          : noteRequired && !note.trim()
             ? "Write what changed and why."
             : null
 
@@ -173,13 +178,13 @@ export function SubmitForReviewDialog({
               label="Reviewer"
               value={reviewer}
               onChange={setReviewer}
-              exclude={person ? [person._id] : []}
+              exclude={fourEyes && person ? [person._id] : []}
             />
-            <EngineerPicker id="submit-approver" label="Approver" value={approver} onChange={setApprover} exclude={reviewer ? [reviewer] : []} />
+            <EngineerPicker id="submit-approver" label="Approver" value={approver} onChange={setApprover} exclude={fourEyes && reviewer ? [reviewer] : []} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="submit-note">
-              What changed and why{isNewVersion ? "" : " (optional for a first version)"}
+              What changed and why{noteRequired ? "" : isNewVersion ? " (optional)" : " (optional for a first version)"}
             </Label>
             <Textarea
               id="submit-note"
@@ -233,7 +238,7 @@ export function PublishDocumentDialog({
   onPublished?: () => void
 }) {
   const { person } = useCheckIn()
-  const engineer = person?.kind === "engineer" ? person : null
+  const engineer = isEngineerOrAdmin(person) ? person : null
   const publish = useMutation(api.documents.publish)
   const impact = useQuery(api.documents.publishImpact, open ? { id: documentId } : "skip")
   const [kind, setKind] = useState<ChangeKind | null>(null)
