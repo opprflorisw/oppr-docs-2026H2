@@ -8,7 +8,7 @@ It is built inside the existing DOCS codebase, starting from a **fresh, minimal 
 
 The UX follows the Homerun approach: usable and understandable without explanation. Navigation is shallow, settings are never nested four levels deep, and the obvious next action is always visible.
 
-The desktop has exactly six places in the left nav: **Home, Documents, Learn, Wiki, Plant and Settings**. Everything else is reached from one of them, at most one level down (Assets is a tab of Plant, Findings and Captures sit under Documents). Anything deeper opens as a panel or dialog. A new feature goes inside one of the six; it never adds a seventh (docs/adr/0006).
+The desktop has exactly six places in the left nav: **Home, Documents, Learn, Wiki, Plant and Settings**. Everything else is reached from one of them, at most one level down (Assets is a tab of Plant, Findings and Captures sit under Documents). Anything deeper opens as a panel or dialog. A new feature goes inside one of the six; it never adds a seventh (docs/adr/0006). Below the six sit two small groups that are not places: **Try it** (Floor simulator, Phone) and **Developer**, which only Engineers and Admins see. Developer holds the tools for trying out models and connections: the Embeddings lab, MCP, AI models and jobs, and the Analysis case files. Settings holds setup only, in five groups (Company, People and roles, Documents, Training, Floor) plus My preferences.
 
 ## Language
 

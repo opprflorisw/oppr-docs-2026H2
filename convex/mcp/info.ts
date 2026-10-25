@@ -1,4 +1,4 @@
-// What the MCP page shows about the endpoint: its URL and the tool catalogue
+// What the MCP page (/dev/mcp) shows about the endpoint: its URL and the tool catalogue
 // (convex/mcp/tools.ts, the one list the endpoint serves too).
 import { query } from "../_generated/server"
 import { requireUser } from "../lib/auth"
@@ -17,6 +17,8 @@ export const endpointInfo = query({
         scope: t.scope,
         description: t.description,
         readOnly: t.readOnly,
+        // For the test console on /dev/mcp/tools: it prefills the arguments.
+        inputSchema: t.inputSchema,
       })),
     }
   },

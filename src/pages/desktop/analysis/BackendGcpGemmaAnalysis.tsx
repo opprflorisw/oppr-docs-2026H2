@@ -1,9 +1,10 @@
 // Analysis page: should the backend move from Convex to Google Cloud, and can
 // we try EmbeddingGemma? Research write-up (docs/research/backend-gcp-and-gemma.md)
-// plus a live Embedding lab that works today without Google Cloud.
+// The live Embeddings lab moved to the Developer section (/dev/embeddings).
 // Status: outstanding. Nothing has been migrated or provisioned.
 
-import { CheckCircle2, CircleDashed, XCircle } from "lucide-react"
+import { Link } from "wouter"
+import { CheckCircle2, ChevronRight, CircleDashed, FlaskConical, XCircle } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import {
@@ -16,13 +17,12 @@ import {
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 import { AnalysisLayout, Section } from "./_AnalysisLayout"
-import { EmbeddingGemmaLab } from "./EmbeddingGemmaLab"
 
 export function BackendGcpGemmaAnalysis() {
   return (
     <AnalysisLayout
       title="Backend on Google Cloud and Gemma embeddings"
-      subtitle="Convex says we are over the Free plan limits. Should we move the backend to Google Cloud? Short answer: not to fix this. Our data is tiny; what runs out is the Free plan's monthly throughput, which a paid Convex plan and a few fixes solve in days. EmbeddingGemma can be tried below in the browser today, without Google Cloud; a Google Cloud project is only worth it if that test shows it beats our current search on Dutch questions."
+      subtitle="Convex says we are over the Free plan limits. Should we move the backend to Google Cloud? Short answer: not to fix this. Our data is tiny; what runs out is the Free plan's monthly throughput, which a paid Convex plan and a few fixes solve in days. EmbeddingGemma can be tried in the browser today in the Embeddings lab, without Google Cloud; a Google Cloud project is only worth it if that test shows it beats our current search on Dutch questions."
       date="2026-10-25"
       scopes={["data-model", "AI", "desktop"]}
     >
@@ -33,10 +33,23 @@ export function BackendGcpGemmaAnalysis() {
       <NeedsSection />
       <GemmaSection />
       <Section
-        title="Embedding lab"
-        description="Try EmbeddingGemma on our own Published passages and compare it with the search we use in production. Works without Google Cloud."
+        title="Embeddings lab"
+        description="Try EmbeddingGemma on our own Published passages and photos and compare it with the search we use in production. Works without Google Cloud."
       >
-        <EmbeddingGemmaLab />
+        <Link
+          href="/dev/embeddings"
+          className="group flex items-start gap-3 rounded-lg border border-violet-500/30 bg-card p-4 transition-colors hover:bg-muted/30"
+        >
+          <FlaskConical className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" aria-hidden />
+          <span className="min-w-0 flex-1 space-y-0.5">
+            <span className="block text-sm font-semibold">Open the Embeddings lab (Developer)</span>
+            <span className="block text-xs text-muted-foreground">
+              Compare text search, search the image library by words or a photo with the multimodal model, score a Dutch
+              and English test set (hit@1, hit@5, MRR), and see what is loaded and cached.
+            </span>
+          </span>
+          <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground group-hover:text-foreground" aria-hidden />
+        </Link>
       </Section>
       <OpenQuestions />
       <SourcesSection />
@@ -76,7 +89,7 @@ function OutcomeCard() {
             work to fix a problem that costs around $25 a month.
           </li>
           <li>
-            <strong>Google Cloud for AI, later:</strong> test EmbeddingGemma in the browser lab below
+            <strong>Google Cloud for AI, later:</strong> test EmbeddingGemma in the browser, in the Embeddings lab
             first (GPU route in desktop Chrome or Edge), then score it on Dutch questions. Only if it
             wins is a Google Cloud project worth setting up, starting with a small CPU-only Cloud Run
             service.
@@ -207,7 +220,7 @@ const OPTIONS = [
     name: "D. Hybrid: keep Convex, run AI workloads on Google Cloud",
     effort: "1 to 3 days for a project, billing and a service account",
     cost: "A few dollars a month at experiment volume (CPU service, scale to zero)",
-    risk: "Needs a Google Cloud project, billing and a service account key in Convex env. Not needed yet: the browser lab runs EmbeddingGemma without it.",
+    risk: "Needs a Google Cloud project, billing and a service account key in Convex env. Not needed yet: the Embeddings lab runs EmbeddingGemma in the browser without it.",
     verdict: "Later, only if the lab and a Dutch test show EmbeddingGemma is worth hosting",
     tone: "maybe" as const,
   },
@@ -305,8 +318,8 @@ const PHASES = [
     when: "When a Google Cloud project exists",
     title: "AI experiments on Google Cloud (option D)",
     items: [
-      "Only after the browser lab (GPU route) and a Dutch test show EmbeddingGemma is worth it.",
-      "Start with a small CPU-only Cloud Run service (the 270M text model does not need a GPU at our volume); an L4 GPU only for bulk re-embedding.",
+      "Only after the Embeddings lab (GPU route) and its Dutch test set show EmbeddingGemma is worth it.",
+      "Start with a small CPU-only Cloud Run service (Ollama embeddinggemma-2, or sentence-transformers 6.1+ in bf16 or fp32), text and images; an L4 GPU only for bulk re-embedding.",
       "Optional time-boxed spike: self-hosted Convex on a VM + Cloud SQL in europe-west4, as a fallback (option B).",
     ],
   },
@@ -363,19 +376,19 @@ function NeedsSection() {
 
 const RUN_OPTIONS = [
   { name: "Gemini API key (what we have)", today: "no", text: "Not served. Our key lists gemini-embedding-001, gemini-embedding-2 and Gemma 4 chat models, but no EmbeddingGemma." },
-  { name: "In the browser (transformers.js + WebGPU)", today: "yes", text: "Works today with no Google project: the lab below. Tested 2026-10-25: v1 on CPU (wasm, q8) loads and embeds 300 passages (about 0.8 s each). v2 needs WebGPU (its quantized files do not run on wasm); WebGPU could not be tested in headless Chrome here. Desktop only." },
+  { name: "In the browser (transformers.js + WebGPU)", today: "yes", text: "Works today with no Google project: the Embeddings lab in Developer. Tested 2026-10-25: v1 on CPU (wasm, q8) loads and embeds 300 passages (about 0.8 s each). v2 needs WebGPU for text and images alike (its quantized files do not run on wasm); the lab loads the text encoder alone (175 MB) or text plus vision (about 284 MB) to search photos. Desktop only." },
   { name: "Cloud Run, CPU only (first choice on GCP)", today: "later", text: "Cheapest server test for the 270M text model (Ollama or sentence-transformers in a small container), scales to zero. Slower on bulk re-embedding. Needs a GCP project." },
   { name: "Cloud Run with an L4 GPU", today: "later", text: "Google codelab exists. L4 in europe-west1 and europe-west4; new projects get 3 GPUs of quota with zonal redundancy off. Instance-based billing, at least 4 CPU and 16 GiB, GPU billed for the whole instance life. Scale to zero removes idle cost, but every cold start bills about 5 s of start plus model load (likely tens of seconds), too slow for interactive search. One warm instance is billed full time. Hourly price not verified (pricing page did not load)." },
   { name: "Model Garden (Google Cloud)", today: "no", text: "Google's launch post says EmbeddingGemma 2 is 'coming soon' to Model Garden; no listing found on 2026-10-25." },
-  { name: "Ollama, llama.cpp or vLLM on a laptop or VM", today: "yes", text: "Google lists these routes. Ollama on a developer laptop is the quickest local test outside the browser; no Google project needed." },
-  { name: "Hugging Face Inference", today: "partly", text: "v1 (300M, text only) is on serverless today; v2 is not. Another vendor; data may leave the EU." },
+  { name: "Ollama, llama.cpp or vLLM on a laptop or VM", today: "yes", text: "Google lists these routes. Ollama embeddinggemma-2 (the :latest, :740m and :440m tags list Text and Image) on a developer laptop is the quickest local test outside the browser; llama.cpp needs the GGUF with its mmproj file for images. No Google project needed." },
+  { name: "Hugging Face Inference", today: "partly", text: "v1 (300M, text only) is on serverless today; v2 (multimodal) is not. Another vendor; data may leave the EU." },
 ]
 
 function GemmaSection() {
   return (
     <Section
       title="Gemma embeddings: what it is and how to run it"
-      description="We assume 'gemma2 embedding' means EmbeddingGemma 2, released this month. It could also mean the original EmbeddingGemma (300M); the lab can run both."
+      description="We assume 'gemma2 embedding' means EmbeddingGemma 2, released this month. It could also mean the original EmbeddingGemma (300M); the Embeddings lab can run both."
     >
       <div className="grid gap-3 md:grid-cols-2">
         <Card>
@@ -396,7 +409,7 @@ function GemmaSection() {
               <li>Not available through our Gemini API key (checked against the live model list), and not yet on Google Cloud Model Garden.</li>
               <li>The original EmbeddingGemma (300M) is text only, 2K context and under the Gemma licence. Our production model, gemini-embedding-2, is already multimodal (we embed photos with it).</li>
               <li>Not compatible with our stored vectors. Both are 768 dims, but the spaces differ: Gemma vectors need their own field and index and must never be mixed into the existing ones.</li>
-              <li>Dutch is not named in its language list. Quality on our Dutch plant documents has to be tested; that is what the lab is for.</li>
+              <li>Dutch is not named in its language list. Quality on our Dutch plant documents has to be tested; that is what the lab's test set is for.</li>
             </ul>
           </CardContent>
         </Card>

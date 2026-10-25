@@ -33,6 +33,11 @@ export type ImageHit = {
 const MIN_VECTOR_SCORE = 0.3
 const CONTEXT_BOOST = 0.05
 const TEXT_BOOST = 0.15
+// Vector scores shift a lot per query (a good "company logo" hit scores 0.35,
+// a weak "extruder" hit 0.57), so weak matches are cut relative to the best
+// hit instead of by one fixed number. Hits whose caption or tags contain every
+// search word always stay.
+const MAX_GAP_FROM_BEST = 0.12
 
 export const search = action({
   args: {
@@ -123,21 +128,26 @@ export const rank = internalQuery({
   },
   handler: async (ctx, args): Promise<ImageHit[]> => {
     const ws = words(args.query)
-    const scored = new Map<string, { r: Doc<"images">; score: number; matchedBy: ImageHit["matchedBy"] }>()
+    const scored = new Map<
+      string,
+      { r: Doc<"images">; score: number; matchedBy: ImageHit["matchedBy"]; mentionsAllWords: boolean }
+    >()
     for (const h of args.vectorHits) {
       const r = await ctx.db.get(h.id)
       if (!r) continue
+      const t = textScore(r, ws)
       scored.set(r._id, {
         r,
-        score: h.score + TEXT_BOOST * textScore(r, ws),
+        score: h.score + TEXT_BOOST * t,
         matchedBy: r.embedSource === "caption" ? "caption" : "image",
+        mentionsAllWords: t === 1,
       })
     }
     if (ws.length > 0) {
       for await (const r of ctx.db.query("images").order("desc")) {
         if (scored.has(r._id)) continue
         const t = textScore(r, ws)
-        if (t > 0) scored.set(r._id, { r, score: 0.2 + TEXT_BOOST * t, matchedBy: "text" })
+        if (t > 0) scored.set(r._id, { r, score: 0.2 + TEXT_BOOST * t, matchedBy: "text", mentionsAllWords: t === 1 })
       }
     }
     const hits = Array.from(scored.values()).map((s) => ({
@@ -145,7 +155,9 @@ export const rank = internalQuery({
       score: s.score + (inContext(s.r, args) ? CONTEXT_BOOST : 0),
     }))
     hits.sort((a, b) => b.score - a.score)
-    return await Promise.all(hits.slice(0, args.limit).map((h) => toHit(ctx, h.r, h.score, h.matchedBy)))
+    const floor = (hits[0]?.score ?? 0) - MAX_GAP_FROM_BEST
+    const kept = hits.filter((h) => h.mentionsAllWords || h.score >= floor)
+    return await Promise.all(kept.slice(0, args.limit).map((h) => toHit(ctx, h.r, h.score, h.matchedBy)))
   },
 })
 

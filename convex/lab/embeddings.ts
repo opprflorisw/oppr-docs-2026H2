@@ -1,4 +1,4 @@
-// Embedding lab (analysis page /analysis/backend-gcp-and-gemma).
+// Embeddings lab (/dev/embeddings, Developer section).
 //
 // Read-only helpers for the in-browser EmbeddingGemma experiment:
 //   sample        a spread of up to 300 Published passages for the browser to embed

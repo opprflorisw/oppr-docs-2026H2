@@ -1,9 +1,8 @@
-import { ReactNode } from "react"
+import type { ComponentType, ReactNode } from "react"
 import { Link, useLocation } from "wouter"
 import {
   BookOpenText,
   Factory,
-  FileText,
   GraduationCap,
   Home,
   Library,
@@ -11,6 +10,7 @@ import {
   Search,
   Settings,
   Smartphone,
+  type LucideProps,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { AskDock, useAskFoldsSidebar } from "@/components/ai/AskDock"
@@ -22,6 +22,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useCheckInReady } from "@/components/people/CheckInChip"
+import { DEV_HOME, DEV_TOOLS, useIsDeveloper } from "@/components/dev/devTools"
 import { setPhoneMode } from "@/components/phone/phoneStore"
 import { CommandSearch, openCommandSearch } from "./CommandSearch"
 import { useIsWide } from "./PageHeader"
@@ -29,7 +30,7 @@ import { useIsWide } from "./PageHeader"
 type NavItem = {
   label: string
   to: string
-  icon: typeof FileText
+  icon: ComponentType<LucideProps>
   match: (path: string) => boolean
 }
 
@@ -73,10 +74,22 @@ const SETTINGS: NavItem = {
   match: (p) =>
     p === "/settings" ||
     p.startsWith("/settings/") ||
-    p.startsWith("/templates") ||
-    p.startsWith("/mcp") ||
-    p.startsWith("/analysis"),
+    p.startsWith("/templates"),
 }
+
+// Developer: a small group for Engineers and Admins, not a seventh place.
+// Analysis case files keep their /analysis/:slug addresses.
+const DEVELOPER: NavItem[] = [DEV_HOME, ...DEV_TOOLS].map((t) => ({
+  label: t.label,
+  to: t.href,
+  icon: t.icon,
+  match:
+    t.href === "/dev"
+      ? (p: string) => p === "/dev"
+      : t.href === "/dev/analysis"
+        ? (p: string) => p.startsWith("/dev/analysis") || p.startsWith("/analysis")
+        : (p: string) => p === t.href || p.startsWith(`${t.href}/`),
+}))
 
 const FLOOR: NavItem = {
   label: "Floor simulator",
@@ -240,6 +253,8 @@ export function DesktopShell({
               </button>
             </RailTip>
           </div>
+
+          {!loading && <DeveloperGroup location={location} rail={rail} />}
         </aside>
 
         <main
@@ -253,6 +268,23 @@ export function DesktopShell({
         {!loading && <CommandSearch />}
       </div>
     </TooltipProvider>
+  )
+}
+
+/** The Developer group: Engineers and Admins only (it reads the check-in). */
+function DeveloperGroup({ location, rail }: { location: string; rail: boolean }) {
+  if (!useIsDeveloper()) return null
+  return (
+    <div
+      role="group"
+      aria-label="Developer"
+      className={cn("w-full space-y-1 border-t border-sidebar-border py-3", rail ? "flex flex-col items-center" : "px-3")}
+    >
+      {!rail && <p className="px-3 pb-1 text-xs font-medium text-sidebar-foreground/50">Developer</p>}
+      {DEVELOPER.map((item) => (
+        <NavLink key={item.to} item={item} location={location} rail={rail} />
+      ))}
+    </div>
   )
 }
 

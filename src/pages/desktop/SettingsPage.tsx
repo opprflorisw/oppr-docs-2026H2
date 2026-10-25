@@ -14,7 +14,6 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Smartphone,
-  Sparkles,
   Users,
 } from "lucide-react"
 import { TemplatesList } from "./TemplatesPage"
@@ -27,18 +26,18 @@ import { CompanySettings } from "@/components/settings/CompanySettings"
 import { DocumentRulesSettings } from "@/components/settings/DocumentRulesSettings"
 import { TrainingDefaultsSettings } from "@/components/settings/TrainingDefaultsSettings"
 import { FloorSettings } from "@/components/settings/FloorSettings"
-import { ConnectionsSettings } from "@/components/settings/ConnectionsSettings"
 import { MyPreferences } from "@/components/settings/MyPreferences"
 import { EditorOnly } from "@/components/settings/SettingsBits"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { cn } from "@/lib/utils"
 
-// Settings holds setup only: six groups, each holding one kind of option, and
+// Settings holds setup only: five groups, each holding one kind of option, and
 // My preferences for this device below them. The section lives in ?tab= so
 // other pages can link straight to it (?tab=templates). Places with their own
-// page (Images under Documents, Assets under Plant, MCP, ISO 9001) are not
-// listed; their old ?tab= links still open them.
+// page (Images under Documents, Assets under Plant, ISO 9001, and MCP and the
+// AI models and jobs in the Developer section) are not listed; their old
+// ?tab= links still open them.
 
 type Section = {
   value: string
@@ -143,17 +142,6 @@ const GROUPS: { label: string; sections: Section[] }[] = [
       },
     ],
   },
-  {
-    label: "AI and connections",
-    sections: [
-      {
-        value: "ai",
-        label: "AI and schedules",
-        icon: Sparkles,
-        lead: "Which models do what, the search index, what runs by itself, and notifications.",
-      },
-    ],
-  },
 ]
 
 const PREFERENCES: Section = {
@@ -174,7 +162,19 @@ const LINK_OUT: Record<string, string> = {
   iso: "/iso-9001",
   assets: "/plant/assets",
   plant: "/plant",
-  mcp: "/mcp",
+  mcp: "/dev/mcp",
+  // AI and connections moved to the Developer section.
+  ai: "/dev/ai",
+  "ai-and-connections": "/dev/ai",
+  "ai-and-schedules": "/dev/ai",
+  connections: "/dev/ai",
+  models: "/dev/ai",
+  embeddings: "/dev/embeddings",
+  "search-index": "/dev/ai/index",
+  schedules: "/dev/ai/schedules",
+  notifications: "/dev/ai/schedules",
+  usage: "/dev/ai/usage",
+  analysis: "/dev/analysis",
   // Skills, profiles and level names live in the Skills workspace in Learn.
   skills: "/learn/skills",
   "skill-profiles": "/learn/skills/profiles",
@@ -209,11 +209,6 @@ const ALIASES: Record<string, string> = {
   phone: "floor",
   captures: "floor",
   "check-in": "floor",
-  connections: "ai",
-  embeddings: "ai",
-  schedules: "ai",
-  notifications: "ai",
-  models: "ai",
 }
 
 const compact = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "")
@@ -371,8 +366,6 @@ function SectionBody({ value }: { value: string }) {
       return <TrainingDefaultsSettings />
     case "floor":
       return <FloorSettings />
-    case "ai":
-      return <ConnectionsSettings />
     case "preferences":
       return <MyPreferences />
     default:

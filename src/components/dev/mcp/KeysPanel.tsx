@@ -3,9 +3,9 @@ import { useMutation, useQuery } from "convex/react"
 import { Link } from "wouter"
 import { toast } from "sonner"
 import { AlertTriangle, Check, Copy, KeyRound, Loader2, Plus, ScrollText, XCircle } from "lucide-react"
-import { api } from "../../../convex/_generated/api"
+import { api } from "../../../../convex/_generated/api"
 import { formatDate, formatDateTime } from "@/lib/time"
-import type { Id } from "../../../convex/_generated/dataModel"
+import type { Id } from "../../../../convex/_generated/dataModel"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -62,7 +62,7 @@ function time(ts: number): string {
   return formatDateTime(ts)
 }
 
-/** MCP keys: list, make (Engineer check-in), revoke. Used on /mcp and in Settings. */
+/** MCP keys: list, make (Engineer check-in), revoke. The Keys tab of /dev/mcp. */
 export function KeysPanel() {
   const keys = useQuery(api.mcp.keys.listKeys)
   const { person } = useCheckIn()

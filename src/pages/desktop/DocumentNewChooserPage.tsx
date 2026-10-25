@@ -9,6 +9,7 @@ import { WrapManualDialog } from "@/components/manuals/WrapManualDialog"
 import { useQuery } from "convex/react"
 import { BookLock, Cable, FileText, LayoutTemplate, MessageSquareText, PlusCircle, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useIsDeveloper } from "@/components/dev/devTools"
 import {
   Card,
   CardContent,
@@ -39,6 +40,8 @@ export function NewDocumentChooserDialog({
   const [, setLocation] = useLocation()
   const templates = useQuery(api.templates.list, open ? {} : "skip")
   const [wrapOpen, setWrapOpen] = useState(false)
+  // MCP lives in the Developer section, which only Engineers and Admins see.
+  const developer = useIsDeveloper()
   const navigate = (to: string) => {
     onOpenChange(false)
     setLocation(to)
@@ -105,17 +108,19 @@ export function NewDocumentChooserDialog({
           </div>
         </section>
 
-        <button
-          type="button"
-          onClick={() => navigate("/mcp")}
-          className="flex w-full items-center gap-2 rounded-md border border-dashed px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <Cable className="h-3.5 w-3.5 shrink-0 text-primary" />
-          <span>
-            <span className="font-medium text-foreground">Bring documents in with your own AI.</span>{" "}
-            Many files at once? Let your company's assistant prepare them over MCP.
-          </span>
-        </button>
+        {developer && (
+          <button
+            type="button"
+            onClick={() => navigate("/dev/mcp")}
+            className="flex w-full items-center gap-2 rounded-md border border-dashed px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Cable className="h-3.5 w-3.5 shrink-0 text-primary" />
+            <span>
+              <span className="font-medium text-foreground">Bring documents in with your own AI.</span>{" "}
+              Many files at once? Let your company's assistant prepare them over MCP.
+            </span>
+          </button>
+        )}
 
         <div className="space-y-3">
           <div id="chooser-templates" className="flex items-center gap-2">

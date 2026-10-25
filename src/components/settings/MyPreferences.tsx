@@ -3,7 +3,6 @@ import { useQuery } from "convex/react"
 import { useAuthActions } from "@convex-dev/auth/react"
 import { toast } from "sonner"
 import { LogOut } from "lucide-react"
-import { Link } from "wouter"
 import { api } from "../../../convex/_generated/api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -177,13 +176,7 @@ export function MyPreferences() {
         </CardContent>
       </Card>
 
-      <p className="text-xs text-muted-foreground">
-        Oppr Knowledge, internal showcase. Build notes (team only) live under{" "}
-        <Link href="/analysis" className="underline underline-offset-2">
-          analysis pages
-        </Link>
-        .
-      </p>
+      <p className="text-xs text-muted-foreground">Oppr Knowledge, internal showcase.</p>
     </div>
   )
 }

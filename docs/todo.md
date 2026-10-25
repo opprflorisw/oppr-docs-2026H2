@@ -33,11 +33,11 @@ Context: `/analysis/backend-gcp-and-gemma` and `docs/research/backend-gcp-and-ge
 - [ ] Optional, time-boxed: self-hosted Convex on a GCE VM + Cloud SQL Postgres 17 in europe-west4; test GCS via the S3 API for file storage; load test with about 50 subscriptions.
 
 ### EmbeddingGemma
-- [ ] Try the lab's GPU (WebGPU) route in a normal desktop Chrome or Edge: EmbeddingGemma 2 only runs there (its quantized files fail on wasm); headless Chromium could not create a WebGPU device, so this is untested.
-- [ ] Use the in-browser Embedding lab to compare EmbeddingGemma 2 with gemini-embedding-2 on Dutch and English plant queries (768/512/256/128).
-- [ ] Write a small Dutch retrieval eval (query, expected passage) over Published passages and score both models.
+- [ ] Try the lab's GPU (WebGPU) route in a normal desktop Chrome or Edge with a real GPU: text and image embedding are verified on a software (SwiftShader) adapter only, far too slow to embed the library there (about 8 minutes per image).
+- [ ] Use the Embeddings lab (`/dev/embeddings`) to compare EmbeddingGemma 2 with gemini-embedding-2 on Dutch and English plant queries (768/512/256/128), and on image search by words and by photo (Images tab).
+- [ ] Grow the lab's Test set (16 questions now, document level) into a proper Dutch retrieval eval and score both models.
 - [ ] Optional local server test without GCP: Ollama (or llama.cpp / vLLM) on a developer laptop.
-- [ ] If worth pursuing: a small CPU-only Cloud Run service (Ollama embeddinggemma-2 or sentence-transformers, text only) in europe-west4, scale to zero, called from a Convex action with a service account.
+- [ ] If worth pursuing: a small CPU-only Cloud Run service (Ollama embeddinggemma-2 or sentence-transformers 6.1+ in bf16/fp32; text, and images if photo search moves to it) in europe-west4, scale to zero, called from a Convex action with a service account.
 - [ ] Only for bulk re-embedding or if CPU latency is too high: Cloud Run with an L4 GPU. Check the L4 price on cloud.google.com/run/pricing first (zonal redundancy off is cheaper; the GPU is billed for the whole instance life; cold starts bill model load time).
 - [ ] Recheck Google Cloud Model Garden for an EmbeddingGemma 2 listing ("coming soon" per the launch post).
 - [ ] Re-measure the cold (first) model download in the lab; the last check ran with a warm browser cache.

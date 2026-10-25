@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from "react"
 import { useAction, useMutation, useQuery } from "convex/react"
+import { Link } from "wouter"
 import { toast } from "sonner"
-import { BellOff, Cable, CalendarClock, Loader2, RefreshCw } from "lucide-react"
-import { api } from "../../../convex/_generated/api"
+import { ArrowUpRight, BellOff, CalendarClock, Gauge, Loader2, Microscope, RefreshCw } from "lucide-react"
+import { api } from "../../../../convex/_generated/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -19,66 +20,65 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatDateTime } from "@/lib/time"
 import { cn } from "@/lib/utils"
-import { errorText, LinkCard, useSettingsEditor } from "./SettingsBits"
+import { errorText, useSettingsEditor } from "@/components/settings/SettingsBits"
 
-// Settings, AI and connections: read-only, what runs. Which models do what,
-// whether search is up to date, the MCP door, the schedules and
-// notifications.
-export function ConnectionsSettings() {
+// AI models and jobs (/dev/ai), formerly Settings "AI and connections":
+// which models do what, whether search is up to date, what runs by itself,
+// and where usage shows. The index buttons need an Engineer or Admin check-in
+// (the server checks it too).
+
+/** Which model does what. Keys stay on the server. */
+export function ModelsCard() {
   const overview = useQuery(api.settings.connections.overview)
-
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">AI models</CardTitle>
-          <CardDescription className="text-sm">
-            AI prepares, people publish: no model publishes or approves anything. Keys stay on the server.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {!overview ? (
-            <Skeleton className="h-40 w-full" />
-          ) : (
-            <ul className="divide-y" data-testid="settings-models">
-              {overview.models.map((m) => (
-                <li key={m.use} className="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[12rem_minmax(0,1fr)] sm:gap-4">
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-medium">{m.use}</p>
-                    {!m.ready && (
-                      <Badge variant="outline" className="border-amber-500/50 text-amber-800 dark:text-amber-200">
-                        No key set
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="min-w-0 space-y-0.5">
-                    <p className="font-mono text-xs">{m.model}</p>
-                    <p className="text-xs text-muted-foreground">{m.what}</p>
-                    {m.note && <p className="text-xs text-muted-foreground">{m.note}</p>}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm">AI models</CardTitle>
+        <CardDescription className="text-sm">
+          AI prepares, people publish: no model publishes or approves anything. Keys stay on the server.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {!overview ? (
+          <Skeleton className="h-40 w-full" />
+        ) : (
+          <ul className="divide-y" data-testid="settings-models">
+            {overview.models.map((m) => (
+              <li key={m.use} className="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[12rem_minmax(0,1fr)] sm:gap-4">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-medium">{m.use}</p>
+                  {!m.ready && (
+                    <Badge variant="outline" className="border-amber-500/50 text-amber-800 dark:text-amber-200">
+                      No key set
+                    </Badge>
+                  )}
+                </div>
+                <div className="min-w-0 space-y-0.5">
+                  <p className="font-mono text-xs">{m.model}</p>
+                  <p className="text-xs text-muted-foreground">{m.what}</p>
+                  {m.note && <p className="text-xs text-muted-foreground">{m.note}</p>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
 
-      <SearchIndexCard />
-
-      <LinkCard
-        href="/mcp"
-        icon={Cable}
-        title="MCP keys"
-        text="Connect the AI your company already uses. Keys, access levels and the call log are on the MCP page."
-      />
-
+/** What runs by itself, and the notifications that are not sent yet. */
+export function SchedulesCard() {
+  const overview = useQuery(api.settings.connections.overview)
+  return (
+    <>
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-sm">
             <CalendarClock className="h-4 w-4 text-muted-foreground" aria-hidden />
             Schedules
           </CardTitle>
-          <CardDescription className="text-sm">What runs by itself. Times are in UTC.</CardDescription>
+          <CardDescription className="text-sm">What runs by itself (Convex crons). Times are in UTC.</CardDescription>
         </CardHeader>
         <CardContent>
           {!overview ? (
@@ -114,11 +114,79 @@ export function ConnectionsSettings() {
           </p>
         </CardContent>
       </Card>
+    </>
+  )
+}
+
+// The deployment name is the first part of the Convex URL.
+const DEPLOYMENT = /^https:\/\/([^.]+)\./.exec(import.meta.env.VITE_CONVEX_URL ?? "")?.[1] ?? null
+
+/** Where usage shows, and what the Free plan finding was. */
+export function UsageHints() {
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Gauge className="h-4 w-4 text-muted-foreground" aria-hidden />
+            Where usage shows
+          </CardTitle>
+          <CardDescription className="text-sm">
+            Function calls, database reads, storage and bandwidth are counted by Convex, per team and per billing month.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          {DEPLOYMENT && (
+            <a
+              href={`https://dashboard.convex.dev/d/${DEPLOYMENT}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 text-primary underline-offset-2 hover:underline"
+            >
+              Open {DEPLOYMENT} in the Convex dashboard <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+            </a>
+          )}
+          <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+            <li>Team usage: in the dashboard, open the team menu, then Usage. It breaks calls and reads down by function.</li>
+            <li>Per deployment: the Logs and Functions pages show which functions run most and which fail.</li>
+            <li>From a terminal: npx convex logs, and npx convex insights for the heaviest readers.</li>
+          </ul>
+        </CardContent>
+      </Card>
+
+      <Card className="border-amber-500/40 bg-amber-500/5">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm">The Free plan finding (2026-10-25)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <ul className="list-disc space-y-1 pl-5 text-xs leading-relaxed">
+            <li>
+              The limit we hit is throughput, not size: the Free plan allows 1M function calls and 1 GB of database
+              reads a month, while the whole database is a few tens of MB.
+            </li>
+            <li>
+              Most of it is development: agent test logins, reseeds, background jobs, and queries that read the inline
+              768-number embeddings they do not need (image search ranking reads about 215 KB per call).
+            </li>
+            <li>
+              The fix is a paid Convex plan plus cutting that waste, not a move to Google Cloud. Moving embeddings into
+              their own tables is likely the biggest single saving.
+            </li>
+          </ul>
+          <Link
+            href="/analysis/backend-gcp-and-gemma"
+            className="inline-flex items-center gap-1.5 text-xs text-primary underline-offset-2 hover:underline"
+          >
+            <Microscope className="h-3.5 w-3.5" aria-hidden /> Read the case file
+          </Link>
+        </CardContent>
+      </Card>
     </div>
   )
 }
 
-function SearchIndexCard() {
+/** Passages and images indexed for search, with the Engineer-only rebuild buttons. */
+export function SearchIndexCard() {
   const chunks = useQuery(api.ai.embed.embedStatus)
   const images = useQuery(api.ai.imageEmbed.embedStatus)
   const embedMissing = useAction(api.ai.embed.embedMissing)

@@ -25,6 +25,7 @@ import { Dialog, DialogContent, DialogDescription } from "@/components/ui/dialog
 import { Skeleton } from "@/components/ui/skeleton"
 import { openAsk } from "@/components/ai/AskDock"
 import { STATUS_LABELS } from "@/components/docs/StatusBadge"
+import { DEV_HOME, DEV_TOOLS, useIsDeveloper, type DevTool } from "@/components/dev/devTools"
 import { api } from "../../../convex/_generated/api"
 
 // Plant items open on the tab that holds their kind (docs/adr/0006).
@@ -49,6 +50,15 @@ const PLANT_KIND_LABEL: Record<string, string> = {
   role: "Role",
   team: "Team",
   term: "Glossary",
+}
+
+// Developer pages (Engineers and Admins only), with the words that find them.
+const DEV_WORDS: Record<string, string> = {
+  "/dev": "developer tools lab",
+  "/dev/embeddings": "embeddings embedding gemma embeddinggemma webgpu vector multimodal image search test set",
+  "/dev/mcp": "mcp keys api tools console connect assistant audit activity",
+  "/dev/ai": "ai models jobs search index re-embed schedules crons usage convex",
+  "/dev/analysis": "analysis case files investigations",
 }
 
 // Global search (Ctrl+K). One field finds Documents, Assets, Trainings, Wikis
@@ -137,6 +147,7 @@ function Results({
   const wikis = useQuery(api.wikis.list, {})
   const people = useQuery(api.people.list, {})
   const plant = useQuery(api.plant.plant.searchIndex, {})
+  const developer = useIsDeveloper()
   const loading =
     docs === undefined ||
     assets === undefined ||
@@ -176,6 +187,13 @@ function Results({
           <PlaceItem label="Glossary" icon={Factory} onSelect={() => go("/plant/glossary")} />
           <PlaceItem label="ISO 9001" icon={BadgeCheck} onSelect={() => go("/iso-9001")} />
         </CommandGroup>
+        {developer && (
+          <CommandGroup heading="Developer">
+            {[DEV_HOME, ...DEV_TOOLS].map((t) => (
+              <DevItem key={t.href} tool={t} go={go} />
+            ))}
+          </CommandGroup>
+        )}
         <p className="px-4 pb-3 pt-1 text-xs text-muted-foreground">
           Type a code like EXL-201 or EXT-OPS-SOP-0001, a title or a name.
         </p>
@@ -187,8 +205,15 @@ function Results({
   const skillsMatch =
     q.length >= 3 && matches(q, "skills workspace", "skill profiles", "skill levels", "coverage questions", "iluo")
 
+  const devMatches = developer
+    ? [DEV_HOME, ...DEV_TOOLS].filter(
+        (t) => q.length >= 2 && matches(q, t.label, t.href === "/dev" ? "Developer" : null, DEV_WORDS[t.href]),
+      )
+    : []
+
   const total = found
-    ? (isoMatch ? 1 : 0) +
+    ? devMatches.length +
+      (isoMatch ? 1 : 0) +
       (skillsMatch ? 1 : 0) +
       found.docs.length +
       found.assets.length +
@@ -210,6 +235,13 @@ function Results({
         <CommandEmpty className="py-4 text-center text-sm text-muted-foreground">
           Nothing matches "{query.trim()}". Ask it instead.
         </CommandEmpty>
+      )}
+      {devMatches.length > 0 && (
+        <CommandGroup heading="Developer">
+          {devMatches.map((t) => (
+            <DevItem key={t.href} tool={t} go={go} />
+          ))}
+        </CommandGroup>
       )}
       {skillsMatch && (
         <CommandGroup heading="Pages">
@@ -361,6 +393,19 @@ function PlaceItem({
     <CommandItem value={`place-${label}`} onSelect={onSelect}>
       <Icon className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
       {label}
+    </CommandItem>
+  )
+}
+
+function DevItem({ tool, go }: { tool: DevTool; go: (path: string) => void }) {
+  const Icon = tool.icon
+  return (
+    <CommandItem value={`dev-${tool.href}`} onSelect={() => go(tool.href)}>
+      <Icon className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+      <span className="truncate">{tool.href === "/dev" ? "Developer" : tool.label}</span>
+      <span className="ml-auto shrink-0 truncate pl-2 text-xs text-muted-foreground">
+        {tool.href === "/dev" ? "All developer tools" : "Developer"}
+      </span>
     </CommandItem>
   )
 }

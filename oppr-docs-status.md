@@ -82,7 +82,7 @@ Three visible surfaces:
 - `logs` table now has an optional `code` (placeholders `AMS-OPS-LOG-0001`..`0005` seeded). Write defensively — older rows may lack it.
 
 ### AI / RAG (server-side)
-- `convex/ai/embed.ts` — embeddings written onto `chunks.embedding` (768-dim Convex `vectorIndex`, filterable by `documentId`), idempotent on `chunkId + modelVersion`, auto-scheduled on publish; `embedStatus` drives the Settings AI panel; `embedMissing` / `reembedAll` actions.
+- `convex/ai/embed.ts` — embeddings written onto `chunks.embedding` (768-dim Convex `vectorIndex`, filterable by `documentId`), idempotent on `chunkId + modelVersion`, auto-scheduled on publish; `embedStatus` drives the Search index tab of Developer, AI models and jobs; `embedMissing` / `reembedAll` actions.
 - `convex/ai/ask.ts` — `askStream` HTTP action (NDJSON streaming) registered in `convex/http.ts` at `/ai/askStream` (browser hits `VITE_CONVEX_SITE_URL`). The non-streaming `askQuestion` action was removed (no callers).
 - Scopes: doc / asset / library. Q&A persists per-user in `qaSessions` + `qaMessages` with typed citations.
 - Chat UI: `AskPanel` inside `AskDock`, one side panel docked on the right (pushes the page, resizable, follows the page scope; overlay below 1024px free width); markdown rendering, citation pills, `SourcesBlock`, `RelatedRail`, `ScopeChip`, starter prompts, copy/regenerate/stop. Mobile parity via `/m/ask`.
@@ -221,9 +221,14 @@ Schema source of truth: `convex/schema.ts` (plus `authTables` from `@convex-dev/
 | `/templates/new`, `/templates/:id/edit` | TemplateEditPage | Template editor |
 | `/images` | ImageLibraryPage | Flat / by-document / diagrams views |
 | `/import`, `/import/:jobId` | ImportPage | Importer pipeline |
-| `/settings` | SettingsPage | AI status, embed/re-embed, theme |
+| `/settings` | SettingsPage | Setup in five groups plus My preferences (`?tab=`); `?tab=ai` and `?tab=mcp` redirect to the Developer section |
 | `/settings/naming` | NamingSettingsPage | Locations + disciplines vocabulary |
-| `/analysis`, `/analysis/:slug` | Analysis pages | Case files for bugs/UX deep-dives |
+| `/dev` | DevHomePage | Developer section home (Engineers and Admins only; others see a notice) |
+| `/dev/embeddings/:tab?` | EmbeddingsLabPage | Embeddings lab: compare, images (multimodal, WebGPU), test set, models |
+| `/dev/mcp/:tab?` | DevMcpPage | MCP: overview and connection, keys, tools and test console, activity (`/mcp` redirects) |
+| `/dev/ai/:tab?` | DevAiPage | AI models and jobs: models, search index, schedules, usage |
+| `/dev/analysis` | DevAnalysisPage | All case files, newest first (`/analysis` redirects) |
+| `/analysis/:slug` | Analysis pages | Case files for bugs/UX deep-dives (Developer only) |
 
 ### Mobile (popup window)
 | Path | Component |
@@ -239,7 +244,7 @@ Schema source of truth: `convex/schema.ts` (plus `authTables` from `@convex-dev/
 ## AI / RAG flow
 
 1. **Chunking** — client-side (`src/components/docs/chunking.ts`): `chunksFromTipTap` (per paragraph/list item/heading, section-labelled) or `chunksFromPdfPages`. Chunks passed into create/save mutations and reconciled per version.
-2. **Embedding** — `gemini-embedding-2` at 768 dims, server-side, idempotent on `chunkId + modelVersion`. Auto-scheduled on publish; manual `embedMissing` / `reembedAll` from Settings.
+2. **Embedding** — `gemini-embedding-2` at 768 dims, server-side, idempotent on `chunkId + modelVersion`. Auto-scheduled on publish; manual `embedMissing` / `reembedAll` from Developer, AI models and jobs, Search index.
 3. **Retrieval** — Convex `vectorSearch` on `chunks.by_embedding`. Doc scope filters by `documentId`; **asset scope resolves linked documents from `documentAssets` first and filters the search to them** (`q.or(eq(documentId,…))`, capped 64) with a flagged library-wide fallback when they don't fill `k`; library is unfiltered. `lookupAfterSearch` then keeps only the served version (live, or working for never-published) and drops archived docs for asset/library scope.
 4. **Generation** — `gemini-3.1-flash-lite` via the `askStream` HTTP action (NDJSON streaming) — the only chat path. Citations carry `origin` (`asset-link` / `cross-link` / `log`); `cross-link` marks library-wide fallback sources and drives the "Not linked" badge.
 5. **Persistence** — all scopes persist per-user (`qaSessions.scopeKind`: doc/asset/library; library uses `scopeId = 'library'`).
@@ -262,16 +267,16 @@ Production: Vercel (static Vite bundle) + Convex prod deployment. See README for
 
 - **Editor/read-view/PDF-export must stay in sync.** A node added to `DocumentEditor` but not `TiptapReadOnly` is silently stripped; `buildPrintDoc.ts` needs a renderer too.
 - **`logs.code` is optional** — older rows lack it; render defensively.
-- **Embedding-model swap requires re-embed** (Settings → "Re-embed all"); embeddings are keyed on `chunkId + modelVersion` so stale vectors are detectable but not auto-fixed.
+- **Embedding-model swap requires re-embed** (Developer → AI models and jobs → Search index → "Rebuild everything"); embeddings are keyed on `chunkId + modelVersion` so stale vectors are detectable but not auto-fixed.
 - **Diagram SVG backgrounds are storage URLs** — fine in-app, but anything that snapshots the SVG (PDF export) must inline them as data URLs (export already does).
 - **`peekNextCode` can be stale by one** if a concurrent create lands first — cosmetic only; the real code is allocated inside the create mutation.
 - **Naming code immutability** means a mis-filed document can't be renamed — `documents.refile` creates a new document (new Convex id, new code). Inbound links to the old id keep pointing at the archived doc.
-- **Analysis pages** under `/analysis` are dev-facing case files, not product surface.
+- **Analysis pages** under `/analysis/:slug` are dev-facing case files, listed at `/dev/analysis` in the Developer section, not product surface.
 - **Convex Free plan limits exceeded (2026-10-25).** Throughput (function calls, database I/O), not data size. See `/analysis/backend-gcp-and-gemma` and `docs/research/backend-gcp-and-gemma.md`.
 
 ## Later
 
-- **Backend on Google Cloud and EmbeddingGemma**: investigation only. Recommendation is to stay on Convex (upgrade now, cut waste; spend caps are documented for Pro only) and set up a GCP project only if the browser lab and a Dutch eval show EmbeddingGemma is worth hosting (then CPU-only Cloud Run first). The lab embeds in a Web Worker; its WebGPU route is still untested. Follow-ups are in `docs/todo.md` (2026-10-25). The in-browser Embedding lab lives on `/analysis/backend-gcp-and-gemma` and uses the read-only `convex/lab/embeddings.ts`.
+- **Backend on Google Cloud and EmbeddingGemma**: investigation only. Recommendation is to stay on Convex (upgrade now, cut waste; spend caps are documented for Pro only) and set up a GCP project only if the browser lab and a Dutch eval show EmbeddingGemma is worth hosting (then CPU-only Cloud Run first). The lab embeds in a Web Worker; its WebGPU route is still untested. Follow-ups are in `docs/todo.md` (2026-10-25). The in-browser Embeddings lab lives at `/dev/embeddings` (Developer section; text and, with the vision encoder, image search) and uses the read-only `convex/lab/embeddings.ts`.
 
 ---
 

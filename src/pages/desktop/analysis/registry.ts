@@ -1,5 +1,5 @@
 // Single source of truth for analysis pages. App.tsx renders one route per
-// entry; AnalysisIndexPage renders the table. Add a new analysis: write the
+// entry; the Developer section's Analysis page (/dev/analysis) lists them. Add a new analysis: write the
 // component, register it here.
 
 import type { ComponentType } from "react"
@@ -58,7 +58,7 @@ export const ANALYSES: AnalysisMeta[] = [
     status: "outstanding",
     updatedAt: "2026-10-25",
     summary:
-      "Convex Free plan limits are throughput (function calls, database reads), not data size: stay on Convex on a paid plan, cut the waste (inline embeddings, agent test logins, publish fan-out), and use a Google Cloud project only for AI experiments. Options compared (Convex, self-hosted Convex on GCP, native GCP rewrite, hybrid, Firebase) with effort, cost and risk. Includes a live Embedding lab that runs EmbeddingGemma in the browser and compares it with gemini-embedding-2 on Published passages.",
+      "Convex Free plan limits are throughput (function calls, database reads), not data size: stay on Convex on a paid plan, cut the waste (inline embeddings, agent test logins, publish fan-out), and use a Google Cloud project only for AI experiments. Options compared (Convex, self-hosted Convex on GCP, native GCP rewrite, hybrid, Firebase) with effort, cost and risk. EmbeddingGemma 2 is multimodal (text, images, audio, video and code in one space); the live Embeddings lab in Developer runs it in the browser on passages and photos and compares it with gemini-embedding-2.",
     Component: BackendGcpGemmaAnalysis,
   },
   {

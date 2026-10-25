@@ -28,7 +28,6 @@ import { DocumentNewChooserPage } from "@/pages/desktop/DocumentNewChooserPage"
 import { SettingsPage } from "@/pages/desktop/SettingsPage"
 import { TemplateEditPage } from "@/pages/desktop/TemplateEditPage"
 import { ImportPage } from "@/pages/desktop/ImportPage"
-import { AnalysisIndexPage } from "@/pages/desktop/AnalysisIndexPage"
 import { getAnalysisBySlug } from "@/pages/desktop/analysis/registry"
 import { AuthGate } from "@/auth/AuthGate"
 import { FindingsPage } from "@/pages/desktop/FindingsPage"
@@ -37,16 +36,32 @@ import { TrainingPage } from "@/pages/desktop/TrainingPage"
 import { AttemptPage } from "@/pages/desktop/AttemptPage"
 import { PersonSkillsPage } from "@/pages/desktop/PersonSkillsPage"
 import { SkillsWorkspacePage } from "@/pages/desktop/SkillsWorkspacePage"
-import { McpPage } from "@/pages/desktop/McpPage"
+import { DevHomePage } from "@/pages/desktop/dev/DevHomePage"
+import { EmbeddingsLabPage } from "@/pages/desktop/dev/EmbeddingsLabPage"
+import { DevMcpPage } from "@/pages/desktop/dev/DevMcpPage"
+import { DevAiPage } from "@/pages/desktop/dev/DevAiPage"
+import { DevAnalysisPage } from "@/pages/desktop/dev/DevAnalysisPage"
+import { DevNotice } from "@/components/dev/DevFrame"
+import { useIsDeveloper } from "@/components/dev/devTools"
 import { Iso9001Page } from "@/pages/desktop/Iso9001Page"
 import { PhonePreviewHost } from "@/components/phone/PhonePreview"
 import { CapturesPage } from "@/pages/desktop/CapturesPage"
 import { CaptureDetailPage } from "@/pages/desktop/CaptureDetailPage"
 import { CaptureSetPage } from "@/pages/desktop/CaptureSetPage"
 
+/** A case file. Part of the Developer section: Engineers and Admins only. */
 function AnalysisRoute() {
   const [, params] = useRoute<{ slug: string }>("/analysis/:slug")
+  const allowed = useIsDeveloper()
   const meta = params ? getAnalysisBySlug(params.slug) : undefined
+  if (!allowed) {
+    return (
+      <div className="flex flex-col">
+        <TopBar breadcrumb={[{ label: "Developer", href: "/dev" }, { label: "Analysis", href: "/dev/analysis" }]} />
+        <DevNotice />
+      </div>
+    )
+  }
   if (!meta) {
     return (
       <div className="p-8">
@@ -141,10 +156,24 @@ function DesktopRoutes() {
       </Route>
       <Route path="/import" component={ImportPage} />
       <Route path="/import/:jobId" component={ImportPage} />
-      <Route path="/mcp" component={McpPage} />
       <Route path="/iso-9001" component={Iso9001Page} />
-      <Route path="/analysis" component={AnalysisIndexPage} />
+      {/* Developer section (Engineers and Admins). */}
+      <Route path="/dev" component={DevHomePage} />
+      <Route path="/dev/embeddings" component={EmbeddingsLabPage} />
+      <Route path="/dev/embeddings/:tab" component={EmbeddingsLabPage} />
+      <Route path="/dev/mcp" component={DevMcpPage} />
+      <Route path="/dev/mcp/:tab" component={DevMcpPage} />
+      <Route path="/dev/ai" component={DevAiPage} />
+      <Route path="/dev/ai/:tab" component={DevAiPage} />
+      <Route path="/dev/analysis" component={DevAnalysisPage} />
       <Route path="/analysis/:slug" component={AnalysisRoute} />
+      {/* Old addresses of Developer pages. */}
+      <Route path="/mcp">
+        <Redirect to="/dev/mcp" replace />
+      </Route>
+      <Route path="/analysis">
+        <Redirect to="/dev/analysis" replace />
+      </Route>
       <Route>
         <NotFound />
       </Route>

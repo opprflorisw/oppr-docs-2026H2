@@ -54,6 +54,8 @@ export const attach = internalMutation({
         tags: ["logo"],
         kind: "illustration",
       })
+      // Embed it now: the seed's backfill can run before the logo exists.
+      await ctx.scheduler.runAfter(0, internal.ai.imageEmbed.embedImage, { imageId })
     }
 
     const cover = await ctx.db.query("coverSettings").first()

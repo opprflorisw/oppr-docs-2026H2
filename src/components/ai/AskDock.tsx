@@ -141,7 +141,8 @@ function toggleAsk() {
 
 function scopeForLocation(loc: string): AskPanelScope | null {
   if (loc === "/settings" || loc.startsWith("/settings/")) return null
-  if (loc.startsWith("/mcp")) return null
+  // The Developer section and its case files: tools, not Knowledge.
+  if (loc === "/dev" || loc.startsWith("/dev/")) return null
   if (loc.startsWith("/analysis")) return null
   if (loc.startsWith("/docs/new")) return null
   if (loc.startsWith("/import")) return null

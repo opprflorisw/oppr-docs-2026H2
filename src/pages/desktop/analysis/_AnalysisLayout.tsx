@@ -30,7 +30,8 @@ export function AnalysisLayout({
     <div className="flex flex-1 flex-col">
       <TopBar
         breadcrumb={[
-          { label: "Analysis", href: "/analysis" },
+          { label: "Developer", href: "/dev" },
+          { label: "Analysis", href: "/dev/analysis" },
           { label: title },
         ]}
       />
