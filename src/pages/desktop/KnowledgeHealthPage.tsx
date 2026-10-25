@@ -4,6 +4,7 @@ import { Link } from "wouter"
 import type { LucideProps } from "lucide-react"
 import {
   Archive,
+  BadgeCheck,
   CalendarClock,
   CheckCircle2,
   Copy,
@@ -57,6 +58,7 @@ export function KnowledgeHealthPage() {
         icon={HeartPulse}
         title="Knowledge health"
         statusLine="Is the library lean and relevant? Published documents only, signals from the last 90 days."
+        secondary={[{ label: "ISO 9001", icon: BadgeCheck, href: "/iso-9001" }]}
       />
       <DocumentsTabs />
       <div className="mx-auto w-full max-w-6xl space-y-8 p-6">

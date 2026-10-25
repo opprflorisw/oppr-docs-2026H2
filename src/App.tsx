@@ -36,6 +36,7 @@ import { TrainingPage } from "@/pages/desktop/TrainingPage"
 import { AttemptPage } from "@/pages/desktop/AttemptPage"
 import { PersonSkillsPage } from "@/pages/desktop/PersonSkillsPage"
 import { McpPage } from "@/pages/desktop/McpPage"
+import { Iso9001Page } from "@/pages/desktop/Iso9001Page"
 import { PhonePreviewHost } from "@/components/phone/PhonePreview"
 import { CapturesPage } from "@/pages/desktop/CapturesPage"
 import { CaptureDetailPage } from "@/pages/desktop/CaptureDetailPage"
@@ -132,6 +133,7 @@ function DesktopRoutes() {
       <Route path="/import" component={ImportPage} />
       <Route path="/import/:jobId" component={ImportPage} />
       <Route path="/mcp" component={McpPage} />
+      <Route path="/iso-9001" component={Iso9001Page} />
       <Route path="/analysis" component={AnalysisIndexPage} />
       <Route path="/analysis/:slug" component={AnalysisRoute} />
       <Route>

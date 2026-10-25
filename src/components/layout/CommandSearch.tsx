@@ -3,6 +3,7 @@ import { useQuery } from "convex/react"
 import { useLocation } from "wouter"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
 import {
+  BadgeCheck,
   BookOpenText,
   Boxes,
   FileText,
@@ -144,6 +145,7 @@ function Results({
           <PlaceItem label="Learn" icon={GraduationCap} onSelect={() => go("/learn")} />
           <PlaceItem label="Wiki" icon={BookOpenText} onSelect={() => go("/wiki")} />
           <PlaceItem label="Assets" icon={Boxes} onSelect={() => go("/assets")} />
+          <PlaceItem label="ISO 9001" icon={BadgeCheck} onSelect={() => go("/iso-9001")} />
         </CommandGroup>
         <p className="px-4 pb-3 pt-1 text-xs text-muted-foreground">
           Type a code like EXL-201 or EXT-OPS-SOP-0001, a title or a name.
@@ -152,8 +154,11 @@ function Results({
     )
   }
 
+  const isoMatch = q.length >= 3 && matches(q, "iso 9001", "iso9001", "audit", "certification", "quality management")
+
   const total = found
-    ? found.docs.length +
+    ? (isoMatch ? 1 : 0) +
+      found.docs.length +
       found.assets.length +
       found.trainings.length +
       found.wikis.length +
@@ -172,6 +177,17 @@ function Results({
         <CommandEmpty className="py-4 text-center text-sm text-muted-foreground">
           Nothing matches "{query.trim()}". Ask it instead.
         </CommandEmpty>
+      )}
+      {isoMatch && (
+        <CommandGroup heading="Pages">
+          <CommandItem value="page-iso-9001" onSelect={() => go("/iso-9001")}>
+            <BadgeCheck className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="truncate">ISO 9001</span>
+            <span className="ml-auto shrink-0 pl-2 text-xs text-muted-foreground">
+              What the standard asks, what Oppr does
+            </span>
+          </CommandItem>
+        </CommandGroup>
       )}
       {found && found.docs.length > 0 && (
         <CommandGroup heading="Documents">

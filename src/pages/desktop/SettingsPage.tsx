@@ -30,6 +30,7 @@ import { Link, useSearch } from "wouter"
 import type { LucideProps } from "lucide-react"
 import {
   ArrowUpRight,
+  BadgeCheck,
   Cable,
   FileDown,
   GraduationCap,
@@ -59,7 +60,7 @@ import { SkillsSettings } from "@/components/learn/SkillsSettings"
 
 // Settings holds setup only, in four groups with a left sub-nav. The section
 // lives in ?tab= so other pages can link straight to it (?tab=templates).
-// MCP has one home, its own page (/mcp); the Settings entry goes there.
+// MCP and ISO 9001 have their own pages; their Settings entries go there.
 
 type Section = {
   value: string
@@ -150,6 +151,18 @@ const GROUPS: { label: string; sections: Section[] }[] = [
         icon: Cable,
         lead: "Connect the AI your company already uses.",
         href: "/mcp",
+      },
+    ],
+  },
+  {
+    label: "Quality",
+    sections: [
+      {
+        value: "iso-9001",
+        label: "ISO 9001",
+        icon: BadgeCheck,
+        lead: "What ISO 9001 asks for, and what Oppr already does about it.",
+        href: "/iso-9001",
       },
     ],
   },

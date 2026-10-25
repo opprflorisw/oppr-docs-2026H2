@@ -45,6 +45,7 @@ import type * as importer_jobs from "../importer/jobs.js";
 import type * as importer_map from "../importer/map.js";
 import type * as importer_templates from "../importer/templates.js";
 import type * as insights from "../insights.js";
+import type * as iso from "../iso.js";
 import type * as lib_assetWalker from "../lib/assetWalker.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_chunking from "../lib/chunking.js";
@@ -157,6 +158,7 @@ declare const fullApi: ApiFromModules<{
   "importer/map": typeof importer_map;
   "importer/templates": typeof importer_templates;
   insights: typeof insights;
+  iso: typeof iso;
   "lib/assetWalker": typeof lib_assetWalker;
   "lib/auth": typeof lib_auth;
   "lib/chunking": typeof lib_chunking;

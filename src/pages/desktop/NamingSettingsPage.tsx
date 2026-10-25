@@ -8,12 +8,13 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
-import { Plus, Trash2 } from "lucide-react"
+import { ChevronDown, Plus, Trash2 } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
 import {
   Card,
@@ -356,30 +357,51 @@ function IconPicker({
   value: string
   onChange: (id: string) => void
 }) {
+  const [open, setOpen] = useState(false)
+  const Current = typeIcon(value)
   return (
     <div className="space-y-1">
       <Label className="text-xs">Icon</Label>
-      <div className="flex flex-wrap gap-1">
-        {TYPE_ICONS.map((i) => {
-          const Icon = i.icon
-          return (
-            <button
-              key={i.id}
-              type="button"
-              onClick={() => onChange(i.id)}
-              className={cn(
-                "flex h-7 w-7 items-center justify-center rounded border transition-colors",
-                value === i.id
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-input text-muted-foreground hover:bg-muted",
-              )}
-              title={i.id}
-            >
-              <Icon className="h-4 w-4" />
-            </button>
-          )
-        })}
-      </div>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label="Choose an icon"
+            title="Choose an icon"
+            className="flex h-7 items-center gap-1 rounded border border-input px-1.5 text-muted-foreground transition-colors hover:bg-muted"
+          >
+            <Current className="h-4 w-4 text-foreground" />
+            <ChevronDown className="h-3 w-3" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-auto p-2">
+          <div className="grid grid-cols-5 gap-1">
+            {TYPE_ICONS.map((i) => {
+              const Icon = i.icon
+              return (
+                <button
+                  key={i.id}
+                  type="button"
+                  onClick={() => {
+                    onChange(i.id)
+                    setOpen(false)
+                  }}
+                  aria-pressed={value === i.id}
+                  className={cn(
+                    "flex h-8 w-8 items-center justify-center rounded border transition-colors",
+                    value === i.id
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                  title={i.id.replace(/([a-z])([A-Z])/g, "$1 $2")}
+                >
+                  <Icon className="h-4 w-4" />
+                </button>
+              )
+            })}
+          </div>
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }

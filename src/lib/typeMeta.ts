@@ -6,15 +6,25 @@
 // out in full (no interpolation) so the JIT compiler keeps them.
 
 import {
+  BadgeCheck,
   BookOpen,
+  CalendarCheck,
   ClipboardCheck,
+  Factory,
   FileText,
+  FlaskConical,
   GraduationCap,
+  HardHat,
   Landmark,
   ListChecks,
   Megaphone,
+  Microscope,
   Presentation,
+  Ruler,
+  ScrollText,
   ShieldAlert,
+  Siren,
+  Workflow,
   Wrench,
   type LucideIcon,
 } from "lucide-react"
@@ -34,6 +44,16 @@ export const TYPE_ICONS: { id: string; icon: LucideIcon }[] = [
   { id: "GraduationCap", icon: GraduationCap },
   { id: "ClipboardCheck", icon: ClipboardCheck },
   { id: "Megaphone", icon: Megaphone },
+  { id: "ScrollText", icon: ScrollText },
+  { id: "Workflow", icon: Workflow },
+  { id: "HardHat", icon: HardHat },
+  { id: "Siren", icon: Siren },
+  { id: "BadgeCheck", icon: BadgeCheck },
+  { id: "Ruler", icon: Ruler },
+  { id: "Microscope", icon: Microscope },
+  { id: "FlaskConical", icon: FlaskConical },
+  { id: "Factory", icon: Factory },
+  { id: "CalendarCheck", icon: CalendarCheck },
 ]
 
 const ICON_BY_ID = new Map(TYPE_ICONS.map((t) => [t.id, t.icon]))
