@@ -93,6 +93,7 @@ Set the prod env on the new deployment:
 ```bash
 npx convex env set GEMINI_API_KEY <key>          --prod
 npx convex env set ANTHROPIC_API_KEY <key>       --prod   # Claude: Consistency check, Captures, Trainings, insights
+npx convex env set ANTHROPIC_WORKSPACE_ID <id>  --prod   # required unless the key is scoped to a workspace
 npx convex env set AUTH_RESEND_KEY <key>         --prod
 npx convex env set AUTH_EMAIL "Oppr DOCS <noreply@yourdomain>" --prod
 npx convex env set SITE_URL https://<vercel-prod-url> --prod

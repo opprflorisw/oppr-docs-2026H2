@@ -141,7 +141,7 @@ npx vite build          # production build (must exit 0)
 npx convex dev --once   # push convex/ changes to dev if the watcher isn't running
 ```
 
-Production: push to `main` → Vercel builds with `npx convex deploy --cmd 'tsc -b && vite build'`, which deploys Convex prod first. Branch deploys are off for `feature/knowledge-polish`. Prod Convex env needs `GEMINI_API_KEY`, `AUTH_RESEND_KEY`, `AUTH_EMAIL`, `SITE_URL`, `JWT_PRIVATE_KEY`, `JWKS`, `ANTHROPIC_API_KEY` (Consistency check, Captures, Trainings and other Claude features fail without it) and optionally `ANTHROPIC_WORKSPACE_ID`. Never run `devChecks:run` on prod: it publishes a draft as part of its test.
+Production: push to `main` → Vercel builds with `npx convex deploy --cmd 'tsc -b && vite build'`, which deploys Convex prod first. Branch deploys are off for `feature/knowledge-polish`. Prod Convex env needs `GEMINI_API_KEY`, `AUTH_RESEND_KEY`, `AUTH_EMAIL`, `SITE_URL`, `JWT_PRIVATE_KEY`, `JWKS`, `ANTHROPIC_API_KEY` (Consistency check, Captures, Trainings and other Claude features fail without it) and `ANTHROPIC_WORKSPACE_ID` (required unless the key is scoped to a workspace; without it every Claude call returns 400). Never run `devChecks:run` on prod: it publishes a draft as part of its test.
 
 ---
 
