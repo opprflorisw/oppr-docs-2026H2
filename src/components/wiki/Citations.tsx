@@ -178,7 +178,9 @@ export function SourcesButton({
       onClick={() => onOpen(citations)}
       className={cn(
         "inline-flex items-center gap-1 whitespace-nowrap text-sm font-medium text-primary-strong active:opacity-70",
-        inline ? "ml-2 min-h-8 align-baseline" : "mt-1 min-h-9",
+        inline
+          ? "relative ml-2 min-h-8 align-baseline after:absolute after:-inset-y-1.5 after:inset-x-0 after:content-['']"
+          : "mt-1 min-h-11",
       )}
     >
       <FileText className="h-3.5 w-3.5" aria-hidden />

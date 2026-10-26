@@ -189,7 +189,14 @@ export function PageHeader({
             {title}
           </h1>
           {line && (
-            <div className="mt-0.5 truncate text-xs text-muted-foreground">{line}</div>
+            // Two lines, not one: this line says what the page is for, and a
+            // narrow window (Ask open, a laptop) must not cut that off.
+            <div
+              className="mt-0.5 line-clamp-2 text-xs text-muted-foreground"
+              title={typeof line === "string" ? line : undefined}
+            >
+              {line}
+            </div>
           )}
         </div>
       </div>

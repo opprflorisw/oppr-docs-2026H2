@@ -2,6 +2,7 @@
 // is kept unchanged; Oppr gives it a naming code and stamps code, version and
 // status on every page. It starts as a draft and follows the normal lifecycle.
 
+import { errorText } from "@/lib/errorText"
 import { useEffect, useState, type ReactNode } from "react"
 import { useLocation } from "wouter"
 import { useMutation, useQuery } from "convex/react"
@@ -128,7 +129,7 @@ export function WrapManualDialog({
       navigate(`/docs/${res.id}`)
     } catch (err) {
       setStep("idle")
-      toast.error(err instanceof Error ? err.message : "Could not wrap the manual")
+      toast.error(errorText(err, "Could not wrap the manual. Try again."))
     }
   }
 

@@ -188,13 +188,13 @@ export function TestConsole() {
               in {reply.ms.toFixed(0)} ms
             </p>
             {texts.length > 0 && (
-              <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-3 text-[11px] leading-relaxed">
+              <pre tabIndex={0} className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-3 text-[11px] leading-relaxed">
                 {texts.join("\n\n")}
               </pre>
             )}
             <details className="text-xs">
               <summary className="cursor-pointer text-muted-foreground">Raw response</summary>
-              <pre className="mt-1 max-h-80 overflow-auto rounded-md border bg-muted/40 p-3 font-mono text-[11px]">
+              <pre tabIndex={0} className="mt-1 max-h-80 overflow-auto rounded-md border bg-muted/40 p-3 font-mono text-[11px]">
                 {typeof reply.body === "string" ? reply.body : JSON.stringify(reply.body, null, 2)}
               </pre>
             </details>

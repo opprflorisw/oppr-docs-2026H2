@@ -1,3 +1,4 @@
+import { errorText } from "@/lib/errorText"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useRoute, useSearch } from "wouter"
 import {
@@ -58,6 +59,7 @@ import { SubmitForReviewDialog } from "@/components/docs/LifecycleDialogs"
 import { WithdrawDocumentDialog } from "@/components/docs/DocumentActions"
 import { formatDate } from "@/lib/time"
 import { isEngineerOrAdmin } from "@/lib/roles"
+import { printStatusOf, watermarkText } from "@/lib/pdf-export/buildPrintDoc"
 
 export function DocumentReadPage() {
   const [, params] = useRoute<{ id: string }>("/docs/:id")
@@ -220,7 +222,7 @@ export function DocumentReadPage() {
       navigate(`/docs/${rawDoc._id}/edit`)
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Couldn't create a new version",
+        errorText(err, "A new version could not be started. Try again."),
       )
     } finally {
       setForking(false)
@@ -361,6 +363,14 @@ export function DocumentReadPage() {
         : hasWorkingDraft
           ? `v${renderedVersionNumber} · Published, in use`
           : `v${renderedVersionNumber} · ${statusLabel(docWithAssets.status).toLowerCase()}`
+  // Paper from the browser's Print carries the same status as the PDF export
+  // (ISO 9001 7.5.3): Controlled copy only for the version in use, every other
+  // version says it is not for use.
+  const printState = printStatusOf(
+    { status: docWithAssets.status, live_version: liveVer ?? null, current_version: workingVer },
+    renderedVersionNumber,
+  )
+  const printBand = watermarkText("status", printState, renderedVersionNumber, liveVer ?? null) ?? ""
   return (
     <div className="flex h-full flex-col print:block">
       <div className="sticky top-0 z-30 print:hidden">
@@ -437,10 +447,10 @@ export function DocumentReadPage() {
               <GitBranch className="h-4 w-4" />
               <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
                 <span>
-                  You are viewing the live v{liveVer}. A newer edition (v
+                  You are reading v{liveVer}, the Published version in use. A new version (v
                   {workingVer}
-                  {workingStatus ? ` · ${statusLabel(workingStatus)}` : ""}) is in progress
-                  and will replace it once published.
+                  {workingStatus ? `, ${statusLabel(workingStatus)}` : ""}) is in progress
+                  and replaces it once it is Published.
                 </span>
                 <span className="flex shrink-0 gap-2">
                   <Button
@@ -467,7 +477,7 @@ export function DocumentReadPage() {
                 <span>
                   You are viewing the v{workingVer} draft
                   {workingStatus ? ` (${statusLabel(workingStatus).toLowerCase()})` : ""}. Operators still
-                  see the live v{liveVer}. The PDF button exports this draft.
+                  see the Published v{liveVer}. The PDF button exports this Draft.
                 </span>
                 <span className="flex shrink-0 gap-2">
                   <Button
@@ -475,7 +485,7 @@ export function DocumentReadPage() {
                     variant="outline"
                     onClick={() => viewVersion(null)}
                   >
-                    View live v{liveVer}
+                    View Published v{liveVer}
                   </Button>
                   {canRevise && (
                     <Button size="sm" variant="outline" onClick={goEdit}>
@@ -554,6 +564,13 @@ export function DocumentReadPage() {
             </Alert>
           )}
 
+          <PrintControlBand
+            code={docWithAssets.naming_code}
+            title={docWithAssets.title}
+            text={printBand}
+            inUse={printState === "published"}
+          />
+
           {rawDoc && <DocumentFindingsBanner documentId={rawDoc._id} />}
           {rawDoc && <ProposedRevisionBanner documentId={rawDoc._id} />}
 
@@ -570,17 +587,19 @@ export function DocumentReadPage() {
               reviewer: onWorkingVersion && Boolean(rawDoc?.reviewerId),
               approver: onWorkingVersion && Boolean(rawDoc?.approverId),
             }}
-            effectiveAt={docResult?.effectiveAt ?? null}
+            // A working draft is not in use yet: it shows its own status and no
+            // effective date, so a screenshot or print of it never reads as Published.
+            effectiveAt={viewingDraft ? null : (docResult?.effectiveAt ?? null)}
             createdAt={docResult?.createdAt}
             statusOverride={
-              hasWorkingDraft && !isViewingHistorical ? "published" : undefined
+              hasWorkingDraft && !isViewingHistorical && !viewingDraft ? "published" : undefined
             }
             superseded={superseded}
           />
 
           {version == null ? (
             <div className="rounded-md border border-dashed p-12 text-center text-sm text-muted-foreground">
-              No published version yet.
+              No Published version yet.
             </div>
           ) : version.body_kind === "pdf" && rawDoc?.origin === "wrapped" ? (
             <WrappedManualView
@@ -595,6 +614,12 @@ export function DocumentReadPage() {
               <TiptapReadOnly content={readBody} />
             </div>
           )}
+          <PrintControlBand
+            code={docWithAssets.naming_code}
+            title={docWithAssets.title}
+            text={printBand}
+            inUse={printState === "published"}
+          />
         </div>
 
         <aside className="space-y-5 print:hidden">
@@ -630,10 +655,10 @@ export function DocumentReadPage() {
               Create version v{workingVer + 1}?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This document is published. A new draft edition forks from the
-              live v{liveVer ?? workingVer}; the live version stays online for
-              operators until v{workingVer + 1} is reviewed, approved, and
-              published.
+              This Document is Published. The new version starts as a Draft,
+              copied from v{liveVer ?? workingVer}. Operators keep reading v
+              {liveVer ?? workingVer} until v{workingVer + 1} is reviewed,
+              approved and Published.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -652,8 +677,8 @@ export function DocumentReadPage() {
                   </>
                 ) : (
                   <>
-                    <li>Body content (copied from the live version)</li>
-                    <li>Linked Assets, logs &amp; references (follow the body)</li>
+                    <li>The text (copied from the Published version)</li>
+                    <li>Linked Assets, logs &amp; references (they follow the text)</li>
                     <li>Title, reviewer and approver assignments</li>
                   </>
                 )}
@@ -671,8 +696,8 @@ export function DocumentReadPage() {
                 </li>
                 <li>Type, location &amp; discipline (part of the code)</li>
                 <li>
-                  v{liveVer ?? workingVer} history and sign-offs: the live
-                  version keeps serving operators, QR codes, Ask and Wikis
+                  v{liveVer ?? workingVer} history and sign-offs: the Published
+                  version keeps serving Operators, QR codes, Ask and Wikis
                 </li>
               </ul>
             </div>
@@ -832,4 +857,25 @@ function withoutTitleHeading(body: unknown, title: string): unknown {
 
 function normaliseText(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase()
+}
+
+/** Print-only: who, what and which status a paper copy is (hidden on screen). */
+function PrintControlBand({ code, title, text, inUse }: { code: string; title: string; text: string; inUse: boolean }) {
+  return (
+    <div
+      className={cn(
+        "hidden border-2 px-3 py-2 text-[10pt] print:block",
+        inUse ? "border-black" : "border-black font-bold uppercase tracking-wide",
+      )}
+    >
+      <p>
+        {code} · {title} · {text}
+      </p>
+      <p className="text-[8.5pt] font-normal normal-case tracking-normal">
+        {inUse
+          ? "Paper is valid on the day it is printed. Before you use it later, check in Oppr that this is still the version in use."
+          : "This is not the version in use. Do not work from this copy."}
+      </p>
+    </div>
+  )
 }

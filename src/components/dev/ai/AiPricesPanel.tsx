@@ -1,6 +1,7 @@
 // Prices tab of /dev/ai: the Price table (CONTEXT.md). Everyone in the
 // Developer section sees it; only an Admin changes it. A new price applies
-// from its date on; calls already recorded keep their cost.
+// from its date on; calls already recorded keep their cost. Removing a
+// mistaken row prices the calls it priced again.
 import { useState } from "react"
 import { useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
@@ -108,8 +109,10 @@ export function AiPricesPanel() {
                               disabled={busy !== null}
                               onClick={() =>
                                 void run(`rm-${r._id}`, async () => {
-                                  await removePrice({ personId: editorId, priceId: r._id })
-                                  return "Price removed. Calls already recorded keep their cost."
+                                  const n = await removePrice({ personId: editorId, priceId: r._id })
+                                  return n > 0
+                                    ? `Price removed. ${n} ${n === 1 ? "call it priced was" : "calls it priced were"} priced again.`
+                                    : "Price removed."
                                 })
                               }
                             >

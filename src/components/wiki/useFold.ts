@@ -25,7 +25,7 @@ function writeStored(wikiId: string, id: string, open: boolean) {
 }
 
 /** Over this reading time, sections after the first two start closed. */
-const LONG_READ_MINUTES = 8
+export const LONG_READ_MINUTES = 8
 
 /**
  * Default fold per section: intro and safety sections open; the first two

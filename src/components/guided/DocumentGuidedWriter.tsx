@@ -809,7 +809,7 @@ function DraftEditor({
             })}
             {unusedPpe.length > 0 && (
               <Select value="" onValueChange={(slug) => setDraft({ ...draft, ppe: [...draft.ppe, slug] })}>
-                <SelectTrigger className="h-7 w-auto gap-1 rounded-full px-2.5 text-xs">
+                <SelectTrigger className="h-7 w-auto gap-1 rounded-full px-2.5 text-xs" aria-label="Add PPE">
                   <SelectValue placeholder="Add PPE" />
                 </SelectTrigger>
                 <SelectContent>

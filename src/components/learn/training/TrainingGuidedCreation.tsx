@@ -94,6 +94,8 @@ const TABS: { value: BuilderTab; label: string; icon: typeof FileText }[] = [
   { value: "signals", label: "Answers and signals", icon: TrendingDown },
 ]
 
+const LAST_REVIEWER_KEY = "oppr.training.lastReviewer"
+
 const EXAMPLES = [
   "Line 2 cold start for operators",
   "A safety Round along line 2: lockout, the hot die and the saw",
@@ -157,7 +159,14 @@ export function TrainingGuidedCreation({
   const [skipStart, setSkipStart] = useState(false)
   const [kindLocked, setKindLocked] = useState(Boolean(initialKind) || editing)
   const [confirmClose, setConfirmClose] = useState(false)
-  const [reviewer, setReviewer] = useState<Id<"people"> | null>(null)
+  // The reviewer this person picked last time, like the SOP flow prefills its own.
+  const [reviewer, setReviewer] = useState<Id<"people"> | null>(() => {
+    try {
+      return (window.localStorage.getItem(LAST_REVIEWER_KEY) as Id<"people"> | null) ?? null
+    } catch {
+      return null
+    }
+  })
 
   const startDraft = useMemo<TrainingDraft>(
     () =>
@@ -240,6 +249,8 @@ export function TrainingGuidedCreation({
   const unchanged = trainingDraftChanges(session.initial, draft).length === 0
   const busy = session.busy
   const author = person?._id ?? null
+  // Never prefill the author as their own reviewer (four-eyes).
+  const reviewerFor = reviewer && reviewer !== author ? reviewer : null
 
   // A new Training gets its id on the first save; later saves update it.
   const [createdId, setCreatedId] = useState<Id<"trainings"> | null>(null)
@@ -276,12 +287,17 @@ export function TrainingGuidedCreation({
   }
 
   async function sendForReview() {
-    if (reviewBlock || busy || !reviewer) return
+    if (reviewBlock || busy || !reviewerFor) return
     const id = unchanged && trainingId ? trainingId : await save()
     if (!id) return
     try {
-      await submit({ id, reviewerPersonId: reviewer, personId: person?._id })
-      const name = catalogue?.people.find((p) => p._id === reviewer)?.name ?? "the reviewer"
+      await submit({ id, reviewerPersonId: reviewerFor, personId: person?._id })
+      try {
+        window.localStorage.setItem(LAST_REVIEWER_KEY, reviewerFor)
+      } catch {
+        // Not remembered: the picker simply starts empty next time.
+      }
+      const name = catalogue?.people.find((p) => p._id === reviewerFor)?.name ?? "the reviewer"
       toast.success(`Sent to ${name} for review.`)
       onOpenChange(false)
       if (!editing) navigate(`/learn/trainings/${id}`)
@@ -576,7 +592,7 @@ export function TrainingGuidedCreation({
             <SendForReview
               people={catalogue?.people ?? []}
               excludeId={author}
-              value={reviewer}
+              value={reviewerFor}
               onChange={setReviewer}
               blocked={reviewBlock}
               busy={busy}

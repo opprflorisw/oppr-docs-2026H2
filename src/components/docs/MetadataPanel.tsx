@@ -278,6 +278,7 @@ export function MetadataPanel({
           {meId && value.ownerPersonId !== meId && <SetToMe onClick={() => patch({ ownerPersonId: meId })} />}
         </div>
         <RoleSelect
+          label="Owner"
           value={value.ownerPersonId}
           onChange={(id) => patch({ ownerPersonId: id })}
           people={engineers}
@@ -312,6 +313,7 @@ export function MetadataPanel({
             }
           >
             <RoleSelect
+              label="Reviewer"
               value={value.reviewerPersonId}
               onChange={(id) => patch({ reviewerPersonId: id })}
               people={engineers}
@@ -332,6 +334,7 @@ export function MetadataPanel({
             }
           >
             <RoleSelect
+              label="Approver"
               value={value.approverPersonId}
               onChange={(id) => patch({ approverPersonId: id })}
               people={engineers}
@@ -419,7 +422,7 @@ function CompactSelect({
         onValueChange={onValueChange}
         disabled={disabled}
       >
-        <SelectTrigger className="h-9 px-2">
+        <SelectTrigger className="h-9 px-2" aria-label={label}>
           <span className="truncate font-mono text-sm">
             {display || <span className="text-muted-foreground">{placeholder}</span>}
           </span>
@@ -476,10 +479,12 @@ function SetToMe({ onClick }: { onClick: () => void }) {
 }
 
 function RoleSelect({
+  label,
   value,
   onChange,
   people,
 }: {
+  label: string
   value: string
   onChange: (id: string) => void
   people: { _id: string; name: string; role: string }[]
@@ -487,7 +492,7 @@ function RoleSelect({
   const current = people.find((p) => p._id === value)
   return (
     <Select value={value || NONE} onValueChange={(v) => onChange(v === NONE ? "" : v)}>
-      <SelectTrigger className="h-9">
+      <SelectTrigger className="h-9" aria-label={`${label}: ${value ? (current?.name ?? "Engineer") : "not chosen yet"}`}>
         <SelectValue>{value ? (current?.name ?? "Engineer") : "Not chosen yet"}</SelectValue>
       </SelectTrigger>
       <SelectContent>
@@ -508,21 +513,21 @@ const LINK_CARD_TONES = {
     head: "text-emerald-700 dark:text-emerald-300",
     icon: "text-emerald-600",
     item: "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-100",
-    label: "text-emerald-700/80",
+    label: "text-emerald-800 dark:text-emerald-300",
   },
   indigo: {
     card: "border-indigo-200 bg-indigo-50/50 dark:border-indigo-900/40 dark:bg-indigo-950/20",
     head: "text-indigo-700 dark:text-indigo-300",
     icon: "text-indigo-600",
     item: "border-indigo-200 bg-indigo-50 text-indigo-900 dark:border-indigo-900/50 dark:bg-indigo-950/40 dark:text-indigo-100",
-    label: "text-indigo-700/80",
+    label: "text-indigo-800 dark:text-indigo-300",
   },
   sky: {
     card: "border-sky-200 bg-sky-50/50 dark:border-sky-900/40 dark:bg-sky-950/20",
     head: "text-sky-700 dark:text-sky-300",
     icon: "text-sky-600",
     item: "border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-900/50 dark:bg-sky-950/40 dark:text-sky-100",
-    label: "text-sky-700/80",
+    label: "text-sky-800 dark:text-sky-300",
   },
 } as const
 

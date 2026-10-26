@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { useQuery } from "convex/react"
 import type { FunctionReturnType } from "convex/server"
-import { useLocation, useSearch } from "wouter"
+import { Link, useLocation, useSearch } from "wouter"
 import { ArrowRight, Download, FileCheck2, Printer } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
@@ -121,12 +121,13 @@ export function RecordsTab() {
   const personName = personId === ALL ? "everyone" : people?.find((p) => p._id === personId)?.name ?? "person"
 
   function exportCsv() {
-    const header = ["Person", "Training code", "Training", "Version", "Kind", "Score", "Result", "Date", "Valid until"]
+    const header = ["Person", "Training code", "Training", "Version", "Based on document", "Kind", "Score", "Result", "Date", "Valid until"]
     const body = (groups ? groups.flatMap((g) => g.rows) : rows).map((r) => [
       r.personName,
       r.trainingCode,
       r.trainingTitle,
       `v${r.trainingVersion}`,
+      r.documentVersions ?? "",
       r.kind === "round" ? "Round" : "Training",
       fmtScore(r.score),
       r.passed ? "Passed" : "Not passed",
@@ -143,6 +144,7 @@ export function RecordsTab() {
           {showPerson && <TableHead className="text-xs">Person</TableHead>}
           <TableHead className="text-xs">Training</TableHead>
           <TableHead className="text-xs">Version</TableHead>
+          <TableHead className="text-xs">Based on</TableHead>
           <TableHead className="text-xs">Score</TableHead>
           <TableHead className="text-xs">Date</TableHead>
           <TableHead className="text-xs">Valid until</TableHead>
@@ -159,10 +161,18 @@ export function RecordsTab() {
                 <span className="flex items-center gap-1.5">
                   <KindIcon kind={r.kind} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <span className="font-mono text-xs text-muted-foreground">{r.trainingCode}</span>
-                  <span className="truncate">{r.trainingTitle}</span>
+                  {/* A real link, so the record opens from the keyboard too. */}
+                  <Link
+                    href={`/learn/attempts/${r.attemptId}`}
+                    className="truncate hover:underline"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {r.trainingTitle}
+                  </Link>
                 </span>
               </TableCell>
               <TableCell className="font-mono text-xs">v{r.trainingVersion}</TableCell>
+              <TableCell className="font-mono text-xs text-muted-foreground">{r.documentVersions || "-"}</TableCell>
               <TableCell>
                 <span className="flex items-center gap-1.5">
                   <ScoreBadge score={r.score} passed={r.passed} />
@@ -289,7 +299,7 @@ export function RecordsTab() {
             <FileCheck2 className="h-8 w-8 text-primary" />
             <p className="text-sm font-medium">{filtered ? "No records for this selection" : "No Training records yet"}</p>
             <p className="max-w-sm text-xs text-muted-foreground">
-              A record is written each time a checked-in person passes an Attempt of a published Training.
+              A record is written each time a checked-in person passes an Attempt of a Published Training.
             </p>
             {filtered ? (
               <Button

@@ -154,7 +154,13 @@ export default defineSchema({
     history: v.optional(
       v.array(
         v.object({
-          kind: v.union(v.literal("withdrawn"), v.literal("submitted"), v.literal("sent_back")),
+          kind: v.union(
+            v.literal("withdrawn"),
+            v.literal("submitted"),
+            v.literal("sent_back"),
+            // Periodic review interval changed (note says from and to).
+            v.literal("review_interval"),
+          ),
           at: v.number(),
           personId: v.union(v.id("people"), v.null()),
           version: v.number(),
@@ -189,6 +195,9 @@ export default defineSchema({
     // Only a significant change sends linked Trainings back to review and
     // flags Skill holders as "re-train needed".
     significantChange: v.optional(v.boolean()),
+    // The author's call at Submit for review. The approver sees it as the
+    // default in the Publish dialog; significantChange above is the decision.
+    proposedSignificantChange: v.optional(v.boolean()),
     changeNote: v.optional(v.union(v.string(), v.null())),
     publishedAt: v.number(),
     // Per-version approval trail. Recorded as the document advances through
@@ -217,6 +226,8 @@ export default defineSchema({
           at: v.number(),
           // The checked-in Engineer who confirmed it (CONTEXT.md: Checked in).
           personId: v.optional(v.id("people")),
+          // What the reviewer checked, in their own words (optional).
+          note: v.optional(v.union(v.string(), v.null())),
         }),
       ),
     ),

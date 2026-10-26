@@ -287,7 +287,7 @@ export function SkillSheet({
                 empty="No Trainings yet."
               />
               <p className="text-xs text-muted-foreground">
-                Only published Trainings count. Levels 2 and 3 need an Engineer's sign-off.
+                Only Published Trainings count. Levels 2 and 3 need an Engineer's sign-off.
               </p>
             </Field>
           </fieldset>

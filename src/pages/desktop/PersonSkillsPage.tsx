@@ -193,7 +193,7 @@ export function PersonSkillsPage() {
               </Card>
             ) : (
               <Card className="overflow-hidden">
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Skills table">
                   <table className="w-full text-xs">
                     <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
                       <tr>
@@ -280,20 +280,30 @@ export function PersonSkillsPage() {
                   {[...data.retrain, ...data.expired, ...data.gaps].map((g) => {
                     const training = g.offered.find((t) => !t.passed) ?? g.offered[0] ?? null
                     const viaTraining = g.nextStep === "training" && training
+                    const onHold = viaTraining && training.status === "blocked"
+                    const tryOut = g.offered.find((t) => t.tryOutRequest)?.tryOutRequest ?? null
+                    // The concrete next step, so a trainer sees what to do for this person.
+                    const next = tryOut
+                      ? `. Try-out requested ${formatDate(tryOut.since)}${tryOut.trainerName ? `, waiting for ${tryOut.trainerName}` : ", no trainer picked yet"}.`
+                      : onHold
+                        ? `. ${training.code} is on hold after a change, so it cannot be done yet.`
+                        : viaTraining
+                          ? `. Next: pass ${training.code}${training.dueAt ? `, due ${formatDate(training.dueAt)}` : ""}.`
+                          : ". Next: a try-out, where an Engineer watches the work and signs it off."
                     return (
                       <div key={g.skill._id} className="flex items-center gap-3 px-4 py-3">
                         <button type="button" onClick={() => setOpenSkill(g.skill._id)} className="min-w-0 flex-1 text-left">
                           <span className="block truncate text-sm font-medium hover:underline">{g.skill.name}</span>
-                          <span className="block truncate text-xs text-muted-foreground">
+                          <span className="block text-xs text-muted-foreground">
                             {g.status === "retrain"
                               ? `Re-train needed: ${g.retrainReason ?? "a linked document changed"}`
                               : g.status === "expired"
                                 ? `Level ${g.level} ${expiryText(g.expiresAt).toLowerCase()}`
                                 : `Level ${g.effectiveLevel} of ${g.target}`}
-                            {viaTraining ? "" : ". Needs an Engineer's practice sign-off."}
+                            {next}
                           </span>
                         </button>
-                        {viaTraining ? (
+                        {viaTraining && !tryOut ? (
                           <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 text-xs" asChild>
                             <Link href={`/learn/trainings/${training._id}`}>
                               <span className="font-mono">{training.code}</span>
@@ -307,7 +317,7 @@ export function PersonSkillsPage() {
                             className="h-7 shrink-0 text-xs"
                             onClick={() => setOpenSkill(g.skill._id)}
                           >
-                            Sign off
+                            {tryOut ? "Sign off try-out" : "Sign off"}
                           </Button>
                         )}
                       </div>

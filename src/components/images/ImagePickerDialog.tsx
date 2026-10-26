@@ -172,19 +172,19 @@ function PickerBody({ onOpenChange, onPick, initialQuery, areaCodes, assetIds, t
       ) : (
         <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)} className="flex min-h-0 flex-1 flex-col">
           <TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
-            <TabsTrigger value="suggested" className="gap-1.5">
+            <TabsTrigger value="suggested" className="gap-1.5" aria-controls={undefined}>
               <Sparkles className="h-3.5 w-3.5" /> Suggested
             </TabsTrigger>
-            <TabsTrigger value="recent" className="gap-1.5">
+            <TabsTrigger value="recent" className="gap-1.5" aria-controls={undefined}>
               <Clock className="h-3.5 w-3.5" /> Recent
             </TabsTrigger>
-            <TabsTrigger value="favorites" className="gap-1.5">
+            <TabsTrigger value="favorites" className="gap-1.5" aria-controls={undefined}>
               <Star className="h-3.5 w-3.5" /> Favorites
             </TabsTrigger>
-            <TabsTrigger value="upload" className="gap-1.5">
+            <TabsTrigger value="upload" className="gap-1.5" aria-controls={undefined}>
               <Upload className="h-3.5 w-3.5" /> Upload
             </TabsTrigger>
-            <TabsTrigger value="create" className="gap-1.5">
+            <TabsTrigger value="create" className="gap-1.5" aria-controls={undefined}>
               <Wand2 className="h-3.5 w-3.5" /> Create
             </TabsTrigger>
           </TabsList>

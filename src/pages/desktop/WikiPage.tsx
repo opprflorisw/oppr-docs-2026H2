@@ -1,3 +1,4 @@
+import { errorText } from "@/lib/errorText"
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { useMutation, useQuery } from "convex/react"
@@ -183,7 +184,7 @@ function WikiReaderPage({ wiki }: { wiki: WikiView }) {
       await regenerate({ id: wiki._id, personId: person?._id })
       toast.success("Rebuilding. The current version stays visible until it is done.")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message.replace(/^.*ConvexError: /, "") : String(err))
+      toast.error(errorText(err))
     }
   }
 
@@ -193,7 +194,7 @@ function WikiReaderPage({ wiki }: { wiki: WikiView }) {
       toast.success("Wiki deleted")
       navigate("/wiki")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      toast.error(errorText(err))
     }
   }
 
@@ -202,7 +203,7 @@ function WikiReaderPage({ wiki }: { wiki: WikiView }) {
       await setStartHere({ id: wiki._id, on: wiki.startHere == null, personId: person?._id })
       toast.success(wiki.startHere == null ? "Added to Start here on the Wiki home" : "Taken off Start here")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      toast.error(errorText(err))
     }
   }
 
@@ -558,7 +559,7 @@ function TrustLine({
   if (facts.length === 0 && otherFindings > 0)
     quiet.push(
       <Link key="f" href={findingsHref} className="font-medium text-red-700 underline-offset-2 hover:underline dark:text-red-300">
-        {otherFindings} open {otherFindings === 1 ? "Finding concerns" : "Findings concern"} these sources, but no fact on this page
+        {otherFindings} open {otherFindings === 1 ? "Finding concerns" : "Findings concern"} these sources, but no fact in this Wiki
       </Link>,
     )
   if (h.reviewsOverdue > 0)
@@ -611,7 +612,7 @@ function TrustLine({
           <p className="pl-6 text-xs">
             Check with the document owner before acting on {facts.length === 1 ? "it" : "them"}.{" "}
             <Link href={findingsHref} className="font-medium underline-offset-2 hover:underline">
-              {touched.size} open {touched.size === 1 ? "Finding" : "Findings"} on this page
+              {touched.size} open {touched.size === 1 ? "Finding" : "Findings"} in this Wiki
               {otherFindings > 0 ? `, ${otherFindings} more on these sources but no fact here` : ""}
             </Link>
           </p>
@@ -645,20 +646,32 @@ function TrustLine({
   )
 }
 
-/** "Built from 11 documents · all current · built 4 min ago", opens to the list. */
+/**
+ * "Built from 11 documents · latest versions, 3 open Findings · built 4 min
+ * ago", opens to the list. "Latest versions" only says the Wiki read what is
+ * Published now; open Findings and overdue reviews are named next to it, so
+ * the line never reads as "all fine" while the trust line says otherwise.
+ */
 function BuiltFrom({ wiki }: { wiki: WikiView }) {
   const [open, setOpen] = useState(false)
   const allCurrent = wiki.outdated.length === 0
   const n = wiki.sources.length
   if (n === 0) return null
+  const findings = wiki.findings.length
+  const overdue = wiki.health.reviewsOverdue
+  const caveats = [
+    findings > 0 ? `${findings} open ${findings === 1 ? "Finding" : "Findings"}` : null,
+    overdue > 0 ? `${overdue} ${overdue === 1 ? "review" : "reviews"} overdue` : null,
+  ].filter((x): x is string => x != null)
+  const clean = allCurrent && caveats.length === 0
   return (
     <div className="space-y-2 text-xs" data-tour="wiki-sources">
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex w-full items-start gap-2 text-left">
         <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
         <span className="min-w-0 flex-1 leading-5 text-muted-foreground">
           Built from {n} {n === 1 ? "document" : "documents"} ·{" "}
-          <span className={cn(allCurrent ? "text-emerald-700 dark:text-emerald-300" : "font-medium text-amber-700 dark:text-amber-300")}>
-            {allCurrent ? "all current" : `${wiki.outdated.length} changed`}
+          <span className={cn(clean ? "text-emerald-700 dark:text-emerald-300" : "font-medium text-amber-700 dark:text-amber-300")}>
+            {[allCurrent ? "latest versions" : `${wiki.outdated.length} changed`, ...caveats].join(", ")}
           </span>
           {wiki.generatedAt ? ` · built ${formatAgo(wiki.generatedAt)}` : ""}
         </span>

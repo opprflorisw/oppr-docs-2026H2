@@ -13,6 +13,7 @@
 // The askQuestion() generator is consumed with a per-stream AbortController
 // so the user can cancel mid-response.
 
+import { errorText } from "@/lib/errorText"
 import {
   useCallback,
   useEffect,
@@ -52,7 +53,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { formatDateTime } from "@/lib/time"
 import { useChatSize, useOnline, type ChatSize } from "@/components/mobile/use-mobile-prefs"
-import { FloorFeedback, FloorSources } from "@/components/mobile/AskFloor"
+import { FloorFeedback, FloorSources, FloorWaiting } from "@/components/mobile/AskFloor"
 import { FloorPrimaryButton, FloorSecondaryButton, MobileSheet } from "@/components/mobile/MobileSheet"
 import { cn, isMobilePath } from "@/lib/utils"
 import { LogReferenceModal } from "@/components/docs/LogReferenceModal"
@@ -396,7 +397,7 @@ export function AskPanel({
         await deleteMessages({ sessionId: sessionId as Id<"qaSessions"> })
       } catch (err) {
         toast.error(
-          err instanceof Error ? err.message : "Failed to clear chat",
+          errorText(err, "Could not clear the conversation. Try again."),
         )
       }
     }
@@ -417,7 +418,7 @@ export function AskPanel({
       setPickedSession(id)
       taRef.current?.focus()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not start a new conversation")
+      toast.error(errorText(err, "Could not start a new conversation. Try again."))
     }
   }
 
@@ -511,7 +512,7 @@ export function AskPanel({
             who,
           })
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to start chat")
+      toast.error(errorText(err, "Could not start Ask. Try again."))
       setPending(false)
       return
     }
@@ -622,8 +623,8 @@ export function AskPanel({
         setStreamingText("")
         return
       }
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`Q&A failed: ${msg}`)
+      const msg = errorText(err, "Ask could not answer this time. Try again.")
+      toast.error(`No answer: ${msg}`)
       try {
         await addMessage({
           sessionId: activeSessionId,
@@ -740,7 +741,7 @@ export function AskPanel({
       recognitionRef.current = rec
       setListening(true)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Voice input failed")
+      toast.error(errorText(err, "Voice input did not start. Type your question instead."))
     }
   }, [listening, speechCtor])
 
@@ -914,11 +915,7 @@ export function AskPanel({
             floor={floor}
           />
         ))}
-        {pending && !streamingText && (
-          <div className={cn("italic text-muted-foreground", floor ? "text-base" : "text-xs")}>
-            {floor ? "Looking in the Published documents..." : "Thinking…"}
-          </div>
-        )}
+        {pending && !streamingText && (floor ? <FloorWaiting /> : <div className="text-xs italic text-muted-foreground">Thinking…</div>)}
       </div>
 
       {floor && (
@@ -1158,6 +1155,8 @@ interface MessageBlockProps {
   floor?: boolean
 }
 
+const FLOOR_SHORT_WORDS = 70
+
 function MessageBlock({
   message,
   question,
@@ -1176,6 +1175,11 @@ function MessageBlock({
   floor = false,
 }: MessageBlockProps) {
   const isUser = message.role === "user"
+  // On the floor a long answer opens short: the first lines, then "Show the
+  // whole answer". No wall of text at the machine.
+  const [expanded, setExpanded] = useState(false)
+  const words = message.text.trim().split(/\s+/).length
+  const collapsed = floor && !isUser && !streaming && !expanded && words > FLOOR_SHORT_WORDS
 
   if (isUser) {
     return (
@@ -1200,17 +1204,35 @@ function MessageBlock({
           floor ? "w-full space-y-3 rounded-2xl rounded-bl-md bg-muted/60 px-4 py-3" : "max-w-[92%] space-y-2.5 rounded-lg bg-muted px-3 py-2",
         )}
       >
-        <MessageContent
-          text={message.text}
-          streaming={streaming}
-          onCitationClick={onCitationAnchor}
-          onCodeClick={onCodeNavigate}
-          citationCount={message.citations?.length ?? 0}
-        />
+        <div
+          className={cn(
+            floor && "floor-answer",
+            collapsed && "relative max-h-[11em] overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)]",
+          )}
+        >
+          <MessageContent
+            text={message.text}
+            streaming={streaming}
+            onCitationClick={onCitationAnchor}
+            onCodeClick={onCodeNavigate}
+            citationCount={message.citations?.length ?? 0}
+          />
+        </div>
+        {floor && !isUser && !streaming && words > FLOOR_SHORT_WORDS && (
+          <button
+            type="button"
+            onClick={() => setExpanded(!expanded)}
+            aria-expanded={expanded}
+            className="flex min-h-11 items-center text-base font-semibold text-[#6E59A5]"
+          >
+            {expanded ? "Show less" : `Show the whole answer (${words} words)`}
+          </button>
+        )}
 
         {floor && message.citations && message.citations.length > 0 && (
           <FloorSources
             citations={message.citations}
+            answer={message.text}
             domIdPrefix={`citation-${message.id}`}
             onOpen={onCitationOpen}
           />

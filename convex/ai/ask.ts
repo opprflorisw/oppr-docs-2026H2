@@ -13,6 +13,11 @@ import type { MeterSpec } from "../lib/aiMeter"
 import { isPublished, publishedVersion } from "../lib/published"
 import { normaliseContent } from "../lib/wikiTypes"
 
+/** Score added to excerpts from the plant's own Documents (not supplier manuals). */
+const OWN_DOCUMENT_BOOST = 0.03
+/** Score added to excerpts that name the machine or term a floor word in the question stands for. */
+const FLOOR_WORD_BOOST = 0.05
+
 const SYSTEM_INSTRUCTION = [
   "You are Ask, the question-answering assistant inside Oppr Knowledge, a factory's controlled knowledge base. You only know Published documents.",
   "You may receive two grounding blocks for every question:",
@@ -22,6 +27,10 @@ const SYSTEM_INSTRUCTION = [
   "  • SKILL MATRIX (only on the Skills pages): who holds which Skill at which level now, their shift and their Skill profiles. Answer questions about people, cover and gaps from it, naming the people. Never cite it, and never take steps or settings from it.",
   "Hard rules:",
   "  • Answer the user's question directly. Be concise. Operators are on the floor.",
+  "  • Your first sentence answers exactly what was asked: the setting, value or action for the machine or task named, with its citation. A floor word from the PLANT BRIEFING (for example 'rupsaftrek') means that one machine: do not drift to the machine next to it.",
+  "  • For a 'how do I' question, follow the first sentence with the few steps (at most three) that do exactly what was asked, then stop. Leave out steps about other tasks (threading, cutting, cleaning) unless the question asks for them, even when the same excerpt holds them.",
+  "  • Keep the whole answer under 80 words unless the person asks for more. Put each citation right after the claim it supports.",
+  "  • An excerpt marked '(supplier manual)' is the maker's manual, and it is Published knowledge too. When the plant's own procedure covers the step, lead with the procedure; take from the manual what the procedure does not cover. Never say the documents lack something that a manual excerpt gives. When the question names a situation (for example 'after a changeover') and a plant procedure for that situation has a step about the thing asked, your first sentence gives that step and cites it; the manual comes after it as extra detail.",
   "  • Never use em dashes. Use a comma, a colon or a full stop instead.",
   "  • DO NOT recite the SCOPE OVERVIEW back. DO NOT include phrases like 'Total Inventory', 'Document Scope Summary', 'Documents:', 'Assets:'. The UI already shows that data, don't restate it.",
   "  • Use EXCERPTS for specifics (steps, values, procedures). Cite each excerpt you actually use as `[1]`, `[2]`, … in plain brackets. Do not write Markdown footnotes.",
@@ -205,6 +214,8 @@ export const lookupAfterSearch = internalQuery({
         pageOrSection: c.pageOrSection,
         documentTitle: d?.title ?? "(unknown)",
         documentNamingCode: d?.namingCode ?? "",
+        // A supplier PDF kept unchanged: ranked after the plant's own text.
+        supplierManual: d?.origin === "wrapped",
       }
     })
   },
@@ -347,10 +358,13 @@ async function prepareAskContext(
   args: AskInput,
   m: MeterSpec,
 ): Promise<PreparedAsk> {
-  const queryVec = await embedText(m, args.question)
+  // Floor words ("rupsaftrek") are added in the plant's own words ("Haul-off")
+  // before the search, so the excerpts about that machine rank first.
+  const floorWords: string[] = await ctx.runQuery(internal.ai.ask.floorWordsIn, { question: args.question })
+  const queryVec = await embedText(m, floorWords.length ? `${args.question} (${floorWords.join(", ")})` : args.question)
 
   const k = topKForScope(args.scope)
-  const overFetch = args.scope.kind === "library" ? 16 : 30
+  const overFetch = args.scope.kind === "library" && floorWords.length === 0 ? 16 : 30
 
   // Asset scope resolves its linked documents up front so the vector search
   // itself is sliced to them. Post-filtering a library-wide search (the old
@@ -406,6 +420,7 @@ async function prepareAskContext(
     pageOrSection: string | null
     documentTitle: string
     documentNamingCode: string
+    supplierManual: boolean
   }
   const looked: LookedChunk[] = await ctx.runQuery(
     internal.ai.ask.lookupAfterSearch,
@@ -416,16 +431,34 @@ async function prepareAskContext(
   )
 
   const scoreById = new Map(vectorResults.map((r) => [String(r._id), r._score]))
-  const candidates: RetrievedChunk[] = looked.map((c) => ({
+  // A title line or a "References" entry only names a Document; it holds no
+  // answer and would take an excerpt slot from the step that does.
+  const holdsNoAnswer = (c: LookedChunk) =>
+    /^(references|referenties|related documents)$/i.test((c.pageOrSection ?? "").trim()) ||
+    c.text.trim().toLowerCase() === c.documentTitle.trim().toLowerCase() ||
+    c.text.trim().toLowerCase() === (c.pageOrSection ?? "").trim().toLowerCase()
+  const useful = looked.filter((c) => !holdsNoAnswer(c))
+  const candidates: RetrievedChunk[] = (useful.length > 0 ? useful : looked).map((c) => ({
     _id: c.chunkId,
     documentId: c.documentId,
     text: c.text,
     pageOrSection: c.pageOrSection,
     score: scoreById.get(String(c.chunkId)) ?? 0,
   }))
+  // A passage that names the machine the floor word stands for ("haul-off"
+  // for "rupsaftrek") is about what was asked: rank it a little higher.
+  const named = floorWords.map((w) => w.toLowerCase())
+  if (named.length > 0)
+    for (const c of candidates) if (named.some((w) => c.text.toLowerCase().includes(w))) c.score += FLOOR_WORD_BOOST
   candidates.sort((a, b) => b.score - a.score)
-  let top = candidates.slice(0, k)
   const lookedById = new Map(looked.map((c) => [String(c.chunkId), c]))
+  // Which excerpts get in is decided by relevance alone. Among those, the
+  // plant's own procedure is numbered before a supplier manual that scores
+  // about the same, so the answer and its main source lead with the SOP the
+  // floor works to; the manual still adds what the SOP does not cover.
+  const ranked = (c: RetrievedChunk) =>
+    c.score + (lookedById.get(String(c._id))?.supplierManual ? 0 : OWN_DOCUMENT_BOOST)
+  let top = candidates.slice(0, k).sort((a, b) => ranked(b) - ranked(a))
 
   // Asset scope fallback: when the linked documents can't fill the answer,
   // widen to the whole library and mark every widened source as cross-link so
@@ -489,9 +522,10 @@ async function prepareAskContext(
           meta.documentNamingCode,
         )
         const loc = section ? ` — ${section}` : ""
+        const kind = meta.supplierManual ? " (supplier manual)" : ""
         const header = meta.documentNamingCode
-          ? `${meta.documentNamingCode} · ${meta.documentTitle}${loc}`
-          : `${meta.documentTitle}${loc}`
+          ? `${meta.documentNamingCode} · ${meta.documentTitle}${kind}${loc}`
+          : `${meta.documentTitle}${kind}${loc}`
         const crossLink = crossLinkChunkIds.has(String(c._id))
           ? " (from the wider library, not linked to this asset)"
           : ""
@@ -598,6 +632,22 @@ export const lookupTrainingDocs = internalQuery({
   args: { trainingId: v.id("trainings") },
   handler: async (ctx, args): Promise<Id<"documents">[]> =>
     (await trainingDocIds(ctx, args.trainingId)).docIds,
+})
+
+/** Plant words whose synonym (often Dutch) appears in the question but whose own name does not. */
+export const floorWordsIn = internalQuery({
+  args: { question: v.string() },
+  handler: async (ctx, args): Promise<string[]> => {
+    const q = ` ${args.question.toLowerCase().replace(/[^\p{L}\p{N}-]+/gu, " ")} `
+    const has = (w: string) => w.trim().length > 2 && q.includes(` ${w.toLowerCase().trim()} `)
+    const items = await ctx.db.query("plantItems").take(2000)
+    const out: string[] = []
+    for (const i of items) {
+      if (has(i.name) || !i.synonyms.some(has)) continue
+      if (!out.includes(i.name)) out.push(i.name)
+    }
+    return out.slice(0, 5)
+  },
 })
 
 export const lookupAssetDocs = internalQuery({

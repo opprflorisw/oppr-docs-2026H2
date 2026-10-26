@@ -487,8 +487,16 @@ async function computeHealth(ctx: QueryCtx) {
 
   const totalQuestions = asks.length
   const answered = asks.filter((a) => a.answerFound).length
+  // The demo plant comes from the seed: its views, Scans and questions are
+  // sample data, and the page says so (an outsider cannot tell otherwise).
+  const sites = await ctx.db
+    .query("plantItems")
+    .withIndex("by_kind", (q) => q.eq("kind", "site"))
+    .take(10)
+  const sample = sites.some((s) => s.source === "seed")
   return {
     windowDays: WINDOW_DAYS,
+    sample,
     stats: {
       published: published.length,
       // Distinct Published documents with at least one decision to make.

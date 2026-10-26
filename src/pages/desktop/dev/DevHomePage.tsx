@@ -7,7 +7,8 @@ import { api } from "../../../../convex/_generated/api"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatDate } from "@/lib/time"
 import { DevPage } from "@/components/dev/DevFrame"
-import { DEV_HOME, DEV_TOOL, useIsDeveloper, type DevTool } from "@/components/dev/devTools"
+import { DEV_HOME, DEV_TOOL, setShowLabs, useIsDeveloper, useShowLabs, type DevTool } from "@/components/dev/devTools"
+import { Switch } from "@/components/ui/switch"
 import { imageEngine, textEngine, useGpuProbe, useStore } from "@/components/dev/embeddings/engine"
 import { ANALYSES } from "../analysis/registry"
 
@@ -16,14 +17,41 @@ export function DevHomePage() {
   return (
     <DevPage tool={DEV_HOME} statusLine="Tools for Engineers and Admins to try out models, connections and AI setups.">
       {allowed && (
-        <div className="grid gap-4 md:grid-cols-2" data-tour="developer-home-tools">
-          <ToolCard tool={DEV_TOOL.embeddings} status={<LabStatus />} />
-          <ToolCard tool={DEV_TOOL.mcp} status={<McpStatus />} />
-          <ToolCard tool={DEV_TOOL.ai} status={<AiStatus />} />
-          <ToolCard tool={DEV_TOOL.analysis} status={<AnalysisStatus />} />
+        <div className="space-y-6" data-tour="developer-home-tools">
+          <div className="grid gap-4 md:grid-cols-2">
+            <ToolCard tool={DEV_TOOL.mcp} status={<McpStatus />} />
+            <ToolCard tool={DEV_TOOL.ai} status={<AiStatus />} />
+          </div>
+          <section className="space-y-3" aria-labelledby="dev-labs-title">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 id="dev-labs-title" className="text-sm font-semibold">
+                  Internal labs
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  For the Oppr team, not part of what a plant gets. Hidden from the menu unless you show them.
+                </p>
+              </div>
+              <LabsToggle />
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <ToolCard tool={DEV_TOOL.embeddings} status={<LabStatus />} />
+              <ToolCard tool={DEV_TOOL.analysis} status={<AnalysisStatus />} />
+            </div>
+          </section>
         </div>
       )}
     </DevPage>
+  )
+}
+
+function LabsToggle() {
+  const on = useShowLabs()
+  return (
+    <label className="flex min-h-11 items-center gap-2 text-sm">
+      <Switch checked={on} onCheckedChange={setShowLabs} aria-label="Show internal labs in the menu" />
+      Show in the menu
+    </label>
   )
 }
 

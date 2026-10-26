@@ -29,7 +29,7 @@ export function DevMcpPage() {
   return (
     <DevPage
       tool={DEV_TOOL.mcp}
-      statusLine="The messy work happens in your own AI; only clean, reviewed knowledge lives here."
+      statusLine="Connect your own AI assistant to Oppr. It does the messy work on old files; only reviewed Knowledge lives here."
       tabs={TABS}
       tab={tab}
       onTab={go}

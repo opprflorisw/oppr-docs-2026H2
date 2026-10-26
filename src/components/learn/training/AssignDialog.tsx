@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery } from "convex/react"
 import type { FunctionReference } from "convex/server"
 import { toast } from "sonner"
-import { Check, ChevronsUpDown, Loader2, Users, X } from "lucide-react"
+import { AlertTriangle, Check, ChevronsUpDown, Loader2, Users, X } from "lucide-react"
+import { Link } from "wouter"
 import { api } from "../../../../convex/_generated/api"
 import type { Id } from "../../../../convex/_generated/dataModel"
 import { Button } from "@/components/ui/button"
@@ -138,13 +139,23 @@ export function AudiencePicker({
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-72 p-0" align="start">
-              <Command>
+              <Command
+                filter={(value, search) => (value.toLowerCase().includes(search.trim().toLowerCase()) ? 1 : 0)}
+              >
                 <CommandInput placeholder="Search people" />
                 <CommandList>
                   <CommandEmpty>Nobody found.</CommandEmpty>
                   <CommandGroup>
                     {people.map((p) => (
-                      <CommandItem key={p._id} value={`${p.name} ${p.role}`} onSelect={() => togglePerson(p._id)}>
+                       <CommandItem
+                        key={p._id}
+                        value={`${p.name} ${p.role}`}
+                        onSelect={() => {
+                          togglePerson(p._id)
+                          // Close so the Due and Reason fields below are free again.
+                          setOpen(false)
+                        }}
+                      >
                         <Check className={cn("mr-2 h-3.5 w-3.5", personIds.includes(p._id) ? "opacity-100" : "opacity-0")} />
                         <span className="truncate">{p.name}</span>
                         <span className="ml-auto truncate pl-2 text-xs text-muted-foreground">{p.role}</span>
@@ -251,8 +262,22 @@ export function AssignDialog({
     setSaving(true)
     setError(null)
     try {
-      await assign({ trainingId: pickedTraining, personIds: people, dueAt, reason: note.trim() || null, personId: person._id })
-      toast.success(`Assigned to ${people.length} ${people.length === 1 ? "person" : "people"}, due ${formatDate(dueAt)}`)
+      const res = (await assign({
+        trainingId: pickedTraining,
+        personIds: people,
+        dueAt,
+        reason: note.trim() || null,
+        personId: person._id,
+      })) as { created?: number; updated?: number; unchanged?: number } | null
+      const created = res?.created ?? people.length
+      const updated = res?.updated ?? 0
+      const unchanged = res?.unchanged ?? 0
+      const parts = [
+        created > 0 && `Assigned to ${created} ${created === 1 ? "person" : "people"}`,
+        updated > 0 && `${updated} already assigned, due date moved`,
+        unchanged > 0 && `${unchanged} already assigned with this due date`,
+      ].filter(Boolean)
+      toast.success(`${parts.join(". ")}. Due ${formatDate(dueAt)}.`)
       onOpenChange(false)
     } catch (err) {
       setError(errorText(err, "Could not assign. Try again."))
@@ -281,13 +306,33 @@ export function AssignDialog({
                 onChange={(e) => setPickedTraining((e.target.value || null) as Id<"trainings"> | null)}
                 className="h-10 w-full rounded-md border bg-background px-3 text-sm"
               >
-                <option value="">Choose a published Training</option>
+                <option value="">Choose a Published Training</option>
                 {trainings.map((t) => (
                   <option key={t._id} value={t._id}>
                     {t.code} {t.title}
                   </option>
                 ))}
               </select>
+            </div>
+          )}
+
+          {training?.needsReview && (
+            <div
+              role="status"
+              className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <span>
+                On hold after a change{training.needsReviewReason ? `: ${training.needsReviewReason}` : ""}. People you assign
+                it to cannot start it until an Engineer decides.{" "}
+                <Link
+                  href={`/learn/trainings/${training._id}`}
+                  className="font-medium underline underline-offset-2"
+                  onClick={() => onOpenChange(false)}
+                >
+                  Open the Training to decide
+                </Link>
+              </span>
             </div>
           )}
 

@@ -16,6 +16,7 @@
 // importJobs row, and the document is created through importer.finalizeDocument
 // (which gives us pre_draft + chunks + image-usage recompute for free).
 
+import { errorText } from "@/lib/errorText"
 import { useEffect, useState } from "react"
 import { Link, useLocation, useRoute } from "wouter"
 import { ArrowRight, FileText, Loader2, ScanLine, Upload, X } from "lucide-react"
@@ -49,7 +50,7 @@ export function ImportPage() {
       <TopBar
         breadcrumb={[
           { label: "Documents", href: "/library" },
-          { label: "Import external" },
+          { label: "Convert a PDF" },
         ]}
       />
       {jobId ? <RedirectJob jobId={jobId} /> : <NewImport />}
@@ -215,7 +216,7 @@ function NewImport() {
       navigate(`/docs/${docId}/edit`)
     } catch (err) {
       console.error(err)
-      toast.error(err instanceof Error ? err.message : "Import failed", { id: tid })
+      toast.error(errorText(err, "The PDF could not be converted. Try again."), { id: tid })
     } finally {
       setBusy(false)
       setBusyMsg("")
@@ -262,7 +263,7 @@ function NewImport() {
       navigate(`/docs/${docId}/edit`)
     } catch (err) {
       console.error(err)
-      toast.error(err instanceof Error ? err.message : "Attach failed", { id: tid })
+      toast.error(errorText(err, "The PDF could not be attached. Try again."), { id: tid })
     } finally {
       setBusy(false)
     }
@@ -272,8 +273,8 @@ function NewImport() {
     <>
       <PageHeader
         icon={Upload}
-        title="Import external document"
-        subtitle="Drop a PDF. We pull the text and images straight into the editor as a new draft. Scanned PDFs are attached as-is."
+        title="Convert a PDF"
+        subtitle="Turn an existing SOP or work instruction PDF into an editable Document, without retyping. A scanned PDF is attached as it is."
       />
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto max-w-2xl space-y-4">
@@ -287,11 +288,11 @@ function NewImport() {
           ) : (
             <Card data-tour="documents-import-card">
               <CardHeader>
-                <CardTitle className="text-base">Import a PDF</CardTitle>
+                <CardTitle className="text-base">Convert a PDF into a Draft</CardTitle>
                 <CardDescription className="text-xs">
-                  Digital PDFs are extracted to text + images and opened in the
-                  editor. No template, no AI, no naming code up front: you set
-                  all of that in the editor. The source PDF is kept for audit.
+                  The text and pictures of a digital PDF open in the editor as a
+                  new Draft. No template, no AI and no naming code yet: you set
+                  those in the editor. The source PDF is kept for the record.
                 </CardDescription>
               </CardHeader>
               <CardContent>

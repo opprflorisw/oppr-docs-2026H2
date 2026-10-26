@@ -7,7 +7,7 @@
 // Admins edit the table on /dev/ai (Prices). A model the app uses gets its
 // default list price the first time a call of it is recorded (`ensureDefault`).
 import { ConvexError, v } from "convex/values"
-import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server"
+import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 import { requireUser } from "./lib/auth"
 import { isAdmin, isEngineerOrAdmin } from "./lib/roles"
@@ -202,14 +202,51 @@ export const setPrice = mutation({
   },
 })
 
-/** Removes one price row (a mistake). Calls already recorded keep their cost. Admin only. */
+/**
+ * Re-prices the calls of `model` in [from, to) with the rows in force now,
+ * from the last 30 days (up to 8,000 scanned). Used when a mistaken price row
+ * is removed, so its costs do not stay in the totals. Returns how many changed.
+ */
+async function repriceCalls(ctx: MutationCtx, model: string, from: number, to: number): Promise<number> {
+  const start = Math.max(from, Date.now() - 30 * 24 * 60 * 60 * 1000)
+  let changed = 0
+  let scanned = 0
+  for await (const r of ctx.db
+    .query("aiUsage")
+    .withIndex("by_kind_and_time", (q) => q.eq("kind", "call").gte("time", start).lt("time", to))) {
+    if (++scanned > 8000) break
+    if (r.model !== model || r.calls !== undefined) continue
+    const cost = costOf(r, await priceAt(ctx, r.model, r.time))
+    if (cost === r.estCost) continue
+    await ctx.db.patch(r._id, { estCost: cost })
+    changed++
+  }
+  return changed
+}
+
+/**
+ * Removes one price row (a mistake). Calls it priced in the last 30 days are
+ * priced again with the row now in force; other calls keep their cost. Admin only.
+ */
 export const removePrice = mutation({
   args: { personId: v.optional(v.id("people")), priceId: v.id("aiPrices") },
   handler: async (ctx, args) => {
     await requireAdmin(ctx, args.personId)
+    const row = await ctx.db.get(args.priceId)
+    if (!row) return 0
+    const next = await ctx.db
+      .query("aiPrices")
+      .withIndex("by_model_and_effectiveFrom", (q) => q.eq("model", row.model).gt("effectiveFrom", row.effectiveFrom))
+      .first()
     await ctx.db.delete(args.priceId)
-    return null
+    return await repriceCalls(ctx, row.model, row.effectiveFrom, next?.effectiveFrom ?? Date.now() + 1)
   },
+})
+
+/** Maintenance (npx convex run): re-price one model's calls in a time window with the rows in force now. */
+export const repriceWindow = internalMutation({
+  args: { model: v.string(), from: v.number(), to: v.number() },
+  handler: async (ctx, args) => await repriceCalls(ctx, args.model, args.from, args.to),
 })
 
 /** Adds the default list price for every model in use that has no row yet. Admin only. */

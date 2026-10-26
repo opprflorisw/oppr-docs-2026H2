@@ -3,6 +3,7 @@
 // tag, collection, area or Asset, see where each one is used, and tidy up in
 // bulk. Uploads (drag and drop anywhere) get an AI description and tags so
 // nobody has to think of them. Editing needs a checked-in Engineer or Admin.
+import { errorText } from "@/lib/errorText"
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { Link } from "wouter"
 import { useAction, useMutation, useQuery } from "convex/react"
@@ -569,7 +570,7 @@ export function ImageLibraryPage(_props: { params?: unknown }) {
         onChange={(e) => {
           const f = e.target.files?.[0]
           e.target.value = ""
-          if (f) search.searchByPhoto(f).catch((err: unknown) => toast.error(err instanceof Error ? err.message : "Could not search by photo"))
+          if (f) search.searchByPhoto(f).catch((err: unknown) => toast.error(errorText(err, "Could not search by photo. Try again.")))
         }}
       />
 
@@ -762,7 +763,7 @@ function FilterRail(props: {
                   t.count === 0 && "opacity-50",
                 )}
               >
-                {t.tag} <span className="tabular-nums opacity-70">{t.count}</span>
+                {t.tag} <span className="tabular-nums">{t.count}</span>
               </button>
             ))}
             {tagRows.length > 18 && (

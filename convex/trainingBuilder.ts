@@ -15,6 +15,7 @@ import type { Doc, Id } from "./_generated/dataModel"
 import { requireUserId } from "./lib/auth"
 import {
   BLOCKED_REASON,
+  blockedReasonFor,
   getVersion,
   loadLiveDoc,
   makeDocCache,
@@ -467,7 +468,7 @@ export const learnerSummary = query({
     return {
       version,
       live: t.liveVersion != null && t.status !== "archived",
-      blockedReason: blocked ? BLOCKED_REASON : null,
+      blockedReason: blocked ? (t.needsReview ? blockedReasonFor(t) : BLOCKED_REASON) : null,
       purpose: row.purpose,
       questions: total,
       steps: row.breakdown?.length ?? 0,

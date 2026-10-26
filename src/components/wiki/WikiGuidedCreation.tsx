@@ -229,7 +229,7 @@ function WikiDraftFields({
         <div>
           <p className="text-xs font-semibold">Scope</p>
           <p className="text-xs text-muted-foreground">
-            {preview?.sentence ?? "Which published knowledge the Wiki is built from."}
+            {preview?.sentence ?? "Which Published documents the Wiki is built from."}
           </p>
         </div>
 
@@ -500,9 +500,9 @@ function DocumentPicker({
           </PopoverTrigger>
           <PopoverContent className="w-80 p-0" align="start">
             <Command>
-              <CommandInput placeholder="Search published documents" className="text-xs" />
+              <CommandInput placeholder="Search Published documents" className="text-xs" />
               <CommandList>
-                <CommandEmpty>No published document found.</CommandEmpty>
+                <CommandEmpty>No Published document found.</CommandEmpty>
                 <CommandGroup>
                   {options.map((d) => (
                     <CommandItem

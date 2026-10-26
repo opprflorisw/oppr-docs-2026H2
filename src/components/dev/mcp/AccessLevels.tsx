@@ -10,7 +10,7 @@ export function AccessLevels() {
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]" data-tour="developer-mcp-access">
       <Card>
         <CardContent className="p-0">
-          <Table>
+          <Table scrollLabel="Access levels">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[140px]">Scope</TableHead>
@@ -40,7 +40,7 @@ export function AccessLevels() {
               })}
               <TableRow className="bg-destructive/5 text-xs hover:bg-destructive/5">
                 <TableCell>
-                  <span className="inline-flex items-center gap-1 font-semibold text-destructive">
+                  <span className="inline-flex items-center gap-1 font-semibold text-red-700 dark:text-red-400">
                     <Ban className="h-3.5 w-3.5" /> Never
                   </span>
                 </TableCell>

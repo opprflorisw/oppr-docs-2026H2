@@ -115,14 +115,19 @@ export function SubmitForReviewDialog({
   const [reviewer, setReviewer] = useState("")
   const [approver, setApprover] = useState("")
   const [note, setNote] = useState("")
+  const [kind, setKind] = useState<ChangeKind | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A new version: the author says what kind of change it is, so the reviewer
+  // and the approver see the intent. The approver confirms it at Publish.
+  const impact = useQuery(api.documents.publishImpact, open && isNewVersion ? { id: documentId } : "skip")
 
   useEffect(() => {
     if (!open) return
     setReviewer(initialReviewer ?? "")
     setApprover(initialApprover ?? "")
     setNote(initialNote ?? "")
+    setKind(null)
     setError(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -151,6 +156,7 @@ export function SubmitForReviewDialog({
         reviewerPersonId: reviewer as Id<"people">,
         ...(approver ? { approverPersonId: approver as Id<"people"> } : {}),
         ...(note.trim() ? { changeNote: note.trim() } : {}),
+        ...(isNewVersion && kind ? { significantChange: kind === "significant" } : {}),
       })
       onSubmitted?.()
       onOpenChange(false)
@@ -182,6 +188,43 @@ export function SubmitForReviewDialog({
             />
             <EngineerPicker id="submit-approver" label="Approver" value={approver} onChange={setApprover} exclude={fourEyes && reviewer ? [reviewer] : []} />
           </div>
+          {isNewVersion && (
+            <fieldset className="space-y-2">
+              <legend className="mb-1 text-sm font-medium">What kind of change is this?</legend>
+              <div role="radiogroup" aria-label="What kind of change is this?" className="space-y-2">
+                <ChangeOption
+                  value="minor"
+                  selected={kind === "minor"}
+                  disabled={impact?.forcedSignificant ?? false}
+                  onSelect={() => setKind("minor")}
+                  title="Wording or typo only"
+                  text="How the work is done stays the same. Trainings and Skills are not affected."
+                />
+                <ChangeOption
+                  value="significant"
+                  selected={kind === "significant"}
+                  onSelect={() => setKind("significant")}
+                  title="Changes how the work is done (Significant change)"
+                  text={
+                    impact && (impact.holders > 0 || impact.trainings.length > 0)
+                      ? `At publish: ${impact.trainings.length} ${impact.trainings.length === 1 ? "Training goes" : "Trainings go"} back to review and ${impact.holders} ${impact.holders === 1 ? "person is" : "people are"} flagged for re-training.`
+                      : "Trainings built on it go back to review and holders of linked Skills are flagged for re-training."
+                  }
+                />
+              </div>
+              {impact && impact.reasons.length > 0 && (
+                <p className="flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-200">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    {impact.reasons.join(" ")} That usually means a Significant change.
+                  </span>
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                The approver sees your choice and confirms it when publishing.
+              </p>
+            </fieldset>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="submit-note">
               What changed and why{noteRequired ? "" : isNewVersion ? " (optional)" : " (optional for a first version)"}
@@ -258,7 +301,9 @@ export function PublishDocumentDialog({
   // number, unit or WARNING/DANGER passage changed.
   useEffect(() => {
     if (!open || !impact || kind != null) return
-    if (impact.suggestedSignificant) setKind("significant")
+    if (impact.forcedSignificant) setKind("significant")
+    else if (impact.proposedSignificant != null) setKind(impact.proposedSignificant ? "significant" : "minor")
+    else if (impact.suggestedSignificant) setKind("significant")
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, impact])
 
@@ -354,6 +399,15 @@ export function PublishDocumentDialog({
                   text="Trainings built on it go back to review and holders of linked Skills are flagged for re-training."
                 />
               </div>
+              {impact && impact.proposedSignificant != null && (
+                <p className="text-xs text-muted-foreground">
+                  The author marked it as{" "}
+                  <span className="font-medium text-foreground">
+                    {impact.proposedSignificant ? "a Significant change" : "wording only"}
+                  </span>{" "}
+                  when sending it for review.
+                </p>
+              )}
               {impact && impact.reasons.length > 0 && (
                 <p className="flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-200">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />

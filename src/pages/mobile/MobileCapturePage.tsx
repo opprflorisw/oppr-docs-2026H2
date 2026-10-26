@@ -106,7 +106,8 @@ function StartCapture({ personId }: { personId: Id<"people"> }) {
   const known = useQuery(api.captures.captures.knownJobs, { personId })
   const [title, setTitle] = useState("")
   const [showTitle, setShowTitle] = useState(false)
-  // null: not chosen yet (the last used job is preselected once known).
+  // null: not chosen yet. Nothing is preselected: a new problem is not the
+  // last job, so the person picks it with one tap (the last job is listed first).
   const [job, setJob] = useState<string | null>(null)
   const [otherOpen, setOtherOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -117,7 +118,7 @@ function StartCapture({ personId }: { personId: Id<"people"> }) {
 
   const jobs = known ?? []
   const lastJob = jobs.find((j) => j.mine)?.job ?? null
-  const chosen = job ?? (otherOpen ? "" : (lastJob ?? ""))
+  const chosen = job ?? ""
   const typingOther = otherOpen || (known !== undefined && jobs.length === 0)
 
   const handedIn = (mine ?? []).filter((c) => c.status !== "recording")
@@ -139,7 +140,7 @@ function StartCapture({ personId }: { personId: Id<"people"> }) {
 
   return (
     <div className="flex min-h-full flex-col">
-      <MobileHeader backTo={null} title="Capture" subtitle="Show how you do the work" />
+      <MobileHeader backTo={null} title="Capture" subtitle="Show how you do a job, so others can learn it" />
       <div className="flex-1 space-y-5 p-4">
         {!noticeDone && (
           <div className="flex min-h-12 items-center gap-2 rounded-xl border border-[#9b87f5]/40 bg-[#9b87f5]/10 py-1 pl-3 pr-1">
@@ -150,7 +151,7 @@ function StartCapture({ personId }: { personId: Id<"people"> }) {
               onClick={() => setNoticeOpen(true)}
               className="min-h-11 shrink-0 rounded-lg px-3 text-sm font-semibold text-[#6E59A5]"
             >
-              Read
+              Read more
             </button>
           </div>
         )}
@@ -557,9 +558,12 @@ function Recorder({ capture, personId }: { capture: ActiveCapture; personId: Id<
           type="button"
           onClick={() => setScanOpen(true)}
           disabled={disabled}
-          className="flex min-h-12 w-full items-center gap-2.5 rounded-xl border bg-card px-3 py-2 text-left disabled:opacity-60"
+          className={cn(
+            "flex min-h-12 w-full items-center gap-2.5 rounded-xl border px-3 py-2 text-left disabled:opacity-60",
+            currentAsset ? "bg-card" : "border-[#6E59A5]/50 bg-[#9b87f5]/10",
+          )}
         >
-          <Factory className="h-5 w-5 shrink-0 text-muted-foreground" />
+          <Factory className={cn("h-5 w-5 shrink-0", currentAsset ? "text-muted-foreground" : "text-[#6E59A5]")} />
           {currentAsset ? (
             <span className="min-w-0 flex-1">
               <span className="block text-[13px] text-muted-foreground">Entries are tagged with</span>
@@ -568,7 +572,7 @@ function Recorder({ capture, personId }: { capture: ActiveCapture; personId: Id<
               </span>
             </span>
           ) : (
-            <span className="min-w-0 flex-1 text-[15px] text-muted-foreground">No Asset yet. Scan the machine you are at.</span>
+            <span className="min-w-0 flex-1 text-[15px] font-medium">First: scan the machine you are at, so your Entries are tied to it.</span>
           )}
           <span className="text-sm font-medium text-[#6E59A5]">{currentAsset ? "Change" : "Scan"}</span>
         </button>

@@ -252,7 +252,7 @@ const REVIEW_PUBLISH: Tour = {
     {
       id: "revise",
       title: "Start a new version",
-      body: "On a Published Document this says New version. The live version stays in use for Operators until the new one is Published.",
+      body: "On a Published Document this says New version. The Published version stays in use for Operators until the new one is Published.",
       route: "{firstDocument}",
       target: "documents-revise-button",
       placement: "bottom",
@@ -260,7 +260,7 @@ const REVIEW_PUBLISH: Tour = {
     {
       id: "review",
       title: "Periodic review",
-      body: "When the review date comes, confirm the Document is still right or start a revision. You can change the interval here too.",
+      body: "When the review date comes, confirm the Document is still right, with a note on what you checked, or start a revision. An Engineer can change the interval here; the change is kept in the review record.",
       target: "documents-periodic-review",
       placement: "left",
     },
@@ -303,7 +303,7 @@ const REVIEW_PUBLISH: Tour = {
     {
       id: "save",
       title: "Save, submit, approve, publish",
-      body: "Save keeps your Draft. Next to it you find Submit for review, then Approve, then Publish, as the Document moves along.",
+      body: "Save keeps your Draft and signs you in as an author of this version, so you need to be checked in as an Engineer. Next to it you find Submit for review, then Approve, then Publish, as the Document moves along.",
       target: "documents-edit-save",
       placement: "bottom",
     },

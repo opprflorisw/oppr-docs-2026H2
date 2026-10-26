@@ -4,6 +4,7 @@
 // creating a NEW document with a fresh code (content and roles copied) and —
 // by default — archiving the old one. This dialog owns that flow.
 
+import { errorText } from "@/lib/errorText"
 import { useEffect, useMemo, useState } from "react"
 import { useLocation } from "wouter"
 import { toast } from "sonner"
@@ -101,7 +102,7 @@ export function RefileDocumentDialog({
       onOpenChange(false)
       setLocation(`/docs/${result.id}/edit`)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Refile failed")
+      toast.error(errorText(err, "The Document could not be refiled. Try again."))
     } finally {
       setRunning(false)
     }

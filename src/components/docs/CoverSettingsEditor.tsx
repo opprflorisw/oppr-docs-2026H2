@@ -165,7 +165,7 @@ export function CoverSettingsEditor() {
                 value={form.titleSize}
                 onValueChange={(v) => set("titleSize", v as TitleSize)}
               >
-                <SelectTrigger>
+                <SelectTrigger aria-label="Title size">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -228,13 +228,13 @@ export function CoverSettingsEditor() {
           <div className="grid gap-4 sm:grid-cols-2">
             <Field
               label="Default watermark"
-              hint="Pre-selected in the export dialog for published versions."
+              hint="Pre-selected in the export dialog for Published versions."
             >
               <Select
                 value={form.defaultWatermark}
                 onValueChange={(v) => set("defaultWatermark", v as WatermarkChoice)}
               >
-                <SelectTrigger>
+                <SelectTrigger aria-label="Default watermark">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

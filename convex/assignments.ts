@@ -45,6 +45,7 @@ export async function createAssignments(
 ) {
   let created = 0
   let updated = 0
+  let unchanged = 0
   const now = Date.now()
   for (const personId of new Set(args.personIds)) {
     if (!(await ctx.db.get(personId))) continue
@@ -55,13 +56,13 @@ export async function createAssignments(
         .take(500)
     ).find((a) => a.trainingId === args.trainingId && a.status === "open")
     if (open) {
-      if (args.dueAt < open.dueAt || (args.reason && !open.reason)) {
-        await ctx.db.patch(open._id, {
-          dueAt: Math.min(open.dueAt, args.dueAt),
-          reason: open.reason ?? args.reason,
-        })
+      // An Engineer assigning by hand sets the date they chose; automatic
+      // assignments only ever bring a due date forward.
+      const dueAt = args.source === "manual" ? args.dueAt : Math.min(open.dueAt, args.dueAt)
+      if (dueAt !== open.dueAt || (args.reason && !open.reason)) {
+        await ctx.db.patch(open._id, { dueAt, reason: open.reason ?? args.reason })
         updated++
-      }
+      } else unchanged++
       continue
     }
     await ctx.db.insert("trainingAssignments", {
@@ -77,7 +78,7 @@ export async function createAssignments(
     })
     created++
   }
-  return { created, updated }
+  return { created, updated, unchanged }
 }
 
 /** A pass closes the person's open assignments of that Training. */

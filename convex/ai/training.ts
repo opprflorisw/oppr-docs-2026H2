@@ -1,7 +1,7 @@
 // AI for Trainings: the Guided creation assistant, and the fresh questions of
 // every Attempt (CONTEXT.md: Training, Attempt; ADR 0002 and 0003).
 //
-// The assistant only ever returns a Draft; a person presses Create and an
+// The assistant only ever returns a Draft; a person saves or sends it and an
 // Engineer signs it off. Attempt questions are generated output from
 // Published passages only: the correct option and the explanation are checked
 // in code against the objective's passage (grounding.checkPoint), and the
@@ -85,8 +85,8 @@ const GUIDE_SYSTEM = [
   "- passMark is 80 and questionsPerObjective is 1 unless the person asks otherwise (passMark 50 to 100, questionsPerObjective 1 to 3).",
   "- title: 2 to 6 words naming the subject, without the word Training. purpose: one line saying who it is for and what they must be able to do.",
   "- `reply` is at most two short sentences in the language of the person. Do not repeat the draft field by field. Ask at most ONE question, and only when you cannot make a sensible draft without it.",
-  "- Set ready to true once the draft has a title, at least one objective with a valid source and, for a Round, stops that cover every objective. Then end the reply with: Check the draft and press Create, or tell me what to change.",
-  "- You never create, approve or publish the Training. The person presses Create, and an Engineer reviews it.",
+  "- Set ready to true once the draft has a title, at least one objective with a valid source and, for a Round, stops that cover every objective. Then end the reply with: Check the draft, then press Save draft or Send for review, or tell me what to change. Never state how many objectives there are; the person sees the list.",
+  "- You never create, approve or publish the Training. The person presses Save draft or Send for review, and another Engineer reviews it.",
 ].join("\n")
 
 const objectiveIn = v.object({
@@ -397,6 +397,15 @@ export const guide = action({
       objectives.length > 0 &&
       (kind === "course" || (stops.length > 0 && objectives.every((o) => covered.has(o.id))))
     let reply = out.reply.trim() || "I've updated the draft."
+    // The model miscounts; the count in the reply always comes from the list.
+    const count = objectives.length
+    reply = reply
+      .replace(
+        /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)(\s+(?:new\s+)?(?:learning\s+)?)objectives?\b/gi,
+        (_m, mid: string) => `${count}${mid}${count === 1 ? "objective" : "objectives"}`,
+      )
+      .replace(/\b(?:een|twee|drie|vier|vijf|zes|zeven|acht|negen|tien|\d+)(\s+(?:nieuwe\s+)?)leerdoel(?:en)?\b/gi, (_m, mid: string) => `${count}${mid}${count === 1 ? "leerdoel" : "leerdoelen"}`)
+      .replace(/press Create\b/g, "press Save draft or Send for review")
     if (dropped > 0) {
       reply += ` I left out ${dropped} ${dropped === 1 ? "objective" : "objectives"} I could not trace to a published passage: ${droppedObjectives.map((x) => `"${x}"`).join(", ")}.`
     }

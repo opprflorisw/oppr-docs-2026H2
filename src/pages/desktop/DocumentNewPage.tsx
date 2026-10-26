@@ -14,6 +14,7 @@
 // auto sequence. Linked assets are derived from the body. All flows call
 // documents.create.
 
+import { errorText } from "@/lib/errorText"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useLocation } from "wouter"
 import { toast } from "sonner"
@@ -315,7 +316,7 @@ export function DocumentNewPage() {
       toast.success("Document created")
       setLocation(`/docs/${docId}/edit`)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "The document could not be created.")
+      toast.error(errorText(err, "The Document could not be made. Try again."))
     } finally {
       setSubmitting(false)
     }

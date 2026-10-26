@@ -50,6 +50,7 @@ export function MobileAssetPage() {
   const { isPinned, togglePin, removePin } = usePinned()
   const { pushRecent, removeRecent } = useRecentlyViewed()
   const [activeLog, setActiveLog] = useState<ConvexDoc<"assetLogs"> | null>(null)
+  const [allTasks, setAllTasks] = useState(false)
 
   const idIsConvexShaped = looksLikeConvexId(id)
   useEffect(() => {
@@ -205,8 +206,29 @@ export function MobileAssetPage() {
         )}
 
         {groups.task.length > 0 && (
-          <Section icon={ClipboardList} title="Do a task">
-            {groups.task.map(docRow)}
+          <Section icon={ClipboardList} title={groups.task.length > TASKS_FIRST ? "Do a task: saved and latest first" : "Do a task"}>
+            {/* Saved ones first, then the most recently changed: the task in
+                use now is rarely the 9th row of an alphabetical list. */}
+            {(() => {
+              const sorted = [...groups.task].sort(
+                (a, b) => Number(isPinned("doc", b._id)) - Number(isPinned("doc", a._id)) || b.updatedAt - a.updatedAt,
+              )
+              const shown = allTasks ? sorted : sorted.slice(0, TASKS_FIRST)
+              return (
+                <>
+                  {shown.map(docRow)}
+                  {sorted.length > TASKS_FIRST && (
+                    <button
+                      type="button"
+                      onClick={() => setAllTasks(!allTasks)}
+                      className="min-h-12 rounded-2xl border border-dashed px-4 text-base font-medium text-[#6E59A5]"
+                    >
+                      {allTasks ? "Show fewer" : `Show all ${sorted.length} tasks`}
+                    </button>
+                  )}
+                </>
+              )
+            })()}
           </Section>
         )}
 
@@ -215,6 +237,7 @@ export function MobileAssetPage() {
             {learning.rounds.map((r) => (
               <TrainingRow
                 key={r._id}
+                onHold={r.needsReview}
                 training={{ _id: r._id, code: r.code, title: r.title, kind: "round" }}
                 note={`Round · stop ${r.stopIndex + 1} of ${r.stops} is here`}
               />
@@ -222,6 +245,7 @@ export function MobileAssetPage() {
             {learning.trainings.map((t) => (
               <TrainingRow
                 key={t._id}
+                onHold={t.needsReview}
                 training={{ _id: t._id, code: t.code, title: t.title, kind: t.kind }}
                 note={`Training on ${t.documentCodes.join(", ")}`}
               />
@@ -284,6 +308,8 @@ export function MobileAssetPage() {
   )
 }
 
+const TASKS_FIRST = 3
+
 function Section({
   icon: Icon,
   title,
@@ -314,12 +340,33 @@ function Section({
 function TrainingRow({
   training,
   note,
+  onHold = false,
 }: {
   training: { _id: Id<"trainings">; code: string; title: string; kind: "course" | "round" }
   note: string
+  /** Being checked after a change: it cannot start, so it is not a button. */
+  onHold?: boolean
 }) {
   const { go, busy } = useStartTraining()
   const Icon = training.kind === "round" ? Footprints : GraduationCap
+  if (onHold) {
+    return (
+      <div className="flex min-h-16 items-center gap-3 rounded-2xl border bg-muted/40 px-3 py-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+          <Icon className="h-5 w-5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="line-clamp-2 block text-base font-semibold leading-snug">{training.title}</span>
+          <span className="block text-[13px] text-muted-foreground">
+            <span className="font-mono">{training.code}</span> · On hold until an Engineer has checked it after a change
+          </span>
+        </span>
+        <span className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-sm font-semibold text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          Waiting
+        </span>
+      </div>
+    )
+  }
   return (
     <button
       type="button"

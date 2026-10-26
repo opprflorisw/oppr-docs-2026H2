@@ -151,10 +151,29 @@ export const publishWorkingDraft = internalMutation({
     if (!doc) throw new Error(`No document ${args.namingCode}`)
     const user = await ctx.db.query("users").first()
     if (!user) throw new Error("Needs at least one user for the sign-off trail")
+    // Four-eyes like a real publish: a reviewer who is not an author of this
+    // version, and an approver who is neither author nor reviewer. The demo
+    // keeps this version on screen, so it must not read as self-approved.
+    const row = await ctx.db
+      .query("documentVersions")
+      .withIndex("by_documentId_and_version", (q) => q.eq("documentId", doc._id).eq("version", doc.currentVersion))
+      .unique()
+    const authors = new Set((row?.signoffs ?? []).filter((s) => s.role === "author" && s.personId).map((s) => String(s.personId)))
+    const signers = (await ctx.db.query("people").take(50)).filter(
+      (p) => !p.archived && (p.kind === "engineer" || p.kind === "admin") && !authors.has(String(p._id)),
+    )
+    const reviewer = signers[0]
+    const approver = signers.find((p) => p._id !== reviewer?._id) ?? reviewer
+    if (row && reviewer && !(row.signoffs ?? []).some((s) => s.role === "reviewer"))
+      await ctx.db.patch(row._id, {
+        signoffs: [...(row.signoffs ?? []), { role: "reviewer", userId: user._id, at: Date.now(), personId: reviewer._id }],
+      })
     await ctx.db.patch(doc._id, { status: "approved" })
     const approved = (await ctx.db.get(doc._id)) as Doc<"documents">
-    const engineer = (await ctx.db.query("people").take(50)).find((p) => p.kind === "engineer")
-    await publishApproved(ctx, approved, user._id, engineer?._id)
+    await publishApproved(ctx, approved, user._id, approver?._id, {
+      significantChange: true,
+      changeNote: "Purge compound changed from PX-4400 to PX-9917. Re-train everyone who runs a changeover on line 2.",
+    })
     return { version: approved.currentVersion }
   },
 })

@@ -57,7 +57,7 @@ function useToday(): string {
 export function AiUsagePanel() {
   const { editorId } = useSettingsEditor()
   const today = useToday()
-  const [range, setRange] = useState<Range>("7")
+  const [range, setRange] = useState<Range>("30")
   const [dim, setDim] = useState<Dimension>("feature")
   const personId = editorId ?? undefined
   const closed = useQuery(
@@ -129,6 +129,8 @@ export function AiUsagePanel() {
         })}
       </div>
 
+      {agg && !loading && <MonthlyOutlook days={agg.days} today={today} />}
+
       <Notices truncated={agg?.truncated ?? false} unpriced={view?.totals.unpriced ?? 0} />
 
       <Card data-tour="developer-ai-usage-chart">
@@ -188,7 +190,10 @@ export function AiUsagePanel() {
               System jobs run without a person: publish rebuilds, nightly checks, indexing and the seed.
             </CardDescription>
           </CardHeader>
-          <CardContent>{!view ? <Skeleton className="h-24 w-full" /> : <Split people={view.people} system={view.system} />}</CardContent>
+          <CardContent className="space-y-3">
+            {!view ? <Skeleton className="h-24 w-full" /> : <Split people={view.people} system={view.system} />}
+            {view && <PublishChain features={view.dims.feature} total={view.totals.cost} />}
+          </CardContent>
         </Card>
       </div>
 
@@ -217,6 +222,60 @@ export function AiUsagePanel() {
 
       <ConvexUsageCard />
     </div>
+  )
+}
+
+/**
+ * The real cost driver: every publish starts a Consistency check of that
+ * Document and a rebuild of each Wiki built on it. Says how much of the
+ * period went there, and what one publish costs.
+ */
+function PublishChain({ features, total }: { features: { key: string; totals: Totals }[]; total: number }) {
+  const of = (key: string) => features.find((f) => f.key === key)?.totals
+  const build = of("wiki.build")
+  const check = of("consistency")
+  const chain = (build?.cost ?? 0) + (check?.cost ?? 0)
+  if (total <= 0 || chain <= 0) return null
+  return (
+    <p className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground" data-testid="ai-usage-publish-chain">
+      <span className="font-medium text-foreground">{Math.round((chain / total) * 100)}%</span> of this period went to
+      publish follow-ups: Wiki rebuilds {usd(build?.cost ?? 0)} ({count(build?.calls ?? 0)} calls) and Consistency checks{" "}
+      {usd(check?.cost ?? 0)} ({count(check?.calls ?? 0)} calls). One publish costs about $0.12 for the check of that
+      Document plus about $0.23 per Wiki built on it. A reseed or test run publishes every Document at once.
+    </p>
+  )
+}
+
+/** Fewer days than this since the first call: too little history for a month. */
+const MIN_PROJECTION_DAYS = 14
+
+/**
+ * What a month would cost at the current pace, said honestly: a 30-day total
+ * that comes from one or two busy days (a reseed, a test run) is no forecast.
+ */
+function MonthlyOutlook({ days, today }: { days: DayAgg[]; today: string }) {
+  const from = daysBefore(today, 29)
+  const inWindow = days.filter((d) => d.day >= from && d.day <= today && d.totals.calls > 0)
+  if (inWindow.length === 0) return null
+  const first = inWindow.reduce((a, d) => (d.day < a ? d.day : a), today)
+  let span = 1
+  while (span < 30 && daysBefore(today, span) >= first) span++
+  const cost = inWindow.reduce((sum, d) => sum + d.totals.cost, 0)
+  return (
+    <p className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground" data-testid="ai-usage-outlook">
+      {span < MIN_PROJECTION_DAYS ? (
+        <>
+          No monthly forecast yet: AI was used on {inWindow.length} of the last 30 days, all since {first}. Test runs and
+          reseeds count here like real use, so one busy day says little about a month.
+        </>
+      ) : (
+        <>
+          At the pace of the last {span} days, a month costs about{" "}
+          <span className="font-medium text-foreground tabular-nums">{usd((cost / span) * 30)}</span>. Test runs and
+          reseeds count here like real use.
+        </>
+      )}
+    </p>
   )
 }
 
@@ -323,7 +382,7 @@ function Breakdown({
 }) {
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">{empty}</p>
   return (
-    <Table>
+    <Table scrollLabel="Usage breakdown">
       <TableHeader>
         <TableRow>
           <TableHead>Name</TableHead>
@@ -408,7 +467,7 @@ function CallTable({
 }) {
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">{empty}</p>
   return (
-    <Table>
+    <Table scrollLabel="AI calls">
       <TableHeader>
         <TableRow>
           <TableHead>When</TableHead>

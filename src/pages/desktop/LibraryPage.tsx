@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useLocation, useSearch } from "wouter"
 import { Columns3, Download, LayoutList, Layers, Library as LibraryIcon, PlusCircle, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -34,6 +34,8 @@ import { STATUS_LABELS } from "@/components/docs/StatusBadge"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { NewDocumentChooserDialog } from "./DocumentNewChooserPage"
+import { toast } from "sonner"
+import { useCheckIn } from "@/lib/checkIn"
 
 type StatusFilter = DocumentStatus | "all"
 type TypeFilter = DocumentType | "all"
@@ -135,7 +137,19 @@ export function LibraryPage() {
   const [, navigate] = useLocation()
   const [search, setSearch] = useState("")
   const urlSearch = useSearch()
-  const [newOpen, setNewOpen] = useState(() => new URLSearchParams(urlSearch).get("new") === "1")
+  const { person } = useCheckIn()
+  // A checked-in Operator reads and hands in Captures; Engineers and Admins
+  // start Documents. An old /docs/new link says so instead of a silent stop.
+  const operator = person?.kind === "operator"
+  const askedNew = new URLSearchParams(urlSearch).get("new") === "1"
+  const [newOpen, setNewOpen] = useState(() => askedNew && !operator)
+  useEffect(() => {
+    if (askedNew && operator)
+      toast.message("New Documents are started by Engineers and Admins.", {
+        id: "operator-new-document",
+        description: "To hand in how you do a job, record a Capture on the phone.",
+      })
+  }, [askedNew, operator])
   // ?status= lets Home link straight to a filtered list.
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(
     () => (new URLSearchParams(urlSearch).get("status") as StatusFilter | null) ?? "all",
@@ -202,8 +216,12 @@ export function LibraryPage() {
       <PageHeader
         icon={LibraryIcon}
         title="Documents"
-        statusLine="Every controlled document. Only the Published version of each counts as Knowledge."
-        primary={{ label: "New document", icon: PlusCircle, onClick: () => setNewOpen(true), tour: "documents-new-button" }}
+        statusLine="Every controlled Document with its version and status. Only the Published version counts: Operators read it, Ask answers from it and Trainings test it."
+        primary={
+          operator
+            ? undefined
+            : { label: "New document", icon: PlusCircle, onClick: () => setNewOpen(true), tour: "documents-new-button" }
+        }
         secondary={[
           {
             label: "Master list",

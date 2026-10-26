@@ -251,7 +251,7 @@ function DocBrowse({ docs }: { docs: ConvexDoc<"documents">[] | undefined }) {
   const { resolve } = useDocTypes()
   const [type, setType] = useState<string | null>(null)
   if (!docs) return <ListSkeleton />
-  if (docs.length === 0) return <Empty>No Published documents yet.</Empty>
+  if (docs.length === 0) return <Empty>No Published documents yet. An Engineer publishes them on the desktop.</Empty>
   const types = [...new Set(docs.map((d) => d.type))]
   const shown = type ? docs.filter((d) => d.type === type) : docs
   const byArea = new Map<string, ConvexDoc<"documents">[]>()

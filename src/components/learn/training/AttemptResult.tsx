@@ -150,8 +150,21 @@ function FailBody({
   const mbr = (x.mustBeRightMissed ?? [])
     .map((id) => missed.find((m) => m.id === id)?.text ?? a.objectives.find((o) => o.id === id)?.text)
     .filter(Boolean) as string[]
+  // What is already known, before what is missed: a retry is closer than the
+  // red score suggests.
+  const tested = new Set(a.questions.map((q) => q.objectiveId)).size
+  const known = Math.max(0, tested - missed.length)
   return (
     <div className="space-y-3">
+      {known > 0 && (
+        <p className={cn("flex items-start gap-2", floor ? "text-base" : "text-sm")} data-known>
+          <TrendingUp className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+          <span>
+            You already know {known} of {tested} things this {a.training?.kind === "round" ? "Round" : "Training"} checks. {missed.length === 1 ? "One" : missed.length} to
+            go.
+          </span>
+        </p>
+      )}
       {mbr.length > 0 && (
         <p className={cn("rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-red-800 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200", floor ? "text-base" : "text-sm")}>
           Not passed: the question on {mbr.map((t) => `"${t}"`).join(" and ")} must be right to pass.
@@ -375,6 +388,20 @@ function RetryButton({
   const allOpened = x.missesReviewedAt != null || gate.every((m) => opened.has(m.id))
   const canRetry = a.training?.liveVersion != null && a.training.status !== "archived"
   if (!canRetry) return <p className="text-sm text-muted-foreground">This Training is not in use any more, so it cannot be done again.</p>
+  const held = a.training?.blockedReason ?? null
+  if (held)
+    return (
+      <p
+        role="status"
+        className={cn(
+          "rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100",
+          floor ? "text-base" : "text-sm",
+        )}
+        data-retry-on-hold
+      >
+        {held}
+      </p>
+    )
   const round = a.training?.kind === "round"
   return (
     <div className="flex flex-col gap-1">

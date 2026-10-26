@@ -144,7 +144,7 @@ function CalloutView({
     >
       <Icon className="mt-0.5 h-4 w-4 shrink-0" />
       <div className="min-w-0 flex-1">
-        <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-80">
+        <div className="callout-label mb-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-80">
           {meta.label}
         </div>
         <NodeViewContent className="callout-body" />

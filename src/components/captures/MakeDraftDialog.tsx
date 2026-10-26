@@ -40,6 +40,7 @@ export function MakeDraftDialog({
   defaultTitle,
   forTraining = false,
   blockedReason,
+  openVariations = 0,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -50,6 +51,8 @@ export function MakeDraftDialog({
   forTraining?: boolean
   /** Shown above the button when the Draft cannot be made yet. */
   blockedReason?: string | null
+  /** Capture set steps whose Variations are still "To decide". */
+  openVariations?: number
 }) {
   const makeDraft = useMutation(api.captures.drafts.makeDraft)
   const [type, setType] = useState<string>("SOP")
@@ -158,6 +161,12 @@ export function MakeDraftDialog({
                 <Label htmlFor="draft-title">Title</Label>
                 <Input id="draft-title" value={title} onChange={(e) => setTitle(e.target.value)} />
               </div>
+              {openVariations > 0 && !blockedReason && (
+                <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                  {openVariations} {openVariations === 1 ? "step is" : "steps are"} still To decide. The Draft uses the
+                  common way and lists {openVariations === 1 ? "it" : "them"} as open points to settle before review.
+                </p>
+              )}
               {(error || blockedReason) && (
                 <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="alert">
                   {error ?? blockedReason}

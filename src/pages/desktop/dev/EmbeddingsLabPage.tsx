@@ -20,7 +20,7 @@ export function EmbeddingsLabPage() {
   return (
     <DevPage
       tool={DEV_TOOL.embeddings}
-      statusLine="Runs on this computer, in the browser. Nothing is written back; production search is untouched."
+      statusLine="Try a small search model in this browser and compare it with the search the app uses. Nothing is written back."
       tabs={TABS}
       tab={tab}
       onTab={go}

@@ -27,7 +27,7 @@ type TabValue = (typeof TABS)[number]["value"]
 
 const SUBTITLE: Record<TabValue, string> = {
   mine: "What you need to learn next, your Skills and your records.",
-  trainings: "Trainings and Rounds built from published knowledge.",
+  trainings: "Trainings and Rounds test what people must know, built only from Published documents. A pass counts towards a Skill.",
   matrix: "Who can do what, against the levels each role needs.",
   records: "The proof per person: which Training, which version, and when.",
 }

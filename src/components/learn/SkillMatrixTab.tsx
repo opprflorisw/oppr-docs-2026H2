@@ -722,7 +722,7 @@ function MatrixCell({
       {empty ? <span aria-hidden>·</span> : <LevelDots level={expired ? cell.level : cell.effectiveLevel} target={cell.target} status={status} />}
       {status === "retrain" && <span className="absolute right-1 top-0.5 text-xs leading-none" aria-hidden>↻</span>}
       {(cell.failStreak ?? 0) >= 2 && (
-        <span className="absolute -bottom-1 -right-1 rounded bg-amber-500 px-1 text-xs font-semibold leading-4 text-white">
+        <span className="absolute -bottom-1 -right-1 rounded bg-amber-500 px-1 text-xs font-semibold leading-4 text-amber-950">
           x{cell.failStreak}
         </span>
       )}
@@ -793,6 +793,24 @@ function CoverPanel({
   const almost = coverage.almost
     .filter((p) => p.shift === shift || p.shift === null)
     .sort((a, b) => a.missing.length - b.missing.length)
+  // Nobody on this shift: who is closest from any other shift, so a lead can
+  // name a cover or plan the one missing Skill.
+  const closest =
+    n === 0
+      ? coverage.almost
+          .filter((p) => !(p.shift === shift || p.shift === null))
+          .sort((a, b) => a.missing.length - b.missing.length)
+          .slice(0, 5)
+      : []
+  const everyone = [...almost, ...closest]
+  const held = coverage.onHold ?? []
+  // One Skill that everyone not qualified is missing: the single blocker.
+  const blocker =
+    n === 0 && everyone.length > 1
+      ? (everyone[0].missing
+          .map((m) => m.skillName)
+          .find((name) => everyone.every((p) => p.missing.some((m) => m.skillName === name))) ?? null)
+      : null
   return (
     <Card className="border-primary/30">
       <CardContent className="space-y-3 p-4">
@@ -837,6 +855,27 @@ function CoverPanel({
             ))}
           </ul>
         )}
+        {blocker && (
+          <p className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+            One Skill blocks everyone: <span className="font-medium">{blocker}</span>.{" "}
+            {held.some((h) => h.skillName === blocker)
+              ? "Its Training is on hold after a change, so nobody can re-train yet. An Engineer's decision on that Training comes first."
+              : "Re-training or a try-out on that Skill is the quickest way to cover this shift."}
+          </p>
+        )}
+        {held.length > 0 && (
+          <ul className="space-y-1 text-xs" data-testid="cover-on-hold">
+            {held.map((h) => (
+              <li key={h.skillName} className="flex flex-wrap items-center gap-1.5">
+                <span className="text-muted-foreground">Nobody can (re-)train on {h.skillName} yet:</span>
+                <Link href={`/learn/trainings/${h.trainingId}`} className="font-medium underline-offset-2 hover:underline">
+                  <span className="font-mono">{h.code}</span> {h.title}
+                </Link>
+                <span className="text-muted-foreground">is on hold until an Engineer confirms it or starts a new version.</span>
+              </li>
+            ))}
+          </ul>
+        )}
         {almost.length > 0 && (
           <div className="space-y-1.5 border-t pt-2">
             <div className="text-xs font-medium text-muted-foreground">Not yet, and why (fewest missing first)</div>
@@ -855,6 +894,24 @@ function CoverPanel({
                       </span>
                     )
                   })}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {closest.length > 0 && (
+          <div className="space-y-1.5 border-t pt-2">
+            <div className="text-xs font-medium text-muted-foreground">Closest on other shifts (fewest Skills missing)</div>
+            <ul className="space-y-1.5">
+              {closest.map((p) => (
+                <li key={p._id} className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <Link href={`/learn/people/${p._id}`} className="font-medium hover:underline">
+                    {p.name}
+                  </Link>
+                  {shifts.meta(p.shift) && <span className="text-muted-foreground">({shifts.meta(p.shift)!.short.toLowerCase()})</span>}
+                  <span className="text-muted-foreground">
+                    missing {p.missing.length}: {p.missing.map((m) => `${m.skillName} (${m.reason})`).join(", ")}
+                  </span>
                 </li>
               ))}
             </ul>

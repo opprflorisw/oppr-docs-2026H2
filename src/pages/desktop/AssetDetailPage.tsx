@@ -1,3 +1,4 @@
+import { errorText } from "@/lib/errorText"
 import { useMemo, useState } from "react"
 import { Link, useLocation, useRoute } from "wouter"
 import { AlertTriangle, ArrowLeft, ArrowRight, BookOpenText, Factory, MapPin, Pencil, QrCode, Users } from "lucide-react"
@@ -59,7 +60,7 @@ export function AssetDetailPage() {
       toast.success("Asset updated")
       return true
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "The Asset could not be updated.")
+      toast.error(errorText(err, "The Asset could not be updated."))
       return false
     }
   }

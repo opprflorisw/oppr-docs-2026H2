@@ -47,11 +47,15 @@ export function ListBlock({ block, safety }: { block: WikiBlockView; safety?: bo
         ))}
       </Tag>
       {procedure && block.points.length > 1 && (
-        <p className="text-xs text-muted-foreground">
+        <p className={cn("text-muted-foreground", phone ? "text-sm" : "text-xs")}>
           Full procedure:{" "}
           <Link
             href={phone ? `/m/docs/${procedure.documentId}` : `/docs/${procedure.documentId}?wiki=${wiki._id}`}
-            className="font-mono font-medium text-primary-strong underline-offset-2 hover:underline"
+            className={cn(
+              "font-mono font-medium text-primary-strong underline-offset-2 hover:underline",
+              // Phone: the step-by-step SOP is one tap away, sized for gloves.
+              phone && "inline-flex min-h-11 items-center underline",
+            )}
           >
             {procedure.namingCode} v{procedure.version}
           </Link>

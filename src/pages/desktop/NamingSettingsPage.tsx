@@ -279,6 +279,7 @@ function TypesCard({ rows }: { rows: TypeRow[] | undefined }) {
                   <div className="ml-auto flex items-center gap-3">
                     <div className="flex items-center gap-1.5">
                       <Switch
+                        aria-label={`${r.label} in use`}
                         checked={r.active}
                         onCheckedChange={(v) =>
                           void guard(() => setActive({ id: r._id, active: v }))

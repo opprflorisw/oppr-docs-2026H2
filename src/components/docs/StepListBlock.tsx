@@ -14,8 +14,10 @@ import { cn } from "@/lib/utils"
 
 function StepListView() {
   return (
-    <NodeViewWrapper as="ol" data-step-list className="my-4 flex flex-col gap-2 list-none pl-0">
-      <NodeViewContent />
+    // A div with role list: ProseMirror puts its own divs between the list and
+    // each step, which an <ol> may not contain (axe: list, listitem).
+    <NodeViewWrapper as="div" role="list" aria-label="Steps" data-step-list className="my-4 flex flex-col gap-2 list-none pl-0">
+      <NodeViewContent role="none" />
     </NodeViewWrapper>
   )
 }
@@ -36,7 +38,8 @@ function StepItemView({ getPos, editor }: NodeViewProps) {
 
   return (
     <NodeViewWrapper
-      as="li"
+      as="div"
+      role="listitem"
       data-step-item
       className={cn(
         "flex items-start gap-3 rounded-md border bg-background px-3 py-2",
@@ -111,6 +114,6 @@ export const StepItemNode = Node.create({
   },
 
   addNodeView() {
-    return ReactNodeViewRenderer(StepItemView)
+    return ReactNodeViewRenderer(StepItemView, { attrs: { role: "none" } })
   },
 })

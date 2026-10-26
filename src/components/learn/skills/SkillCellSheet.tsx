@@ -216,7 +216,7 @@ function NextAction({ data }: { data: CellData }) {
     <Section icon={GraduationCap} title="Trainings for this Skill">
       {state.offered.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          No published Training proves this Skill yet. A trainer can watch {person.name.split(" ")[0]} at the line and
+          No Published Training proves this Skill yet. A trainer can watch {person.name.split(" ")[0]} at the line and
           sign off below.
         </p>
       ) : (
@@ -409,7 +409,7 @@ function SignOffPanel({ data }: { data: CellData }) {
             Observed doing
           </Label>
           {docOptions.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No published document is linked to this Skill.</p>
+            <p className="text-xs text-muted-foreground">No Published document is linked to this Skill.</p>
           ) : (
             <Select value={docId} onValueChange={setDocId} disabled={!!whyNot}>
               <SelectTrigger id="so-doc" className="h-9 text-xs">

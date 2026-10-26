@@ -57,10 +57,11 @@ export function SafetyPalette({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-8 w-8 p-0"
-            title="Safety palette"
+            className="h-8 gap-1 px-2 text-xs"
+            title="Insert a safety callout: danger, warning, caution or note"
           >
             <ShieldAlert className="h-4 w-4 text-amber-600" />
+            Safety
           </Button>
         )}
       </PopoverTrigger>

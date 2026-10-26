@@ -50,7 +50,11 @@ export function KeyPointsBlock({ block, open, onToggle }: { block: WikiBlockView
                   <button
                     type="button"
                     onClick={() => jumpTo(detail.id)}
-                    className="ml-1.5 text-left text-xs text-muted-foreground underline-offset-2 [@media(hover:hover)]:hover:text-primary-strong [@media(hover:hover)]:hover:underline"
+                    className={cn(
+                      "ml-1.5 text-left text-muted-foreground underline-offset-2 [@media(hover:hover)]:hover:text-primary-strong [@media(hover:hover)]:hover:underline",
+                      // Phone: 13 px floor minimum and a 44 px tap area around the short line.
+                      phone ? "relative text-[13px] after:absolute after:-inset-y-3.5 after:inset-x-0 after:content-['']" : "text-xs",
+                    )}
                   >
                     in {detail.heading}
                   </button>

@@ -81,17 +81,30 @@ export function DocumentTrainingsCard({
       )}
       {skills && skills.length > 0 && (
         <div className="space-y-1 border-t pt-2">
-          <p className="text-xs font-medium text-muted-foreground">Skills linked to it</p>
+          <p className="text-xs font-medium text-muted-foreground">Who may do this work today</p>
           {skills.map((s) => (
-            <Link key={s._id} href="/learn?tab=matrix" className="flex items-center gap-1.5 text-sm hover:text-primary">
-              <Award className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate">{s.name}</span>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {s.holders} {s.holders === 1 ? "holder" : "holders"}
-              </span>
-            </Link>
+            <div key={s._id} className="space-y-0.5" data-testid="doc-skill-can-do">
+              <Link href="/learn?tab=matrix" className="flex items-center gap-1.5 text-sm hover:text-primary">
+                <Award className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">{s.name}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {s.holders} {s.holders === 1 ? "holder" : "holders"}
+                </span>
+              </Link>
+              <p className="pl-5 text-xs text-muted-foreground">
+                {s.canDo.length === 0 ? (
+                  <span className="text-amber-700 dark:text-amber-300">Nobody at level 2 (Can do it) right now</span>
+                ) : (
+                  <span className="text-foreground">{s.canDo.join(", ")}</span>
+                )}
+                {s.retrain > 0 && `. ${s.retrain} waiting to re-train`}
+              </p>
+            </div>
           ))}
-          <p className="text-xs text-muted-foreground">A Significant change flags these holders for re-training.</p>
+          <p className="text-xs text-muted-foreground">
+            Level 2 (Can do it) or higher, still valid, no re-training open. A Significant change flags every holder for
+            re-training.
+          </p>
         </div>
       )}
       {creating && (

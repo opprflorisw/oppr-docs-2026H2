@@ -113,7 +113,7 @@ export function KeysPanel() {
             No keys yet. Make one for the assistant or system that should connect.
           </p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Keys">
             <Table>
               <TableHeader>
                 <TableRow className="text-xs">
@@ -415,7 +415,7 @@ export function AuditLog() {
         ) : calls.length === 0 ? (
           <p className="px-6 pb-6 text-xs text-muted-foreground">No calls yet. They appear here as soon as a key is used.</p>
         ) : (
-          <div className="max-h-[420px] overflow-auto">
+          <div className="max-h-[420px] overflow-auto" tabIndex={0} role="region" aria-label="Key activity">
             <Table>
               <TableHeader>
                 <TableRow className="text-xs">

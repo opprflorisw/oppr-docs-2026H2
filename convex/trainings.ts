@@ -124,6 +124,32 @@ type StoredObjective = Doc<"trainingVersions">["objectives"][number]
 
 /** Plain Operator copy for a Training that cannot be done right now. */
 export const BLOCKED_REASON = "This Training is being updated. You can do it once an Engineer has checked it."
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+/**
+ * The blocked copy with what we know: why it is on hold and since when, so an
+ * Operator can tell their trainer what is going on instead of guessing.
+ */
+export function blockedReasonFor(t: { needsReviewReason?: string | null; updatedAt?: number }): string {
+  if (!t.needsReviewReason) return BLOCKED_REASON
+  const d = t.updatedAt ? new Date(t.updatedAt) : null
+  const since = d ? ` since ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}` : ""
+  return `On hold${since}: ${operatorWhy(t.needsReviewReason)}. An Engineer checks the Training first. Until then, ask your trainer at the line.`
+}
+
+/**
+ * The stored reason is written for Engineers ("EXT-OPS-SOP-0001 v2 no longer
+ * has the passage an objective cites"). An Operator only needs to know that the
+ * instruction behind it changed, and which one.
+ */
+function operatorWhy(reason: string): string {
+  const m = /^([A-Z0-9]+(?:-[A-Z0-9]+)+)(?: v(\d+))?(.*)$/.exec(reason.trim())
+  if (!m) return reason
+  const [, code, version, rest] = m
+  if (/withdrawn/i.test(rest)) return `the instruction it is based on, ${code}, was withdrawn`
+  return `the instruction it is based on changed (${code}${version ? ` v${version}` : ""})`
+}
 export const FOUR_EYES = "You wrote this version. Another Engineer must review it."
 
 // ---- Helpers ------------------------------------------------------------------
@@ -1325,7 +1351,7 @@ export const get = query({
         })),
       stats: await statsFor(ctx, t._id),
       signals: await signalSummaryFor(ctx, t),
-      blockedReason: t.needsReview ? BLOCKED_REASON : null,
+      blockedReason: t.needsReview ? blockedReasonFor(t) : null,
     }
   },
 })
@@ -1544,17 +1570,37 @@ export const skillsForDocument = query({
   handler: async (ctx, args) => {
     await requireUserId(ctx)
     const out = []
+    const now = Date.now()
+    const names = new Map<string, string | null>()
+    const nameOf = async (id: Id<"people">) => {
+      if (!names.has(id)) {
+        const p = await ctx.db.get(id)
+        names.set(id, p && !p.archived ? p.name : null)
+      }
+      return names.get(id) ?? null
+    }
     for (const s of await ctx.db.query("skills").take(500).then((r) => r.filter((s) => !s.archived))) {
       if (!s.documentIds.includes(args.documentId)) continue
       const holders = await ctx.db
         .query("skillLevels")
         .withIndex("by_skillId", (q) => q.eq("skillId", s._id))
         .take(500)
+      // "Who may do this task today": level 2 (Can do it) or higher, not
+      // expired and no re-training open, the same rule as the coverage answer.
+      const canDo: string[] = []
+      for (const h of holders) {
+        if (h.level < 2 || h.retrainNeeded) continue
+        if (h.expiresAt != null && h.expiresAt < now) continue
+        const name = await nameOf(h.personId)
+        if (name) canDo.push(name)
+      }
       out.push({
         _id: s._id,
         name: s.name,
         validityMonths: s.validityMonths,
         holders: holders.filter((h) => h.level >= 1).length,
+        canDo: canDo.sort((a, b) => a.localeCompare(b)),
+        retrain: holders.filter((h) => h.level >= 1 && h.retrainNeeded).length,
       })
     }
     return out.sort((a, b) => a.name.localeCompare(b.name))

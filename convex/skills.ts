@@ -23,7 +23,7 @@ import type { PublishEvent } from "./lib/onPublish"
 import { requireUser, requireUserId } from "./lib/auth"
 import { requireEngineer } from "./documents"
 import { isPublished } from "./lib/published"
-import { BLOCKED_REASON } from "./trainings"
+import { BLOCKED_REASON, blockedReasonFor } from "./trainings"
 import { createAssignments, defaultDueAt, REFRESH_BEFORE_DAYS } from "./assignments"
 import { isEngineerOrAdmin, requireEngineerOrAdmin } from "./lib/roles"
 import { readOrgSettings } from "./orgSettings"
@@ -82,6 +82,13 @@ export function cellStatus(
   return "none"
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+/** "9 Nov": short enough for a coverage reason. */
+function dayMonth(at: number): string {
+  const d = new Date(at)
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`
+}
+
 /** Meets the target for running the line: expiring still counts; expired and re-train do not. */
 function meetsTarget(row: Doc<"skillLevels"> | null | undefined, target: number, now: number) {
   if (row?.retrainNeeded && row.level >= 1) return false
@@ -100,6 +107,8 @@ interface PublishedTraining {
   liveVersion: number
   documentIds: Set<Id<"documents">>
   needsReview: boolean
+  needsReviewReason: string | null
+  updatedAt: number
   isPractice: boolean
   tryOutRequired: boolean
 }
@@ -124,6 +133,8 @@ async function publishedTrainings(ctx: Ctx): Promise<PublishedTraining[]> {
       documentIds: new Set((ver?.objectives ?? []).map((o) => o.documentId)),
       // Set at publish when a cited passage is gone (trainings.markAffectedByPublish).
       needsReview: t.needsReview,
+      needsReviewReason: t.needsReviewReason,
+      updatedAt: t.updatedAt,
       isPractice: t.isPractice ?? false,
       tryOutRequired: ver?.tryOut?.required ?? false,
     })
@@ -311,13 +322,22 @@ export const coverage = query({
   handler: async (ctx, args) => {
     await requireUser(ctx)
     const now = Date.now()
-    const [skills, profiles, people, shifts] = await Promise.all([
+    const [skills, profiles, people, shifts, trainings] = await Promise.all([
       allSkills(ctx),
       allProfiles(ctx),
       allPeople(ctx),
       loadShifts(ctx),
+      publishedTrainings(ctx),
     ])
     const skillById = new Map(skills.map((s) => [s._id, s]))
+    // A Skill whose every proving Training is on hold after a change: nobody
+    // can (re-)train on it until an Engineer decides. That is the real blocker
+    // behind "re-train needed", so the answer names it.
+    const heldTraining = new Map<string, PublishedTraining>()
+    for (const s of skills) {
+      const proving = trainings.filter((t) => !t.isPractice && covers(t, s))
+      if (proving.length > 0 && proving.every((t) => t.needsReview)) heldTraining.set(String(s._id), proving[0])
+    }
     const knownShifts = new Set(shifts.map((s) => s.key))
     const shiftOfKnown = (p: Doc<"people">) => {
       const k = shiftOf(p)
@@ -361,9 +381,28 @@ export const coverage = query({
           const row = levels.get(r.skillId)
           const name = skillById.get(r.skillId)?.name ?? "Skill"
           const eff = effectiveLevel(row, now)
-          if (row?.retrainNeeded && row.level >= 1) missing.push({ skillName: name, reason: "re-train needed" })
+          const held = heldTraining.has(String(r.skillId))
+          if (row?.retrainNeeded && row.level >= 1)
+            missing.push({
+              skillName: name,
+              reason: held
+                ? "re-train needed, its Training is on hold"
+                : row.retrainDueAt != null
+                  ? `re-train needed by ${dayMonth(row.retrainDueAt)}`
+                  : "re-train needed",
+            })
           else if (isExpired(row, now)) missing.push({ skillName: name, reason: "expired" })
-          else if (eff < r.level) missing.push({ skillName: name, reason: `level ${eff} of ${r.level}` })
+          else if (eff < r.level)
+            missing.push({
+              skillName: name,
+              // Level 1 to 2 or 3 is an observed try-out, not another quiz.
+              reason:
+                eff >= 1
+                  ? `level ${eff} of ${r.level}, needs a try-out`
+                  : held
+                    ? `level 0 of ${r.level}, its Training is on hold`
+                    : `level 0 of ${r.level}`,
+            })
           else if (row?.expiresAt != null && row.expiresAt - now <= EXPIRING_WINDOW_DAYS * DAY)
             expiringSoon.push(name)
         }
@@ -402,6 +441,13 @@ export const coverage = query({
       qualified,
       byShift: groups,
       almost: almost.sort((a, b) => a.missing.length - b.missing.length),
+      // Required Skills nobody can (re-)train on right now: their Training is on hold.
+      onHold: requirements
+        .filter((r) => heldTraining.has(String(r.skillId)))
+        .map((r) => {
+          const t = heldTraining.get(String(r.skillId))!
+          return { skillName: skillById.get(r.skillId)?.name ?? "Skill", trainingId: t._id, code: t.code, title: t.title }
+        }),
     }
   },
 })
@@ -459,7 +505,7 @@ async function buildPersonDetail(ctx: QueryCtx, personId: Id<"people">) {
     const open = mine.find((a) => a.trainingVersion === t.liveVersion && (a.status === "in_progress" || a.status === "generating"))
     return {
       status,
-      blockedReason: status === "blocked" ? BLOCKED_REASON : null,
+      blockedReason: status === "blocked" ? blockedReasonFor(t) : null,
       failStreak: failStreak(mine),
       openAttemptId: open?._id ?? null,
       passedAttemptId: passedLive?._id ?? null,
@@ -649,7 +695,7 @@ export const myLearning = query({
         row,
         training: kind === "signoff" && training && status === "startable" ? null : training,
         status,
-        blockedReason: status === "blocked" ? BLOCKED_REASON : null,
+        blockedReason: status === "blocked" ? (training?.blockedReason ?? BLOCKED_REASON) : null,
         dueAt,
         overdue: dueAt != null && dueAt < now,
         failStreak: training?.failStreak ?? 0,
@@ -859,6 +905,9 @@ export const catalogue = query({
         kind: t.kind,
         isPractice: t.isPractice ?? false,
         published: t.liveVersion != null,
+        // On hold after a change: assigned people cannot start it yet.
+        needsReview: t.needsReview,
+        needsReviewReason: t.needsReviewReason,
       }))
       .sort((a, b) => a.code.localeCompare(b.code))
     const docById = new Map(documents.map((d) => [d._id, d]))

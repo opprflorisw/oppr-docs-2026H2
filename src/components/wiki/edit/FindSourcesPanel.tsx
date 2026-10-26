@@ -16,7 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Pill, effectiveRow, errorText, headingOf, plural, useRun, type EditCtx, type Panel } from "./editShared"
 
 const BADGE: Record<FoundSource["badge"], { label: string; tone: "green" | "blue" | "grey" }> = {
-  inWiki: { label: "In this Wiki", tone: "green" },
+  inWiki: { label: "Read by this Wiki", tone: "green" },
   inScopeNotRead: { label: "In Scope, not read", tone: "blue" },
   notInScope: { label: "Not in Scope", tone: "grey" },
 }
@@ -42,7 +42,32 @@ export function FindSourcesPanel({
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const findSources = useAction(api.ai.wikiCheck.findSources)
+  const generateBlock = useAction(api.ai.wikiBlock.generateBlock)
+  const [regenerating, setRegenerating] = useState(false)
   const allowance = ctx.state.allowance
+  // Once the block has its own documents or pinned passages, the next step is
+  // to regenerate it: offer that here instead of hiding it in the block menu.
+  const chosen = block ? (block.sourceSet === "scope" ? 0 : block.sourceSet.documentIds.length) + block.pinnedChunkIds.length : 0
+
+  async function regenerate() {
+    if (!block) return
+    setError(null)
+    setRegenerating(true)
+    try {
+      const res = await generateBlock({ wikiId: ctx.wikiId, blockId: block.blockId, personId: ctx.personId })
+      if (!res.ok) throw new Error(res.message ?? "The block was not regenerated.")
+      if (res.message) {
+        setError(`${res.message} Try another document or passage.`)
+        return
+      }
+      toast.success("Regenerated. The new text is an unapplied change until you apply.")
+      onClose()
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setRegenerating(false)
+    }
+  }
   const searchesLeft = allowance.person?.wikiFind ?? null
 
   async function search(kind: "words" | "ai") {
@@ -134,6 +159,18 @@ export function FindSourcesPanel({
           <p role="alert" className="mt-3 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
             {error}
           </p>
+        )}
+
+        {block && block.origin === "generated" && chosen > 0 && (
+          <div className="mt-4 flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 p-2.5">
+            <p className="min-w-0 flex-1 text-sm">
+              This block now reads {plural(chosen, "chosen source", "chosen sources")}.
+            </p>
+            <Button size="sm" onClick={() => void regenerate()} disabled={regenerating || allowance.off} className="gap-1.5">
+              {regenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              Regenerate with these
+            </Button>
+          </div>
         )}
 
         {result && mode !== "title" && (
@@ -260,7 +297,7 @@ function SourceActions({
                 sourceSet: { documentIds: [...ids, documentId] },
                 personId: ctx.personId,
               })
-              toast.success("This block now reads that Document. Regenerate to use it.")
+              toast.success("This block now reads that Document. Press Regenerate with these to use it.")
             })
           }
         >

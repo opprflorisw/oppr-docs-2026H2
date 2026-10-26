@@ -299,6 +299,13 @@ function EngineerTrainingPage({ data }: { data: TrainingData }) {
       />
 
       <div className="mx-auto w-full max-w-6xl space-y-4 p-6">
+        {/* What it is for, before any warning. */}
+        {view.purpose && (
+          <p className="text-sm">
+            <span className="text-muted-foreground">Purpose: </span>
+            {view.purpose}
+          </p>
+        )}
         {!engineer && (
           <p className="text-sm text-muted-foreground">Check in as an Engineer to sign off, assign or change this Training.</p>
         )}
@@ -311,6 +318,9 @@ function EngineerTrainingPage({ data }: { data: TrainingData }) {
             <p className="pl-6 text-sm">
               Operators cannot start it until an Engineer decides. Check the objectives against the new version: confirm
               the Training is still valid, or start a new version to change it.
+              {problems > 0 &&
+                !showLive &&
+                ` ${problems} ${problems === 1 ? "objective cites a passage" : "objectives cite passages"} that ${problems === 1 ? "is" : "are"} no longer published, so a new version is needed.`}
             </p>
             <div className="flex flex-wrap gap-2 pl-6">
               <Button size="sm" className="gap-1.5" disabled={busy !== null} onClick={() => setSignOff("confirm")}>
@@ -326,7 +336,7 @@ function EngineerTrainingPage({ data }: { data: TrainingData }) {
           <ChangesStrip changes={changes} liveVersion={live!.version} currentVersion={current!.version} changeNote={versions.find((v) => v.isCurrent)?.changeNote ?? null} />
         )}
 
-        {problems > 0 && !showLive && (
+        {problems > 0 && !showLive && !t.needsReview && (
           <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
             <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
             {problems} {problems === 1 ? "objective cites a passage" : "objectives cite passages"} that {problems === 1 ? "is" : "are"} no
@@ -577,7 +587,7 @@ function EngineerTrainingPage({ data }: { data: TrainingData }) {
                       : "From now on, checked-in people can do it, and a pass becomes a Training record.")}
                   {signOff === "archive" && "Nobody can start new Attempts. Existing Training records stay as proof."}
                   {signOff === "confirm" &&
-                    `You checked the objectives against the newly published source and they still hold. v${t.liveVersion} keeps being used.`}{" "}
+                    `You checked the objectives against the newly Published source and they still hold. v${t.liveVersion} keeps being used.`}{" "}
                   Signed in the name of {engineer?.name ?? "the checked-in Engineer"}.
                 </p>
                 {(signOff === "approve" || signOff === "publish") && changes && <ChangeList changes={changes} />}

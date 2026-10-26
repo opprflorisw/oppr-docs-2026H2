@@ -4,6 +4,7 @@
 // hover list) and its location. A row opens the Asset page. Engineers get a
 // '...' menu with Edit, QR code and Delete. The plant plan lives on /floor.
 
+import { errorText } from "@/lib/errorText"
 import { useMemo, useState } from "react"
 import { useLocation } from "wouter"
 import { Factory, Map as MapIcon, MapPin, MoreHorizontal, Pencil, Plus, QrCode, Trash2 } from "lucide-react"
@@ -97,7 +98,7 @@ export function AssetsPage({ embedded = false }: { embedded?: boolean } = {}) {
       })
       toast.success("Asset updated")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "The Asset could not be updated.")
+      toast.error(errorText(err, "The Asset could not be updated."))
     }
   }
 
@@ -124,8 +125,8 @@ export function AssetsPage({ embedded = false }: { embedded?: boolean } = {}) {
         <div className="flex flex-wrap items-center gap-3">
           <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
             <TabsList data-tour="assets-views">
-              <TabsTrigger value="list">Asset list</TabsTrigger>
-              <TabsTrigger value="hierarchy">Asset hierarchy</TabsTrigger>
+              <TabsTrigger value="list" aria-controls={undefined}>Asset list</TabsTrigger>
+              <TabsTrigger value="hierarchy" aria-controls={undefined}>Asset hierarchy</TabsTrigger>
             </TabsList>
           </Tabs>
           <Input

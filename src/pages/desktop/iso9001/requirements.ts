@@ -233,6 +233,7 @@ export const CLAUSES: IsoClause[] = [
         oppr: [
           "The naming code is allocated by the server and never changes.",
           "Templates per Document type keep the format consistent.",
+          "Only a checked-in Engineer can save a change, and every save adds them as an author of that version.",
           "Four-eyes is enforced on the server: an author cannot review their own version, and the reviewer cannot approve it.",
           "Every version stores its sign-offs, a change note and whether it is a Significant change.",
         ],
@@ -250,7 +251,10 @@ export const CLAUSES: IsoClause[] = [
           "Published versions are read-only; editing starts a new version, and the Published one stays live until the next is approved.",
           "Readers, Scans, Ask, Wikis and Trainings only ever get the Published version.",
           "Signing in is required; people act through check-in, so sign-offs carry a name.",
+          "Paper from Print or PDF carries code, version and status on the page: Controlled copy only for the version in use.",
         ],
+        yours:
+          "In this showcase check-in is picking your name, without a PIN or badge. Before live use, a sign-off must prove who gave it.",
         status: "built",
         link: { href: "/library", label: "Open Documents" },
       },
@@ -275,7 +279,8 @@ export const CLAUSES: IsoClause[] = [
         auditor: "Changes are controlled and traceable, and documents are kept suitable over time.",
         oppr: [
           "Version history with who wrote, reviewed and approved each version, and a compare view.",
-          "Publishing sets a Periodic review date (12 months by default). Confirming a review is signed and recorded on the version.",
+          "Publishing sets a Periodic review date (12 months by default). Confirming a review is signed and recorded on the version, with what the reviewer checked.",
+          "Only an Engineer can change how often a Document is reviewed, and the change is kept in its review record.",
           "Reviews due and overdue show on Home and in Knowledge health.",
         ],
         status: "built",

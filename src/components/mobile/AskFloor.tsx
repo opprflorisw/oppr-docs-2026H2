@@ -2,7 +2,7 @@
 // chip with the rest folded under "More sources", and "Helpful" or
 // "Unclear or wrong?" under each answer.
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useMutation } from "convex/react"
 import { Check, ChevronDown, FileText, ThumbsUp } from "lucide-react"
 import { toast } from "sonner"
@@ -13,6 +13,16 @@ import { useCheckIn } from "@/lib/checkIn"
 import { cn } from "@/lib/utils"
 
 type Source = { citation: Citation; indexes: number[]; label: string }
+
+/** Excerpt numbers in the order the answer first cites them: [3] then [5] ... */
+function citedOrder(answer: string): number[] {
+  const out: number[] = []
+  for (const m of answer.matchAll(/\[(\d+)\]/g)) {
+    const n = Number(m[1])
+    if (!out.includes(n)) out.push(n)
+  }
+  return out
+}
 
 function groupSources(citations: Citation[]): Source[] {
   const out: Source[] = []
@@ -37,14 +47,25 @@ function groupSources(citations: Citation[]): Source[] {
 
 export function FloorSources({
   citations,
+  answer,
   domIdPrefix,
   onOpen,
 }: {
   citations: Citation[]
+  answer: string
   domIdPrefix: string
   onOpen: (c: Citation, page: number | null) => void
 }) {
-  const sources = useMemo(() => groupSources(citations), [citations])
+  // The main source is the one the answer cites first, so its number matches
+  // the first [n] in the text. Sources the answer never cites come last.
+  const sources = useMemo(() => {
+    const order = citedOrder(answer)
+    const rank = (s: Source) => {
+      const r = Math.min(...s.indexes.map((n) => (order.includes(n) ? order.indexOf(n) : Infinity)))
+      return Number.isFinite(r) ? r : order.length + s.indexes[0]
+    }
+    return groupSources(citations).sort((a, b) => rank(a) - rank(b))
+  }, [citations, answer])
   const [more, setMore] = useState(false)
   if (sources.length === 0) return null
   const [first, ...rest] = sources
@@ -65,8 +86,11 @@ export function FloorSources({
     >
       <FileText className="h-5 w-5 shrink-0 text-[#6E59A5]" />
       <span className="min-w-0 flex-1">
-        <span className="line-clamp-2 block text-sm font-semibold leading-snug">{s.label}</span>
-        <span className="block text-[13px] text-muted-foreground">Open at this passage</span>
+        <span className="line-clamp-2 block text-sm font-semibold leading-snug">
+          <span className="mr-1 font-mono text-[#6E59A5]">{s.indexes.map((n) => `[${n}]`).join(" ")}</span>
+          {s.label}
+        </span>
+        <span className="block text-[13px] text-muted-foreground">Published version in use · Open at this passage</span>
       </span>
       {/* Footnote anchors [2], [3] in the answer scroll to these. */}
       {s.indexes.slice(1).map((n) => (
@@ -177,6 +201,28 @@ export function FloorFeedback({ question, citations }: { question: string | null
       >
         Unclear or wrong?
       </button>
+    </div>
+  )
+}
+
+/**
+ * While Ask looks for an answer on the floor. A weak signal in the hall can
+ * make this take long, so after a few seconds we say so and point at Stop.
+ */
+export function FloorWaiting() {
+  const [slow, setSlow] = useState(false)
+  useEffect(() => {
+    const t = window.setTimeout(() => setSlow(true), 8000)
+    return () => window.clearTimeout(t)
+  }, [])
+  return (
+    <div role="status" className="text-base text-muted-foreground">
+      <p className="italic">Looking in the Published documents...</p>
+      {slow && (
+        <p className="mt-1 text-sm">
+          This takes longer than usual, often a weak signal. Wait a bit, or tap the square to stop and ask again.
+        </p>
+      )}
     </div>
   )
 }

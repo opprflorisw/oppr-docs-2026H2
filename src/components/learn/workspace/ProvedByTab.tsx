@@ -51,7 +51,7 @@ export function ProvedByTab({ catalogue, workspace, engineerId }: TabProps) {
       <section className="min-w-0 space-y-3">
         <SectionTitle icon={ListChecks} title="Skills and the Trainings that prove them" count={catalogue.skills.length} />
         <p className="text-xs text-muted-foreground">
-          Every link below works the same way: passing the linked, published Training sets the Skill to level 1 (
+          Every link below works the same way: passing the linked, Published Training sets the Skill to level 1 (
           {names[1]}). Levels 2 ({names[2]}) and 3 ({names[3]}) always need an Engineer's sign-off on the floor, so no
           Training goes higher.
           {orphans.length === 0 && (
@@ -140,7 +140,7 @@ function SkillRow({
     <div className="grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
       <div className="min-w-0">
         <div className="text-sm font-medium">{skill.name}</div>
-        {!proving && <div className="text-xs text-amber-700 dark:text-amber-400">No published Training proves it</div>}
+        {!proving && <div className="text-xs text-amber-700 dark:text-amber-400">No Published Training proves it</div>}
       </div>
       <div className="min-w-0 space-y-1.5">
         <div className="flex flex-wrap items-center gap-1.5">

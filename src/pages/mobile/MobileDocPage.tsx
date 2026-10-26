@@ -44,6 +44,7 @@ import { extractPpeItems } from "@/components/docs/DocumentHero"
 import { PublishToPdfDialog } from "@/components/docs/PublishToPdfDialog"
 import { looksLikeConvexId, usePinned, useRecentlyViewed } from "@/components/mobile/use-mobile-prefs"
 import { cn } from "@/lib/utils"
+import { ppeImageSrc, usePpeCatalog } from "@/lib/ppeCatalog"
 import { formatDate } from "@/lib/time"
 
 const PdfViewer = lazy(() => import("@/components/docs/PdfViewer").then((m) => ({ default: m.PdfViewer })))
@@ -90,10 +91,33 @@ const SECTION_RULES: [SectionKey, RegExp][] = [
 
 type Found = { key: SectionKey; el: HTMLElement }
 
+/** The heading just above the first step, so Steps lands on step 1, not on the title. */
+function stepsHeading(root: HTMLElement): HTMLElement | null {
+  const first =
+    root.querySelector<HTMLElement>("[data-step-item]") ??
+    Array.from(root.querySelectorAll<HTMLElement>("ol > li")).find((li) => !li.parentElement?.closest("li")) ??
+    null
+  if (!first) return null
+  let found: HTMLElement | null = null
+  for (const h of Array.from(root.querySelectorAll<HTMLElement>("h1, h2, h3"))) {
+    if (h.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING) found = h
+    else break
+  }
+  return found
+}
+
 function findSections(root: HTMLElement): Found[] {
   const out: Found[] = []
   const seen = new Set<SectionKey>()
+  const stepsAt = stepsHeading(root)
+  if (stepsAt) {
+    seen.add("steps")
+    out.push({ key: "steps", el: stepsAt })
+  }
   for (const h of Array.from(root.querySelectorAll<HTMLElement>("h1, h2, h3"))) {
+    // The document title (first h1) names the whole thing, not a section.
+    if (h.tagName === "H1" && h === root.querySelector("h1")) continue
+    if (h === stepsAt) continue
     const text = h.textContent ?? ""
     const rule = SECTION_RULES.find(([, re]) => re.test(text))
     if (!rule || seen.has(rule[0])) continue
@@ -150,6 +174,13 @@ export function MobileDocPage() {
   // to and highlights the cited passage once the body has rendered.
   const highlight = useMemo(() => new URLSearchParams(search).get("hl"), [search])
   const bodyRef = useRef<HTMLDivElement>(null)
+  // The sticky header, PPE strip and section bar cover the top of the page:
+  // a jump to a section lands just below them, so its heading reads whole.
+  const stickyRef = useRef<HTMLDivElement>(null)
+  const scrollToSection = useCallback((el: HTMLElement, behavior: ScrollBehavior) => {
+    el.style.scrollMarginTop = `${(stickyRef.current?.offsetHeight ?? 0) + 8}px`
+    el.scrollIntoView({ behavior, block: "start" })
+  }, [])
 
   useRecordUsage({
     kind: "view",
@@ -195,8 +226,8 @@ export function MobileDocPage() {
     const s = sections.find((x) => x.key === "steps")
     if (!s) return
     openedAtSteps.current = true
-    window.setTimeout(() => s.el.scrollIntoView({ block: "start" }), 50)
-  }, [sections, doc?.type, highlight])
+    window.setTimeout(() => scrollToSection(s.el, "auto"), 50)
+  }, [sections, doc?.type, highlight, scrollToSection])
 
   // Which section is on screen, for the section bar.
   useEffect(() => {
@@ -318,6 +349,8 @@ export function MobileDocPage() {
 
   const saved = isPinned("doc", doc.id)
   const wrapped = docResult?.doc.origin === "wrapped"
+  const ppe = bodyKind === "tiptap" ? extractPpeItems(bodyJson) : []
+  const inUse = currentVersion && !wrapped && doc.status !== "archived" ? currentVersion.version : null
   const backTo = doc.assets[0] ? `/m/assets/${doc.assets[0].id}` : "/m/find?in=docs"
   const askHref = `/m/ask?scope=doc:${doc.id}`
 
@@ -358,11 +391,20 @@ export function MobileDocPage() {
 
   return (
     <div className="flex min-h-full flex-col">
-      <div className="sticky top-0 z-10">
+      <div ref={stickyRef} className="sticky top-0 z-10">
         <MobileHeader
           backTo={backTo}
           title={doc.title}
-          subtitle={<span className="font-mono">{doc.naming_code}</span>}
+          subtitle={
+            <span>
+              <span className="font-mono">{doc.naming_code}</span>
+              {inUse != null && (
+                <span className="ml-1.5 inline-flex items-center rounded-full bg-emerald-100 px-1.5 font-sans text-[13px] font-semibold text-emerald-900 dark:bg-emerald-500/20 dark:text-emerald-100">
+                  v{inUse} in use
+                </span>
+              )}
+            </span>
+          }
           checkIn={false}
           right={
             <>
@@ -386,6 +428,7 @@ export function MobileDocPage() {
             </>
           }
         />
+        {ppe.length > 0 && <PpeStrip slugs={ppe} />}
         {sections.length > 1 && (
           <nav aria-label="Sections" className="flex gap-2 overflow-x-auto border-b bg-background/95 px-3 py-2 backdrop-blur">
             {sections.map((s) => (
@@ -393,7 +436,7 @@ export function MobileDocPage() {
                 key={s.key}
                 type="button"
                 aria-current={activeSection === s.key ? "true" : undefined}
-                onClick={() => s.el.scrollIntoView({ behavior: "smooth", block: "start" })}
+                onClick={() => scrollToSection(s.el, "smooth")}
                 className={cn(
                   "min-h-11 shrink-0 rounded-full border px-4 text-sm font-medium transition",
                   activeSection === s.key
@@ -608,4 +651,25 @@ function StepByStep({
 
 function normaliseText(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase()
+}
+
+/** What to wear, always in view at the top of the document. */
+function PpeStrip({ slugs }: { slugs: string[] }) {
+  const { resolve } = usePpeCatalog()
+  const items = slugs.map((s) => resolve(s))
+  return (
+    <div
+      className="flex items-center gap-2 overflow-x-auto border-b bg-blue-50/95 px-3 py-1.5 text-sm text-blue-950 backdrop-blur dark:bg-blue-500/10 dark:text-blue-50"
+      aria-label={`Wear: ${items.map((m) => m.label).join(", ")}`}
+      role="note"
+    >
+      <span className="shrink-0 font-semibold">Wear</span>
+      {items.map((m) => (
+        <span key={m.label} className="inline-flex shrink-0 items-center gap-1" aria-hidden>
+          <img src={ppeImageSrc(m)} alt="" width={20} height={20} className="object-contain" draggable={false} />
+          <span className="text-[13px]">{m.label}</span>
+        </span>
+      ))}
+    </div>
+  )
 }

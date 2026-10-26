@@ -70,11 +70,11 @@ export function SourcesBlock({
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         <span>Sources</span>
         {totalSections > 0 && totalSections !== citations.length && (
-          <span className="font-normal text-muted-foreground/80">
+          <span className="font-normal text-muted-foreground">
             · {totalSections} unique
           </span>
         )}
-        <span className="font-normal normal-case tracking-normal text-muted-foreground/80">
+        <span className="font-normal normal-case tracking-normal text-muted-foreground">
           · numbers in the answer point here
         </span>
       </div>

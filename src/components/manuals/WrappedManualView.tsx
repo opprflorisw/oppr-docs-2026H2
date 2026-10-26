@@ -1,6 +1,7 @@
 // Reader for one version of a Wrapped manual (CONTEXT.md): the stamped PDF,
 // opened at the cited page, with the supplier original next to it.
 
+import { errorText } from "@/lib/errorText"
 import { useState } from "react"
 import { useSearch } from "wouter"
 import { useMutation, useQuery } from "convex/react"
@@ -75,7 +76,7 @@ export function WrappedManualStrip({
       await restamp({ documentId, version: data.version })
       toast.success("Stamping again")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not start stamping")
+      toast.error(errorText(err, "Could not start stamping. Try again."))
     } finally {
       setRetrying(false)
     }

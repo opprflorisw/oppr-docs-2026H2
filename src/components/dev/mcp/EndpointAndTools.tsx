@@ -92,7 +92,7 @@ export function EndpointCard() {
                   <Copy className="h-3 w-3" /> Copy
                 </Button>
               </div>
-              <pre className="overflow-x-auto rounded-md border bg-muted/40 p-3 font-mono text-[11px] leading-relaxed">
+              <pre tabIndex={0} className="overflow-x-auto rounded-md border bg-muted/40 p-3 font-mono text-[11px] leading-relaxed">
                 {s.code}
               </pre>
             </TabsContent>

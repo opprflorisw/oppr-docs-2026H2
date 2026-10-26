@@ -176,6 +176,16 @@ async function sourceStatus(ctx: QueryCtx, wiki: Doc<"wikis">) {
  * obsolete text is never shown as truth (ISO 9001 7.5.3.2 d). This also
  * covers a failed rebuild, which keeps the previous content. Gap blocks stay.
  */
+/** Minutes to read at 200 words a minute: headings, points and table cells. */
+function readingMinutes(sections: ComposedSection[]): number {
+  const words = sections
+    .flatMap((s) => [s.heading, ...s.blocks.flatMap((b) => b.points.map((p) => (p.cells ? p.cells.join(" ") : p.text)))])
+    .join(" ")
+    .split(/\s+/)
+    .filter(Boolean).length
+  return Math.max(1, Math.round(words / 200))
+}
+
 function visiblePoints(wiki: Doc<"wikis">, stale: Map<string, unknown>) {
   let hidden = 0
   let shown = 0
@@ -356,6 +366,8 @@ export const list = query({
         sourceCount: w.sources.length,
         sectionCount: bodySections.length,
         pointCount: visible.shown,
+        // Same count as the Wiki page's "N min read" (readingMinutes there).
+        readMinutes: readingMinutes(visible.sections),
         outdatedCount: stale.size,
         generatedAt: w.generatedAt,
         updatedAt: w.updatedAt,

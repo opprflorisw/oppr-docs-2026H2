@@ -20,9 +20,9 @@ export interface PublishEvent {
  * Called from documents.publishApproved, inside the publishing transaction.
  * Wikis are handled there already. Each step lives with its own feature.
  */
-export async function afterPublish(ctx: MutationCtx, event: PublishEvent) {
+export async function afterPublish(ctx: MutationCtx, event: PublishEvent): Promise<{ significantChange: boolean }> {
   const doc = await ctx.db.get(event.documentId)
-  if (!doc) return
+  if (!doc) return { significantChange: event.significantChange }
 
   // A Wrapped manual's PDF carries our naming code, version and status:
   // restamp it now that it is Published.
@@ -43,5 +43,9 @@ export async function afterPublish(ctx: MutationCtx, event: PublishEvent) {
 
   // ... and flags the holders of linked Skills as "re-train needed". A
   // removed cited passage counts as Significant, whatever the author chose.
-  await skillsAfterPublish(ctx, { ...event, significantChange: event.significantChange || (passageRemoved && event.previousVersion != null) })
+  const significantChange = event.significantChange || (passageRemoved && event.previousVersion != null)
+  await skillsAfterPublish(ctx, { ...event, significantChange })
+  // The caller stores this on the version row, so Home "This week", history
+  // and the re-train flags all read the same decision.
+  return { significantChange }
 }

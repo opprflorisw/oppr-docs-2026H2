@@ -9,8 +9,10 @@ import {
   Library,
   Map as MapIcon,
   Search,
+  Receipt,
   Settings,
   Smartphone,
+  Users,
   type LucideProps,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -23,7 +25,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useCheckInReady } from "@/components/people/CheckInChip"
-import { DEV_HOME, DEV_TOOLS, useIsDeveloper } from "@/components/dev/devTools"
+import { DEV_HOME, DEV_TOOLS, useIsDeveloper, useShowLabs } from "@/components/dev/devTools"
+import { useCheckIn } from "@/lib/checkIn"
+import { isAdmin } from "@/lib/roles"
 import { setPhoneMode } from "@/components/phone/phoneStore"
 import { CommandSearch, openCommandSearch } from "./CommandSearch"
 import { useIsWide } from "./PageHeader"
@@ -36,6 +40,8 @@ type NavItem = {
   match: (path: string) => boolean
   /** data-tour target for Instructions (src/components/instructions). */
   tour?: string
+  /** An internal lab: in the nav only when "Show internal labs" is on. */
+  internal?: boolean
 }
 
 // Exactly six places (CONTEXT.md). Everything else is reached from one of
@@ -49,7 +55,7 @@ const NAV: NavItem[] = [
     tour: "nav-documents",
     // /library also covers Findings, Knowledge health, Captures and Images.
     match: (p) =>
-      p.startsWith("/library") || p.startsWith("/docs") || p.startsWith("/import"),
+      p.startsWith("/library") || p.startsWith("/docs") || p.startsWith("/import") || p.startsWith("/iso-9001"),
   },
   {
     label: "Learn",
@@ -92,6 +98,7 @@ const DEVELOPER: NavItem[] = [DEV_HOME, ...DEV_TOOLS].map((t) => ({
   label: t.label,
   to: t.href,
   icon: t.icon,
+  internal: t.internal,
   match:
     t.href === "/dev"
       ? (p: string) => p === "/dev"
@@ -99,6 +106,17 @@ const DEVELOPER: NavItem[] = [DEV_HOME, ...DEV_TOOLS].map((t) => ({
         ? (p: string) => p.startsWith("/dev/analysis") || p.startsWith("/analysis")
         : (p: string) => p === t.href || p.startsWith(`${t.href}/`),
 }))
+
+// The AI cost tabs of AI models and jobs: what an Admin answers to finance.
+const isCostPath = (p: string) => /^\/dev\/ai\/(usage|prices|limits)(\/|$)/.test(p)
+
+// Admin: two entries only an Admin needs often, not a seventh place. They
+// open pages that already exist (the cost tabs of AI models and jobs, and
+// People in Settings).
+const ADMIN: NavItem[] = [
+  { label: "AI cost and limits", to: "/dev/ai/usage", icon: Receipt, match: isCostPath, tour: "nav-admin-ai-cost" },
+  { label: "People and roles", to: "/settings?tab=people", icon: Users, match: () => false, tour: "nav-admin-people" },
+]
 
 const FLOOR: NavItem = {
   label: "Floor simulator",
@@ -208,7 +226,7 @@ export function DesktopShell({
             {!rail && (
               <div className="leading-tight">
                 <div className="text-sm font-semibold">Oppr Knowledge</div>
-                <div className="text-xs text-sidebar-foreground/60">Internal showcase</div>
+                <div className="text-xs text-sidebar-foreground/80">Internal showcase</div>
               </div>
             )}
           </div>
@@ -231,7 +249,7 @@ export function DesktopShell({
                 {!rail && (
                   <>
                     <span className="flex-1 text-left">Search</span>
-                    <kbd className="rounded border border-sidebar-border px-1.5 font-sans text-xs text-sidebar-foreground/60">
+                    <kbd className="rounded border border-sidebar-border px-1.5 font-sans text-xs text-sidebar-foreground/80">
                       Ctrl K
                     </kbd>
                   </>
@@ -277,6 +295,7 @@ export function DesktopShell({
             </RailTip>
           </div>
 
+          {!loading && <AdminGroup location={location} rail={rail} />}
           {!loading && <DeveloperGroup location={location} rail={rail} />}
         </aside>
 
@@ -295,9 +314,38 @@ export function DesktopShell({
   )
 }
 
-/** The Developer group: Engineers and Admins only (it reads the check-in). */
+/** The Admin group: Admins only (it reads the check-in). */
+function AdminGroup({ location, rail }: { location: string; rail: boolean }) {
+  const { person } = useCheckIn()
+  if (!isAdmin(person)) return null
+  return (
+    <div
+      role="group"
+      aria-label="Admin"
+      className={cn("w-full space-y-1 border-t border-sidebar-border py-3", rail ? "flex flex-col items-center" : "px-3")}
+    >
+      {!rail && <p className="px-3 pb-1 text-xs font-medium text-sidebar-foreground/50">Admin</p>}
+      {ADMIN.map((item) => (
+        <NavLink key={item.to} item={item} location={location} rail={rail} />
+      ))}
+    </div>
+  )
+}
+
+/**
+ * The Developer group: Engineers and Admins only (it reads the check-in).
+ * Internal labs show only when "Show internal labs" is on, or while open.
+ */
 function DeveloperGroup({ location, rail }: { location: string; rail: boolean }) {
-  if (!useIsDeveloper()) return null
+  const developer = useIsDeveloper()
+  const showLabs = useShowLabs()
+  const { person } = useCheckIn()
+  if (!developer) return null
+  const admin = isAdmin(person)
+  const items = DEVELOPER.filter((item) => !item.internal || showLabs || item.match(location)).map((item) =>
+    // For an Admin the cost tabs light up under Admin, not here.
+    admin && item.to === "/dev/ai" ? { ...item, match: (p: string) => item.match(p) && !isCostPath(p) } : item,
+  )
   return (
     <div
       role="group"
@@ -306,7 +354,7 @@ function DeveloperGroup({ location, rail }: { location: string; rail: boolean })
       className={cn("w-full space-y-1 border-t border-sidebar-border py-3", rail ? "flex flex-col items-center" : "px-3")}
     >
       {!rail && <p className="px-3 pb-1 text-xs font-medium text-sidebar-foreground/50">Developer</p>}
-      {DEVELOPER.map((item) => (
+      {items.map((item) => (
         <NavLink key={item.to} item={item} location={location} rail={rail} />
       ))}
     </div>

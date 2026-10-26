@@ -2,6 +2,7 @@
 // supplier PDF either starts the next version (when the manual is Published)
 // or replaces the PDF of the version being worked on.
 
+import { errorText } from "@/lib/errorText"
 import { useState } from "react"
 import { useMutation } from "convex/react"
 import { toast } from "sonner"
@@ -75,7 +76,7 @@ export function ReplacePdfDialog({
       onOpenChange(false)
       onReplaced?.(res)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not replace the PDF")
+      toast.error(errorText(err, "Could not replace the PDF. Try again."))
     } finally {
       setBusy(false)
     }

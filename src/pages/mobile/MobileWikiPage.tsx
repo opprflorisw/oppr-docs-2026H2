@@ -177,7 +177,7 @@ function MobileWikiReader({ wiki }: { wiki: WikiView }) {
                 aria-current={activeChip === c.key ? "location" : undefined}
                 onClick={() => jumpTo(c.target)}
                 className={cn(
-                  "inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium transition-colors",
+                  "inline-flex h-11 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium transition-colors",
                   activeChip === c.key ? "border-primary-strong bg-primary-strong text-white" : "bg-background text-foreground",
                 )}
               >
@@ -238,7 +238,7 @@ function MobileWikiReader({ wiki }: { wiki: WikiView }) {
               <span>
                 {changed > 0
                   ? `${changed} ${changed === 1 ? "source" : "sources"} changed since this build. Facts that rely on ${changed === 1 ? "it are" : "them are"} hidden until the Wiki is rebuilt.`
-                  : `Built from ${n} ${n === 1 ? "document" : "documents"}, all current.`}
+                  : `Built from ${n} ${n === 1 ? "document" : "documents"}, all on their latest Published version.`}
                 {wiki.generatedAt ? ` Built ${formatAgo(wiki.generatedAt)}.` : ""}
               </span>
             </p>
@@ -283,7 +283,7 @@ function SourceSheet({ wiki, citations, onClose }: { wiki: WikiView; citations: 
                 <p className="min-w-0 flex-1 font-mono text-sm font-medium">
                   {g.namingCode} v{g.version}
                 </p>
-                <Button size="sm" variant="outline" className="h-9" onClick={() => open(g.documentId, g.version, g.items[0].chunkId)}>
+                <Button size="sm" variant="outline" className="h-11 px-4 text-sm" onClick={() => open(g.documentId, g.version, g.items[0].chunkId)}>
                   Open
                 </Button>
               </div>

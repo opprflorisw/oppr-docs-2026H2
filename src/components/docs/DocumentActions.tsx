@@ -133,7 +133,7 @@ export function WithdrawDocumentDialog({
           <div className="space-y-1.5">
             <Label>Replaced by (optional)</Label>
             <Select value={replacedBy} onValueChange={setReplacedBy}>
-              <SelectTrigger>
+              <SelectTrigger aria-label="Replaced by">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

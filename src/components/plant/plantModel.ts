@@ -63,7 +63,7 @@ export const TABS: { value: PlantTab; label: string; kinds: PlantKind[]; subtitl
     value: "overview",
     label: "Overview",
     kinds: [],
-    subtitle: "Who we are: background, products, quality policy and key facts.",
+    subtitle: "Who we are, as background for Ask, Wikis and the writing assistant. Steps and limits always come from Published documents.",
   },
   {
     value: "structure",

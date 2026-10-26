@@ -144,7 +144,9 @@ export function FindingsPage() {
         primary={
           <span className="flex items-center gap-2">
             {!engineer && (
-              <span className="hidden text-xs text-muted-foreground xl:inline">Check in as an Engineer to run it.</span>
+              <span className="hidden text-xs text-muted-foreground xl:inline">
+                {person ? "An Engineer runs the check." : "Check in as an Engineer to run it."}
+              </span>
             )}
             <Button size="sm" onClick={() => void startRun()} disabled={starting || running != null || !engineer} data-tour="documents-findings-run">
               {starting || running ? <Loader2 className="animate-spin" /> : <Play />}
@@ -163,7 +165,7 @@ export function FindingsPage() {
           >
             <TabsList data-tour="documents-findings-tabs">
               {TABS.map((t) => (
-                <TabsTrigger key={t.value} value={t.value} className="gap-1.5 text-xs">
+                <TabsTrigger key={t.value} value={t.value} className="gap-1.5 text-xs" aria-controls={undefined}>
                   {t.label}
                   {visible && (
                     <Badge

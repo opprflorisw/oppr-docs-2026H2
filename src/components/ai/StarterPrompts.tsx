@@ -24,6 +24,9 @@ export function StarterPrompts({
 
   return (
     <div className={cn("space-y-2", className)}>
+      <p className={cn("text-muted-foreground", floor ? "pb-1 text-[15px] leading-snug" : "pb-0.5 text-xs")}>
+        {introFor(scope)}
+      </p>
       <div
         className={cn(
           "flex items-center gap-1 font-semibold uppercase tracking-wide text-muted-foreground",
@@ -50,6 +53,17 @@ export function StarterPrompts({
       </div>
     </div>
   )
+}
+
+/** What Ask is, in one line, before the first question. */
+function introFor(scope: AskPanelScope): string {
+  const source = "The answer comes only from Published documents and shows its source."
+  if (scope.kind === "skills") return "Ask who can do what. Steps and settings still come only from Published documents."
+  if (scope.kind === "asset") return `Ask about this Asset in your own words, Dutch or English. ${source}`
+  if (scope.kind === "training") return `Ask about this Training in your own words. ${source}`
+  if (scope.kind === "wiki") return `Ask about this Wiki in your own words, Dutch or English. ${source}`
+  if (scope.kind === "library") return `Ask in your own words, Dutch or English. ${source}`
+  return `Ask about this Document in your own words, Dutch or English. ${source}`
 }
 
 function getStarters(scope: AskPanelScope): string[] {

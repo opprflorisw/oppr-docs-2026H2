@@ -2,9 +2,11 @@
 // point (the desktop phone preview, the Floor simulator, a wide screen).
 // Same QR pattern as the desktop Asset preview.
 
-import { ChevronRight, Map } from "lucide-react"
+// No "On the floor plan" line: it repeated on every card and told nothing
+// (CD5). The Asset page still says where the machine is.
+
+import { ChevronRight } from "lucide-react"
 import { AssetQrSvg } from "@/components/docs/AssetQrSvg"
-import { spotLabel } from "./MobileAssetCard"
 
 interface QrScanCardProps {
   asset: { code: string; name: string; location?: string | null; qrToken: string; pinNumber?: number | null }
@@ -12,7 +14,6 @@ interface QrScanCardProps {
 }
 
 export function QrScanCard({ asset, onClick }: QrScanCardProps) {
-  const spot = spotLabel(asset.pinNumber)
   return (
     <button
       type="button"
@@ -27,12 +28,6 @@ export function QrScanCard({ asset, onClick }: QrScanCardProps) {
         <span className="font-mono text-[13px] font-medium text-muted-foreground">{asset.code}</span>
         <span className="line-clamp-2 text-base font-semibold leading-snug text-foreground">{asset.name}</span>
         <span className="flex flex-wrap items-center gap-x-3 text-[13px] text-muted-foreground">
-          {spot && (
-            <span className="inline-flex items-center gap-1">
-              <Map className="h-3.5 w-3.5" />
-              {spot}
-            </span>
-          )}
           {asset.location && <span className="truncate">{asset.location}</span>}
         </span>
       </span>

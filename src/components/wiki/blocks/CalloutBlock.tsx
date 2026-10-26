@@ -12,7 +12,7 @@ const LABEL = { danger: "Danger", warning: "Warning", tip: "Tip" } as const
  * an amber left border, `tip` a neutral one. No filled amber boxes.
  */
 export function CalloutBlock({ block }: { block: WikiBlockView }) {
-  const { dangerOver } = useBlockCtx()
+  const { dangerOver, surface } = useBlockCtx()
   const tone = block.tone === "danger" && dangerOver.has(block.id) ? "warning" : (block.tone ?? "tip")
   const Icon = tone === "danger" ? AlertOctagon : tone === "warning" ? AlertTriangle : Lightbulb
   return (
@@ -36,7 +36,7 @@ export function CalloutBlock({ block }: { block: WikiBlockView }) {
         aria-hidden
       />
       <div className="min-w-0">
-        <p className={cn("text-xs font-semibold uppercase tracking-wide", tone === "danger" ? "text-red-800 dark:text-red-200" : "text-muted-foreground")}>
+        <p className={cn("font-semibold uppercase tracking-wide", surface === "phone" ? "text-[13px]" : "text-xs", tone === "danger" ? "text-red-800 dark:text-red-200" : "text-muted-foreground")}>
           {LABEL[tone]}
         </p>
         <Paragraph block={block} />

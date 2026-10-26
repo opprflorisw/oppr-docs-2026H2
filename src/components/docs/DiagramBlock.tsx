@@ -11,6 +11,7 @@
 // All builder SVG is produced by renderDiagramSvg, the single trust boundary
 // that XML-escapes every label.
 
+import { errorText } from "@/lib/errorText"
 import { useEffect, useState } from "react"
 import { Node, mergeAttributes, type RawCommands } from "@tiptap/core"
 import {
@@ -297,7 +298,7 @@ export function DiagramPicker({
       }
       return { url: result.url, naturalWidth: dims.width, naturalHeight: dims.height }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Upload failed")
+      toast.error(errorText(err, "The picture could not be uploaded. Try again."))
       return null
     }
   }

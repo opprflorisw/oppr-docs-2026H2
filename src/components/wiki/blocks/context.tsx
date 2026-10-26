@@ -78,14 +78,22 @@ export function PointBadges({ point }: { point: WikiPointView }) {
           New
         </span>
       )}
-      {point.findingId && !point.disputed && (
+      {/* The Findings page is desk-only; on the phone a link would bounce to
+          Home, so the badge only says it and points at the Engineer. */}
+      {point.findingId && !point.disputed && phone && (
+        <span
+          title={point.findingSummary ?? undefined}
+          className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-red-100 px-1.5 py-px align-middle text-[13px] font-medium text-red-800 dark:bg-red-500/15 dark:text-red-200"
+        >
+          <AlertOctagon className="h-3 w-3" aria-hidden />
+          Open finding: check with your Engineer
+        </span>
+      )}
+      {point.findingId && !point.disputed && !phone && (
         <Link
           href={`/library/findings?f=${point.findingId}`}
           title={point.findingSummary ?? "Open contradiction between the sources"}
-          className={cn(
-            "ml-1.5 inline-flex items-center gap-1 rounded-full bg-red-100 px-1.5 py-px align-middle font-medium text-red-800 dark:bg-red-500/15 dark:text-red-200 [@media(hover:hover)]:hover:bg-red-200",
-            phone ? "text-[13px]" : "text-xs",
-          )}
+          className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-red-100 px-1.5 py-px align-middle text-xs font-medium text-red-800 dark:bg-red-500/15 dark:text-red-200 [@media(hover:hover)]:hover:bg-red-200"
         >
           <AlertOctagon className="h-3 w-3" aria-hidden />
           Open finding

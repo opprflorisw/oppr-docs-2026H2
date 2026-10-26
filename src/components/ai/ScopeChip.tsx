@@ -233,20 +233,20 @@ function ScopeSwitcher({
         >
           <TabsList className={cn("grid h-8 w-full", pageScope ? "grid-cols-4" : "grid-cols-3")}>
             {pageUi && PageIcon && (
-              <TabsTrigger value="page" className="text-xs">
+              <TabsTrigger value="page" className="text-xs" aria-controls={undefined}>
                 <PageIcon className="mr-1 h-3 w-3" />
                 {pageUi.tab}
               </TabsTrigger>
             )}
-            <TabsTrigger value="library" className="text-xs">
+            <TabsTrigger value="library" className="text-xs" aria-controls={undefined}>
               <Globe className="mr-1 h-3 w-3" />
               Library
             </TabsTrigger>
-            <TabsTrigger value="doc" className="text-xs">
+            <TabsTrigger value="doc" className="text-xs" aria-controls={undefined}>
               <FileText className="mr-1 h-3 w-3" />
               Document
             </TabsTrigger>
-            <TabsTrigger value="asset" className="text-xs">
+            <TabsTrigger value="asset" className="text-xs" aria-controls={undefined}>
               <Factory className="mr-1 h-3 w-3" />
               Asset
             </TabsTrigger>

@@ -245,7 +245,11 @@ function FindingMarker({ trainingId }: { trainingId: Id<"trainings"> }) {
   )
 }
 
-/** The right column: who still needs it, then the pass rate. */
+/**
+ * The right column: who still needs it, then the pass rate. "Passed" counts a
+ * pass since the person was (re-)assigned; the pass rate counts every Attempt
+ * ever made, so the two are labelled apart.
+ */
 function TrainingRowSide({
   trainingId,
   isLive,
@@ -261,7 +265,7 @@ function TrainingRowSide({
   const s = assigned?.summary
   const needed = s ? s.assigned - s.passed : 0
   return (
-    <span className="hidden w-44 shrink-0 text-right sm:block">
+    <span className="hidden w-52 shrink-0 text-right sm:block">
       {s && s.assigned > 0 ? (
         <>
           <span className="block text-sm font-medium">
@@ -269,14 +273,15 @@ function TrainingRowSide({
             {s.overdue > 0 && <span className="text-red-700 dark:text-red-300"> · Overdue {s.overdue}</span>}
           </span>
           <span className="block text-xs text-muted-foreground">
-            {s.passed} of {s.assigned} passed{passRate != null ? ` · pass rate ${passRate}%` : ""}
+            {s.passed} of {s.assigned} passed since assigned
+            {passRate != null ? ` · ${passRate}% of all Attempts pass` : ""}
           </span>
         </>
       ) : (
         <>
           <span className="block text-sm font-semibold tabular-nums">{passRate == null ? "No Attempts" : `${passRate}%`}</span>
           <span className="block text-xs text-muted-foreground">
-            {finished === 0 ? (isLive ? "Nobody assigned" : "Not in use yet") : "pass rate"}
+            {finished === 0 ? (isLive ? "Nobody assigned" : "Not in use yet") : "of all Attempts pass"}
           </span>
         </>
       )}

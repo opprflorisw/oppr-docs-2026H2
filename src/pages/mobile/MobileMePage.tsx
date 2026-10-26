@@ -238,7 +238,7 @@ function RecordsSection({ personId }: { personId: Id<"people"> }) {
         <Skeleton className="h-20 w-full rounded-2xl" />
       ) : done.length === 0 ? (
         <p className="rounded-2xl border bg-card px-4 py-3 text-base text-muted-foreground">
-          No finished Trainings or Rounds yet.
+          No finished Trainings or Rounds yet. When you pass one, your proof shows here.
         </p>
       ) : (
         <>

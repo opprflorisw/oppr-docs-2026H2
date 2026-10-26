@@ -7,7 +7,7 @@
      hsl(var(--x)), so a theme only redefines these variables.
      - primary / primary-strong #6E59A5: the filled primary, 4.5:1+ with white
      - primary-soft #9b87f5: tints, borders and selection only
-     - muted-foreground slate #64748B: secondary text, never purple
+     - muted-foreground slate #5B6677: secondary text, never purple (4.5:1+ on muted)
      - ring #7E69AB: focus ring
      - status-*: reserved for status (Draft grey, In review amber, Approved
        blue, Published green, Archived slate, Re-train red). */
@@ -30,7 +30,7 @@
     --secondary-foreground: 255.8 33.3% 32%;
 
     --muted: 250 25% 96.5%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted-foreground: 216 13.3% 41.2%;
 
     --accent: 253.3 69.2% 94.9%;
     --accent-foreground: 223.3 25.7% 13.7%;
@@ -331,7 +331,7 @@
   .tiptap-content { font-size: 10.5pt; line-height: 1.4; }
   .tiptap-content :where(table) { page-break-inside: avoid; }
   figure[data-diagram] { page-break-inside: avoid; }
-  ol[data-step-list] { page-break-inside: avoid; }
+  [data-step-list] { page-break-inside: avoid; }
   div[data-callout] { page-break-inside: avoid; }
   /* Hide chrome */
   aside, nav, header { display: none !important; }
@@ -343,4 +343,40 @@
   box-shadow: 0 0 0 3px rgb(250 204 21 / 0.6);
   border-radius: 3px;
   transition: background-color 0.6s ease, box-shadow 0.6s ease;
+}
+
+/* Phone: machine and document chips inside a document are tap targets for
+   gloved hands, so they get the 44 px floor height. */
+.floor-doc-body [data-linked-asset] > a,
+.floor-doc-body [data-reference-doc] > a {
+  min-height: 44px;
+  padding: 0 0.625rem;
+  font-size: 0.875rem;
+  vertical-align: middle;
+}
+
+/* Phone Ask: the [n] source markers stay small in the text but get a 44 px
+   tap area for gloved hands. */
+.floor-answer button[aria-label^="Source "] {
+  position: relative;
+}
+.floor-answer button[aria-label^="Source "]::after {
+  content: "";
+  position: absolute;
+  inset: -12px -10px;
+}
+
+/* Phone document reader: warning labels and PPE are read at arm's length in
+   a bright hall, so nothing in them is below the 13 px floor minimum, and a
+   Danger or Warning text is as large as the steps around it. */
+.floor-doc-body [data-callout] {
+  font-size: 1rem;
+}
+.floor-doc-body .callout-label {
+  font-size: 13px;
+  opacity: 1;
+}
+.floor-doc-body .ppe-label,
+.floor-doc-body .ppe-chip {
+  font-size: 13px;
 }

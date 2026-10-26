@@ -26,6 +26,7 @@ import { Doc, Id } from "./_generated/dataModel"
 import { requireUserId } from "./lib/auth"
 import {
   BLOCKED_REASON,
+  blockedReasonFor,
   checklistFrom,
   getVersion,
   imageUrl,
@@ -565,7 +566,15 @@ export const get = query({
       trainingId: a.trainingId,
       trainingVersion: a.trainingVersion,
       training: t
-        ? { code: t.code, title: t.title, kind: t.kind, liveVersion: t.liveVersion, status: t.status }
+        ? {
+            code: t.code,
+            title: t.title,
+            kind: t.kind,
+            liveVersion: t.liveVersion,
+            status: t.status,
+            // On hold after a change: a retry would be refused, so the result says why instead.
+            blockedReason: t.needsReview ? blockedReasonFor(t) : null,
+          }
         : null,
       purpose: row?.purpose ?? "",
       passMark: row?.passMark ?? 80,
@@ -1213,6 +1222,19 @@ export const listRecords = query({
       if (!trainings.has(String(id))) trainings.set(String(id), await ctx.db.get(id))
       return trainings.get(String(id)) ?? null
     }
+    // Which Document versions a Training version was built on: what an
+    // inspector asks for ("trained on SOP v1 or v2?").
+    const docVersions = new Map<string, string>()
+    const docVersionsOf = async (trainingId: Id<"trainings">, version: number) => {
+      const key = `${trainingId}:${version}`
+      if (!docVersions.has(key)) {
+        const row = await getVersion(ctx, trainingId, version)
+        const seen = new Set<string>()
+        for (const o of row?.objectives ?? []) seen.add(`${o.namingCode} v${o.documentVersion}`)
+        docVersions.set(key, [...seen].sort().join(", "))
+      }
+      return docVersions.get(key)!
+    }
     const out = []
     for (const r of records) {
       if (args.trainingId && r.trainingId !== args.trainingId) continue
@@ -1226,6 +1248,7 @@ export const listRecords = query({
         trainingCode: r.trainingCode,
         trainingTitle: r.trainingTitle,
         trainingVersion: r.trainingVersion,
+        documentVersions: await docVersionsOf(r.trainingId, r.trainingVersion),
         kind: (await trainingOf(r.trainingId))?.kind ?? "course",
         score: r.score,
         at: r.passedAt,
@@ -1251,6 +1274,7 @@ export const listRecords = query({
           trainingCode: t?.code ?? "?",
           trainingTitle: t?.title ?? "Deleted Training",
           trainingVersion: a.trainingVersion,
+          documentVersions: await docVersionsOf(a.trainingId, a.trainingVersion),
           kind: t?.kind ?? "course",
           score: a.score ?? 0,
           at: a.finishedAt ?? a.startedAt,

@@ -215,7 +215,14 @@ export function CaptureSetPage() {
               ]
             : []),
           ...(combined && draft
-            ? [{ label: "Make another Draft", icon: FileText, onClick: () => setDraftMode("draft"), disabled: !!draftBlocked }]
+            ? [
+                {
+                  label: open.length > 0 ? `Make another Draft (${open.length} still to decide)` : "Make another Draft",
+                  icon: FileText,
+                  onClick: () => setDraftMode("draft"),
+                  disabled: !!draftBlocked,
+                },
+              ]
             : []),
           { label: "Delete Capture set", icon: Trash2, onClick: () => setDeleteOpen(true), destructive: true },
         ]}
@@ -385,6 +392,7 @@ export function CaptureSetPage() {
           defaultTitle={s.job ?? s.title}
           forTraining={draftMode === "training"}
           blockedReason={draftBlocked}
+          openVariations={open.length}
         />
       )}
       <ConfirmDelete

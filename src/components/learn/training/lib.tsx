@@ -147,7 +147,7 @@ export function SourceChip({
           )}
         >
           {namingCode}
-          {version != null && <span className="ml-1 opacity-70">v{version}</span>}
+          {version != null && <span className="ml-1">v{version}</span>}
         </Link>
       </HoverCardTrigger>
       <HoverCardContent className="w-80 space-y-1.5 text-xs" align="start">

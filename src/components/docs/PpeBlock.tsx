@@ -220,7 +220,7 @@ function PpeView({
         selected && "ring-2 ring-blue-300 ring-offset-1",
       )}
     >
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-900 dark:text-blue-200">
+      <span className="ppe-label text-[10px] font-semibold uppercase tracking-wide text-blue-900 dark:text-blue-200">
         Required PPE
       </span>
       <div className="flex flex-wrap items-end gap-1.5">
@@ -230,7 +230,7 @@ function PpeView({
             <span
               key={slug}
               className={cn(
-                "border border-blue-300 bg-white font-medium text-blue-900 dark:border-blue-500/40 dark:bg-blue-950/40 dark:text-blue-100",
+                "ppe-chip border border-blue-300 bg-white font-medium text-blue-900 dark:border-blue-500/40 dark:bg-blue-950/40 dark:text-blue-100",
                 size === "lg"
                   ? "inline-flex w-[88px] flex-col items-center gap-1 rounded-md px-1.5 py-1.5 text-center text-[11px]"
                   : "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px]",
@@ -420,10 +420,11 @@ export function PpeQuickPalette({ onInsert, children }: PpeQuickPaletteProps) {
             type="button"
             variant="ghost"
             size="sm"
-            className="h-8 w-8 p-0"
-            title="Required PPE"
+            className="h-8 gap-1 px-2 text-xs"
+            title="Insert the PPE to wear: helmet, gloves, glasses and more"
           >
             <HardHat className="h-4 w-4 text-blue-600" />
+            PPE
           </Button>
         )}
       </PopoverTrigger>

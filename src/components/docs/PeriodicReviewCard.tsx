@@ -1,3 +1,4 @@
+import { errorText } from "@/lib/errorText"
 import { useState } from "react"
 import { formatDate } from "@/lib/time"
 import { useMutation, useQuery } from "convex/react"
@@ -6,6 +7,7 @@ import { CalendarClock, CheckCircle2, GitBranch } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
 import type { Doc } from "../../../convex/_generated/dataModel"
 import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
   SelectContent,
@@ -52,6 +54,7 @@ export function PeriodicReviewCard({
   const { person } = useCheckIn()
   const org = useQuery(api.orgSettings.get)
   const [confirming, setConfirming] = useState(false)
+  const [note, setNote] = useState("")
   const engineer = isEngineerOrAdmin(person) ? person : null
 
   if (doc.liveVersion == null || doc.status === "archived") return null
@@ -71,7 +74,7 @@ export function PeriodicReviewCard({
       await p
       toast.success(ok)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      toast.error(errorText(err))
     }
   }
 
@@ -138,13 +141,30 @@ export function PeriodicReviewCard({
                   today. The record cannot be undone.
                 </AlertDialogDescription>
               </AlertDialogHeader>
+              <div className="space-y-1.5">
+                <label htmlFor="review-note" className="text-sm font-medium">
+                  What did you check? <span className="font-normal text-muted-foreground">(optional)</span>
+                </label>
+                <Textarea
+                  id="review-note"
+                  value={note}
+                  maxLength={500}
+                  rows={3}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="For example: set points match the product card, walked the line with the shift leader."
+                />
+                <p className="text-xs text-muted-foreground">
+                  Kept in the review record, so an auditor sees what the review covered.
+                </p>
+              </div>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={() => {
                     if (!engineer) return
+                    setNote("")
                     void run(
-                      confirm({ id: doc._id, personId: engineer._id }),
+                      confirm({ id: doc._id, personId: engineer._id, ...(note.trim() ? { note: note.trim() } : {}) }),
                       `v${doc.liveVersion} confirmed as still valid by ${engineer.name}. Next review in ${months} months.`,
                     )
                   }}
@@ -174,9 +194,16 @@ export function PeriodicReviewCard({
           <ul className="space-y-0.5">
             {record.events.slice(0, 5).map((e, i) => (
               <li key={i} className="text-[11px] text-muted-foreground">
-                {e.kind === "published" ? "Published" : "Confirmed still valid"}{" "}
+                {e.kind === "published"
+                  ? "Published"
+                  : e.kind === "interval"
+                    ? (e.note ?? "Review interval changed")
+                    : "Confirmed still valid"}{" "}
                 {formatDay(e.at)}
                 {e.by ? ` by ${e.by}` : ""}
+                {e.kind === "confirmed" && e.note && (
+                  <span className="block pl-2 italic">"{e.note}"</span>
+                )}
               </li>
             ))}
           </ul>
@@ -192,14 +219,16 @@ export function PeriodicReviewCard({
         <span className="text-[11px] text-muted-foreground">Review every</span>
         <Select
           value={String(months)}
+          disabled={!engineer}
           onValueChange={(v) =>
+            engineer &&
             void run(
-              setInterval({ id: doc._id, months: Number(v) }),
+              setInterval({ id: doc._id, months: Number(v), personId: engineer._id }),
               `Review interval set to ${v} months. The due date now counts from the last review.`,
             )
           }
         >
-          <SelectTrigger className="h-7 w-[110px] text-xs">
+          <SelectTrigger className="h-7 w-[110px] text-xs" aria-label={`Review every ${months} months`}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

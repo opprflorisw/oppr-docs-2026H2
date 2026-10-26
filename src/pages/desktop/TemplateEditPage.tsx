@@ -5,6 +5,7 @@
 // empty paragraphs and table cells the author fills in after starting a doc
 // from the template.
 
+import { errorText } from "@/lib/errorText"
 import { useEffect, useState } from "react"
 import { useLocation, useRoute } from "wouter"
 import { useQuery } from "convex/react"
@@ -95,7 +96,7 @@ export function TemplateEditPage() {
       }
       navigate("/settings?tab=templates")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      toast.error(errorText(err))
     } finally {
       setSaving(false)
     }

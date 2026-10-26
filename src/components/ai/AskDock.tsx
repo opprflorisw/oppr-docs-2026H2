@@ -279,7 +279,7 @@ export function AskTopBarButton() {
       <MessageSquareText className="h-3.5 w-3.5" aria-hidden />
       Ask
       {!isOpen && (
-        <kbd className="hidden rounded border border-primary/30 px-1 font-sans text-xs text-primary-strong/80 xl:inline">
+        <kbd className="hidden rounded border border-primary/30 px-1 font-sans text-xs text-primary-strong xl:inline">
           Ctrl J
         </kbd>
       )}

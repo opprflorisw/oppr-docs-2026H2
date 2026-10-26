@@ -65,10 +65,17 @@ export function MobileScanPage() {
 
   return (
     <div className="flex min-h-full flex-col">
-      <MobileHeader title="Scan" backTo="/m/find" subtitle={simulated ? "Tap a code to scan it" : undefined} />
+      <MobileHeader title="Scan" backTo="/m/find" subtitle={simulated ? "Tap a code to scan it" : "A machine's safety and tasks"} />
       <div className="flex flex-col gap-4 p-4">
         {canCamera && assets && <CameraScanner assets={assets} docs={docs} onHit={open} />}
-        <TypeTheCode assets={assets} docs={docs} onHit={open} autoFocus={!canCamera && !simulated} />
+        {/* No autofocus: the keyboard would cover the machines to tap, and
+            with gloves on, tapping a machine is easier than typing. */}
+        <TypeTheCode assets={assets} docs={docs} onHit={open} autoFocus={false} />
+        {!simulated && !canCamera && (
+          <p className="px-1 text-sm text-muted-foreground">
+            This browser cannot scan. Type the code from the label on the machine, or tap the machine below.
+          </p>
+        )}
         {(simulated || !canCamera) && (
           <section className="flex flex-col gap-2">
             <h2 className="px-1 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">

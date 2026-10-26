@@ -236,7 +236,7 @@ export const SETTINGS_TOURS: Tour[] = [
       },
       {
         title: "Safety and coaching",
-        body: "Ask for a try-out at the line for safety content, and ask an Engineer to walk someone through after repeated fails.",
+        body: "Ask for a try-out at the line for safety Trainings, and ask an Engineer to walk someone through after repeated fails.",
       },
       {
         title: "Shared phones",

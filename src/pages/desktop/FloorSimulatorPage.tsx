@@ -274,7 +274,12 @@ export function FloorSimulatorPage() {
           <Card data-tour="floor-plan">
             <CardContent className="p-3">
               {assets === undefined ? (
-                <Skeleton className="aspect-[1000/600] w-full rounded-md" />
+                <div className="relative" role="status">
+                  <Skeleton className="aspect-[1000/600] w-full rounded-md" />
+                  <p className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+                    Loading the plant and its machines...
+                  </p>
+                </div>
               ) : assets.length === 0 ? (
                 <div className="flex aspect-[1000/600] flex-col items-center justify-center gap-2 text-center">
                   <MapIcon className="h-8 w-8 text-muted-foreground" />

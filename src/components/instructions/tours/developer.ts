@@ -13,7 +13,7 @@ export const DEVELOPER_TOURS: Tour[] = [
     icon: "TerminalSquare",
     summary: "A short walk past the tools for trying out models, connections and AI setups.",
     what:
-      "The Developer section groups the tools that sit behind the app: the Embeddings lab, MCP, AI models and jobs, and the Analysis case files. Each tool has a card with one line on what it is for and how it stands today.",
+      "The Developer section groups the tools that sit behind the app: MCP and AI models and jobs, plus two internal labs for the Oppr team, the Embeddings lab and the Analysis case files. Each tool has a card with one line on what it is for and how it stands today. The labs stay out of the menu unless you show them.",
     why:
       "Most people in the plant never need to see how search, AI and outside connections are set up. Engineers and Admins do, when search gives odd answers, when a new assistant must connect, or when someone asks what AI costs. Keeping these tools in one place keeps them out of everyone else's way.",
     helps: [
@@ -37,21 +37,14 @@ export const DEVELOPER_TOURS: Tour[] = [
         target: "nav-developer",
         placement: "right",
         title: "Find Developer in the left menu",
-        body: "Developer sits below the six places. Only Engineers and Admins see it.",
+        body: "Developer sits below the six places. Only Engineers and Admins see it. An Admin also gets an Admin group with AI cost and limits, and People and roles.",
       },
       {
         id: "tools",
         target: "developer-home-tools",
         placement: "top",
         title: "One card per tool",
-        body: "Each card says what the tool is for and gives a live status line. Click a card to open the tool.",
-      },
-      {
-        id: "embeddings",
-        target: "developer-home-embeddings",
-        placement: "bottom",
-        title: "Embeddings lab",
-        body: "Runs a search model in this browser. The status shows whether this computer has WebGPU and what is loaded.",
+        body: "Each card says what the tool is for and gives a live status line. Click a card to open the tool. The internal labs sit under their own heading, with a switch to show them in the menu.",
       },
       {
         id: "mcp",
@@ -68,11 +61,18 @@ export const DEVELOPER_TOURS: Tour[] = [
         body: "Which model does what, the search index, the schedules and the AI usage and cost. The status warns when a model has no key.",
       },
       {
+        id: "embeddings",
+        target: "developer-home-embeddings",
+        placement: "top",
+        title: "Embeddings lab",
+        body: "An internal lab: runs a search model in this browser. The status shows whether this computer has WebGPU and what is loaded.",
+      },
+      {
         id: "analysis",
         target: "developer-home-analysis",
         placement: "top",
         title: "Analysis",
-        body: "The case files behind larger changes. The status counts how many are still outstanding.",
+        body: "An internal lab: the case files behind larger changes. The status counts how many are still outstanding.",
       },
       {
         id: "next",

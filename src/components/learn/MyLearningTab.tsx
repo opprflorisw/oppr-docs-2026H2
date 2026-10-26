@@ -132,6 +132,23 @@ function MyLearning({ personId, engineer }: { personId: Id<"people">; engineer: 
   const data = useQuery(api.skills.myLearning, { personId })
   const requests = useQuery(api.tryOuts.mine, { personId })
   const records = useQuery(api.attempts.listRecords, { personId, includeFailed: true })
+  // One line per Training: the pass that counts as proof, else the tries so
+  // far. A new starter sees what they have achieved, not a stack of reds.
+  const byTraining = useMemo(() => {
+    type Rec = NonNullable<typeof records>[number]
+    const groups = new Map<string, Rec[]>()
+    for (const r of records ?? []) groups.set(String(r.trainingId), [...(groups.get(String(r.trainingId)) ?? []), r])
+    return [...groups.values()].map((list) => {
+      const proof = list.find((r) => r.passed) ?? null
+      const latest = { ...list[0], scores: list.map((r) => r.score) }
+      return {
+        proof,
+        latest,
+        tries: list.length,
+        laterTries: proof ? list.filter((r) => r.at > proof.at).length : 0,
+      }
+    })
+  }, [records])
   const [openSkill, setOpenSkill] = useState<Id<"skills"> | null>(null)
   // Who can watch a try-out: people at level 3 ("Can teach it") on the Skill.
   const matrix = useQuery(api.skills.matrix, {})
@@ -175,11 +192,27 @@ function MyLearning({ personId, engineer }: { personId: Id<"people">; engineer: 
             <CardContent className="p-4 text-xs text-muted-foreground">
               {engineer ? (
                 <>
-                  <span className="font-medium text-foreground">You have no Skill profile.</span>{" "}
+                  <span className="font-medium text-foreground">
+                    {held.length > 0 ? "No Skill profile, so no targets for your role." : "You have no Skill profile."}
+                  </span>{" "}
+                  {held.length > 0 ? "Your Skills are listed below. " : ""}
                   <Link href="/learn/skills/people" className="font-medium text-foreground underline underline-offset-2">
-                    Assign one
+                    Assign a profile
                   </Link>{" "}
-                  to see what you need for your role.
+                  to see what your role needs. Looking after others? Open the{" "}
+                  <Link href="/learn?tab=matrix" className="font-medium text-foreground underline underline-offset-2">
+                    Skill matrix
+                  </Link>{" "}
+                  or the{" "}
+                  <Link href="/learn?tab=records" className="font-medium text-foreground underline underline-offset-2">
+                    Training records
+                  </Link>
+                  .
+                </>
+              ) : held.length > 0 ? (
+                <>
+                  <span className="font-medium text-foreground">No Skill profile yet, {first}.</span> Your Skills are listed
+                  below. A Skill profile adds the levels your role needs; ask an Engineer to assign one.
                 </>
               ) : (
                 <>
@@ -320,28 +353,45 @@ function MyLearning({ personId, engineer }: { personId: Id<"people">; engineer: 
         ) : (
           <Card>
             <CardContent className="divide-y p-0">
-              {records.slice(0, 8).map((r) => (
-                <Link
-                  key={r._id}
-                  href={`/learn/attempts/${r.attemptId}`}
-                  className="block px-3 py-2 transition-colors hover:bg-muted/50"
-                >
-                  <div className="truncate text-xs font-medium">{r.trainingTitle}</div>
-                  <div className="text-xs text-muted-foreground">
-                    <span className="font-mono">
-                      {r.trainingCode} v{r.trainingVersion}
-                    </span>{" "}
-                    · {fmtScore(r.score)} · {fmtDate(r.at)}
-                  </div>
-                  {!r.passed && <div className="text-xs font-medium text-red-700 dark:text-red-400">Not passed</div>}
-                </Link>
-              ))}
+              {byTraining.slice(0, 6).map(({ proof, latest, tries, laterTries }) => {
+                const r = proof ?? latest
+                return (
+                  <Link
+                    key={r.trainingId}
+                    href={`/learn/attempts/${r.attemptId}`}
+                    className="block px-3 py-2 transition-colors hover:bg-muted/50"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      {proof ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-label="Passed" />
+                      ) : (
+                        <RotateCcw className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Not passed yet" />
+                      )}
+                      <span className="truncate text-xs font-medium">{r.trainingTitle}</span>
+                    </div>
+                    <div className="pl-5 text-xs text-muted-foreground">
+                      {proof ? (
+                        <>
+                          Passed {fmtDate(proof.at)} · {fmtScore(proof.score)} ·{" "}
+                          <span className="font-mono">v{proof.trainingVersion}</span>
+                          {laterTries > 0 && ` · ${laterTries} later ${laterTries === 1 ? "try" : "tries"}, the pass still counts`}
+                        </>
+                      ) : (
+                        <>
+                          Not passed yet · {tries} {tries === 1 ? "try" : "tries"}, best {fmtScore(Math.max(...latest.scores))}.
+                          Open it to read what you missed.
+                        </>
+                      )}
+                    </div>
+                  </Link>
+                )
+              })}
             </CardContent>
           </Card>
         )}
-        {records && records.length > 8 && (
-          <Link href={`/learn?tab=records&person=${personId}`} className="block text-xs text-muted-foreground hover:underline">
-            All {records.length} records
+        {records && records.length > 0 && (
+          <Link href={`/learn?tab=records&person=${personId}&failed=1`} className="block text-xs text-muted-foreground hover:underline">
+            All {records.length} {records.length === 1 ? "Attempt" : "Attempts"} and records
           </Link>
         )}
         <p className="text-xs leading-relaxed text-muted-foreground">

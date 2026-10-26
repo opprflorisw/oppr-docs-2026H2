@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { DocumentsTabs } from "@/components/docs/DocumentsTabs"
 import {
   CLAUSES,
   STATUS_META,
@@ -103,7 +104,7 @@ export function Iso9001Page() {
   return (
     <div className="flex flex-col print:[&_.sticky]:static">
       <div className="contents print:hidden">
-        <TopBar breadcrumb={[{ label: "Settings", href: "/settings" }, { label: "ISO 9001" }]} />
+        <TopBar breadcrumb={[{ label: "Documents", href: "/library" }, { label: "ISO 9001" }]} />
       </div>
       <PageHeader
         icon={BadgeCheck}
@@ -116,6 +117,7 @@ export function Iso9001Page() {
           </Button>
         }
       />
+      <DocumentsTabs className="print:hidden" />
       <div className="mx-auto w-full max-w-4xl space-y-10 p-6 print:max-w-none print:p-0">
         <Intro />
         <Summary data={data} capped={capped} />
@@ -216,7 +218,7 @@ function Summary({ data, capped }: { data: Evidence | undefined; capped: boolean
                 </span>
                 <span className="flex w-56 justify-end gap-3 text-xs tabular-nums text-muted-foreground">
                   {STATUSES.map((s) => (
-                    <span key={s} className={cn(n[s] === 0 && "opacity-40")}>
+                    <span key={s} className={cn(n[s] > 0 && "font-medium text-foreground")}>
                       {n[s]} {STATUS_META[s].label.toLowerCase()}
                     </span>
                   ))}

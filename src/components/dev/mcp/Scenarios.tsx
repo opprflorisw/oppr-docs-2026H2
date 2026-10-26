@@ -208,7 +208,7 @@ function Funnel({ stages, reached }: { stages: { label: string; value: number }[
           key={s.label}
           className={cn(
             "rounded-md border p-2 transition-all",
-            i <= reached ? "border-primary/40 bg-primary/5" : "opacity-40",
+            i <= reached ? "border-primary/40 bg-primary/5" : "border-dashed bg-muted/30",
             i === reached && "ring-1 ring-primary",
           )}
         >

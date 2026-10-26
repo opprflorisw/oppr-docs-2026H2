@@ -125,7 +125,7 @@ export const WIKI_TOURS: Tour[] = [
       },
       {
         title: "Sources you can check",
-        body: "Hover a marker to read the passage, or open the Document behind it. The side shows which Documents the Wiki is built from and if they are all current.",
+        body: "Hover a marker to read the passage, or open the Document behind it. The side shows which Documents the Wiki is built from, whether they are on their latest version, and any open Findings or overdue reviews.",
       },
       {
         title: "Both values when Documents disagree",

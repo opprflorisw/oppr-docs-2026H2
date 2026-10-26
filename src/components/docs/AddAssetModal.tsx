@@ -2,6 +2,7 @@
 // description and a photo are optional. The photo uploads to Convex storage
 // and the resulting storageId is stored on the asset.
 
+import { errorText } from "@/lib/errorText"
 import { useRef, useState } from "react"
 import { useMutation } from "convex/react"
 import { toast } from "sonner"
@@ -86,7 +87,7 @@ export function AddAssetModal({ open, onOpenChange, onCreated }: AddAssetModalPr
       onOpenChange(false)
       onCreated?.(id)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create asset")
+      toast.error(errorText(err, "The Asset could not be added. Try again."))
     } finally {
       setSaving(false)
     }

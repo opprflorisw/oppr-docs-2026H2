@@ -10,7 +10,7 @@ import {
   useState,
 } from "react"
 import { Link, useLocation, useSearch } from "wouter"
-import { CircleDot, Home, MessageSquare, Search, UserRound, WifiOff, X } from "lucide-react"
+import { CircleDot, Home, MessageSquare, Search, UserRound, X } from "lucide-react"
 import { toast } from "sonner"
 import { useConvex } from "convex/react"
 import { api } from "../../../convex/_generated/api"
@@ -23,7 +23,7 @@ import { initials, useCheckIn, type Person } from "@/lib/checkIn"
 import { useCheckInIdleMinutes, useIdleCheckOut } from "@/lib/checkInIdle"
 import { useNavStack, isRootPath, type NavStack } from "@/lib/navStack"
 import { cn } from "@/lib/utils"
-import { useOnline } from "./use-mobile-prefs"
+import { SignalBanner } from "./SignalBanner"
 import { MobileCheckInSheet, MobileCheckOutSheet, MobileConfirmPersonSheet } from "./MobileCheckIn"
 
 const HINT_KEY = "oppr-docs:mobile-hint-seen"
@@ -107,7 +107,6 @@ export function MobileShell({ children, embedded = false }: { children: ReactNod
   const fullPath = search ? `${location}?${search}` : location
   const nav = useNavStack(fullPath, navigate)
   const { person, checkOut } = useCheckIn()
-  const online = useOnline()
 
   const [showHint, setShowHint] = useState(false)
   const [checkIn, setCheckIn] = useState<CheckInRequest | null>(null)
@@ -316,15 +315,7 @@ export function MobileShell({ children, embedded = false }: { children: ReactNod
             </div>
           )}
 
-          {!online && (
-            <div
-              className="flex shrink-0 items-center justify-center gap-1.5 bg-amber-500/15 px-3 pb-1.5 text-[13px] font-medium text-amber-900 dark:text-amber-200"
-              style={{ paddingTop: "max(6px, var(--sat, env(safe-area-inset-top, 0px)))" }}
-            >
-              <WifiOff className="h-4 w-4" />
-              Offline: what you opened before still works
-            </div>
-          )}
+          <SignalBanner />
 
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {children}

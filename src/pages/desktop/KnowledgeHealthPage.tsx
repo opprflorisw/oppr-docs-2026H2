@@ -100,6 +100,15 @@ function HealthBody({ data }: { data: Health }) {
             {s.views} views, {s.scans} Scans and {s.questions} questions in the last {data.windowDays} days
             {pct != null && `; ${pct}% of the questions were answered from Published documents`}.
           </p>
+          {data.sample && (
+            <p className="text-xs text-muted-foreground" data-testid="health-sample">
+              <Badge variant="outline" className="mr-1.5 align-middle">
+                Sample data
+              </Badge>
+              This is the demo plant: its views, Scans, questions and Findings were made up for the showcase. In a real plant
+              these numbers come from use.
+            </p>
+          )}
         </div>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6" data-tour="documents-health-tiles">
           <Tile href="#never-used" icon={Archive} label="Never used" value={s.neverUsed} tone={s.neverUsed ? "warn" : "ok"} />
@@ -458,7 +467,7 @@ function AllDocuments({ data }: { data: Health }) {
                       r.reviewInDays != null && r.reviewInDays < 0
                         ? "text-red-600"
                         : r.reviewInDays != null && r.reviewInDays <= 30
-                          ? "text-amber-600"
+                          ? "text-amber-700"
                           : "text-muted-foreground",
                     )}
                   >
@@ -495,7 +504,7 @@ function Num({
       className={cn(
         "text-right text-sm tabular-nums",
         children === 0 && "text-muted-foreground/60",
-        warn && "font-medium text-amber-600",
+        warn && "font-medium text-amber-700",
         danger && "font-medium text-red-600",
       )}
     >

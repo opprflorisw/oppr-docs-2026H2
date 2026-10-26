@@ -18,9 +18,16 @@ export const overview = query({
     const docs = await ctx.db.query("documents").take(2000)
     const wikis = await ctx.db.query("wikis").take(500)
 
+    const people = await ctx.db.query("people").take(1000)
+    const nameOf = (id: Id<"people"> | null | undefined) =>
+      id ? (people.find((p) => p._id === id)?.name ?? null) : null
     const approvals = docs
       .filter((d) => d.status === "in_review" || d.status === "approved")
       .map((d) => ({
+        // The person whose turn it is: the reviewer while in review, the
+        // approver once approved. Home shows the action only to them.
+        nextPersonId: (d.status === "in_review" ? d.reviewerPersonId : d.approverPersonId) ?? null,
+        nextPersonName: nameOf(d.status === "in_review" ? d.reviewerPersonId : d.approverPersonId),
         _id: d._id,
         namingCode: d.namingCode,
         title: d.title,

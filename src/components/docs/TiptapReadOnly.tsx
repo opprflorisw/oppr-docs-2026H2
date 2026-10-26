@@ -61,6 +61,8 @@ export function TiptapReadOnly({ content, className }: TiptapReadOnlyProps) {
         StepItemNode,
         PdfAttachmentNode,
       ],
+      // Read only: it is a document, not a text box.
+      editorProps: { attributes: { role: "document", "aria-label": "Document body" } },
       enableContentCheck: false,
     },
     [isValid, content],

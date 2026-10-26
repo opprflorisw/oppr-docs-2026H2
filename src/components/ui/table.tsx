@@ -4,9 +4,15 @@ import { cn } from "@/lib/utils"
 
 const Table = React.forwardRef<
   HTMLTableElement,
-  React.HTMLAttributes<HTMLTableElement>
->(({ className, ...props }, ref) => (
-  <div className="relative w-full overflow-auto">
+  React.HTMLAttributes<HTMLTableElement> & {
+    /** Makes the scroll box a labelled, keyboard-focusable region, for tables that can scroll sideways. */
+    scrollLabel?: string
+  }
+>(({ className, scrollLabel, ...props }, ref) => (
+  <div
+    className="relative w-full overflow-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    {...(scrollLabel ? { tabIndex: 0, role: "region", "aria-label": scrollLabel } : {})}
+  >
     <table
       ref={ref}
       className={cn("w-full caption-bottom text-sm", className)}

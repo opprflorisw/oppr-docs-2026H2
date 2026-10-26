@@ -111,7 +111,7 @@ export const START_TOURS: Tour[] = [
     area: "start",
     title: "Home",
     icon: "Home",
-    summary: "What needs a decision today, and how the knowledge base is doing.",
+    summary: "Your start page: what waits for you today, and how the knowledge base is doing.",
     what:
       "Home is your start page. It shows an inbox of decisions waiting today, like reviews and periodic reviews, and a small Knowledge health snapshot. When you are checked in it also shows shift cover and what changed this week.",
     why:
@@ -148,14 +148,14 @@ export const START_TOURS: Tour[] = [
         route: "/",
         target: "home-inbox",
         title: "Your inbox",
-        body: "Documents waiting for review or publishing, and periodic reviews that are due. Each row has one button that takes you straight to the work.",
+        body: "Documents waiting for review or publishing, and periodic reviews that are due. Only the person whose turn it is gets the action button; the others see who it is waiting for. A checked-in Operator sees their own Trainings and Rounds here instead.",
         placement: "right",
       },
       {
         id: "inbox-engineer",
         target: "home-work",
         title: "More work below the inbox",
-        body: "Below the inbox you also see open Findings, Proposed revisions, Trainings to review, try-outs and people who need re-training. Each part only shows when there is something to do. An Engineer settles most of them.",
+        body: "Below the inbox you also see try-outs and people who need re-training first, then open Findings, Proposed revisions and Trainings to review. Each part only shows when there is something to do. An Engineer settles most of them.",
         placement: "right",
       },
       {
@@ -179,6 +179,7 @@ export const START_TOURS: Tour[] = [
         title: "Shift cover",
         body: "Shown when you are checked in. How many qualified people work each shift, for the Skill profiles an Engineer chose. Red means nobody, amber one, green two or more.",
         placement: "left",
+        audience: ["engineer", "admin"],
       },
       {
         id: "this-week",
@@ -193,6 +194,7 @@ export const START_TOURS: Tour[] = [
         title: "Knowledge health",
         body: "How many Documents are Published, in progress or due for review. Click Published, Drafts and revisions or Wikis to open that list.",
         placement: "left",
+        audience: ["engineer", "admin"],
       },
       {
         id: "next",

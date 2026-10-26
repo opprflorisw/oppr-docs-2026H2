@@ -31,6 +31,7 @@ import { EditorOnly } from "@/components/settings/SettingsBits"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { cn } from "@/lib/utils"
+import { useCheckIn } from "@/lib/checkIn"
 
 // Settings holds setup only: five groups, each holding one kind of option, and
 // My preferences for this device below them. The section lives in ?tab= so
@@ -235,6 +236,8 @@ function resolveTab(raw: string): { section?: Section; href?: string } {
 
 export function SettingsPage() {
   const search = useSearch()
+  const { person } = useCheckIn()
+  const operator = person?.kind === "operator"
   const raw = new URLSearchParams(search).get("tab") ?? ""
   const resolved = resolveTab(raw)
 
@@ -275,6 +278,19 @@ export function SettingsPage() {
         </nav>
 
         <section aria-labelledby="settings-section-title" className="min-w-0 space-y-4">
+          {operator && section.value !== PREFERENCES.value && (
+            <p
+              role="note"
+              className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+              data-testid="settings-operator-note"
+            >
+              You are checked in as an Operator. Engineers and Admins set these pages up; you can read them. Yours is{" "}
+              <Link href={`/settings?tab=${PREFERENCES.value}`} className="font-medium text-foreground underline-offset-2 hover:underline">
+                My preferences
+              </Link>
+              .
+            </p>
+          )}
           {unknown && (
             <p
               role="status"

@@ -5,7 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton"
 import { initials, PHONE_CHECK_IN_KEY, useCheckIn, type Person } from "@/lib/checkIn"
 import { cn } from "@/lib/utils"
-import { isEngineerOrAdmin } from "@/lib/roles"
+import { isEngineerOrAdmin, KIND_LABEL } from "@/lib/roles"
 
 // The desktop check-in key (src/lib/checkIn.ts KEY). Read here only to know
 // whether a check-in is pending, never written.
@@ -124,6 +124,8 @@ export function CheckInChip() {
             <UserRound className="h-3.5 w-3.5 text-muted-foreground" />
           )}
           {person ? person.name : "Check in"}
+          {/* The role next to the name, so an Admin's wider rights are visible. */}
+          {person && <span className="hidden font-normal text-muted-foreground sm:inline">· {KIND_LABEL[person.kind]}</span>}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 p-0">
@@ -250,7 +252,9 @@ function Group({
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium">{p.name}</span>
-            <span className="block truncate text-xs text-muted-foreground">{p.role}</span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {p.kind === "admin" ? (p.role ? `Admin · ${p.role}` : "Admin") : p.role}
+            </span>
           </span>
           {current?._id === p._id && <Check className="h-3.5 w-3.5 text-primary" />}
         </button>

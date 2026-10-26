@@ -1,3 +1,4 @@
+import { errorText } from "@/lib/errorText"
 import { useMemo, useState } from "react"
 import { useMutation, useQuery } from "convex/react"
 import { Link } from "wouter"
@@ -31,6 +32,7 @@ import { useCheckIn } from "@/lib/checkIn"
 import { formatAgo } from "@/lib/time"
 import { cn } from "@/lib/utils"
 import { isEngineerOrAdmin } from "@/lib/roles"
+import { LONG_READ_MINUTES } from "@/components/wiki/useFold"
 
 type WikiRow = FunctionReturnType<typeof api.wikis.list>[number]
 
@@ -121,7 +123,7 @@ export function WikiListPage() {
       <PageHeader
         icon={BookOpenText}
         title="Wiki"
-        subtitle="Short pages that explain a job, a machine or an area, built only from published documents."
+        subtitle="Short reading guides to a job, a machine or an area, written by the AI only from Published documents and rebuilt when they change."
         actions={createAction}
       />
       <div className="mx-auto w-full max-w-6xl space-y-10 px-6 py-6">
@@ -160,7 +162,7 @@ export function WikiListPage() {
                   <MapPin className="h-3 w-3" aria-hidden />
                   {a.label}
                   {person?.area === a.code && (
-                    <span className={area === a.code ? "text-white/80" : "text-primary-strong"}>, your area</span>
+                    <span className={area === a.code ? "text-white/80" : "text-primary-strong"}>(your area)</span>
                   )}
                 </button>
               ))}
@@ -194,7 +196,7 @@ export function WikiListPage() {
               <div className="space-y-1">
                 <p className="text-sm font-medium">No Wikis yet</p>
                 <p className="max-w-sm text-sm text-muted-foreground">
-                  A Wiki explains a job, a machine or an area for one audience. It is built from published
+                  A Wiki explains a job, a machine or an area for one audience. It is built from Published
                   documents only, and rebuilt whenever one of them changes.
                 </p>
               </div>
@@ -419,7 +421,7 @@ function StartHere({ path, suggested, isEngineer }: { path: WikiRow[]; suggested
     try {
       await move({ id, direction, personId: person?._id })
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      toast.error(errorText(err))
     }
   }
   return (
@@ -445,7 +447,8 @@ function StartHere({ path, suggested, isEngineer }: { path: WikiRow[]; suggested
                 <span className="block text-sm font-semibold leading-snug">{w.title}</span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">{summary(w.purpose, 140)}</span>
                 <span className="mt-1.5 block text-xs text-muted-foreground">
-                  {w.sectionCount} sections · about {Math.max(1, Math.round(w.pointCount / 8))} min
+                  {w.sectionCount} sections · {w.readMinutes > LONG_READ_MINUTES ? "a long guide, " : ""}
+                  {w.readMinutes} min read
                 </span>
               </span>
             </Link>

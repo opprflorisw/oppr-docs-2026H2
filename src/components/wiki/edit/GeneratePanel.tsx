@@ -126,6 +126,16 @@ export function GeneratePanel({
       }
       const res = await generateBlock({ wikiId: ctx.wikiId, blockId, personId: ctx.personId })
       if (!res.ok) throw new Error(res.message ?? "The block was not generated.")
+      if (res.message && blockId) {
+        // Nothing in the chosen sources covers it: go straight on to Find
+        // sources for this block instead of leaving an empty block behind.
+        toast.warning("Nothing in these sources covers it yet. Pick a document in Find sources, then regenerate.")
+        if (openRef.current) {
+          openRef.current = false
+          ctx.open({ kind: "find", sectionId: panel.sectionId, blockId, query: trimmed })
+        }
+        return
+      }
       if (openRef.current) close()
       toast.success(
         panel.blockId

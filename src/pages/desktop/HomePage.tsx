@@ -29,6 +29,7 @@ import { NewDocumentChooserDialog } from "./DocumentNewChooserPage"
 import { InstructionsHomeCard } from "@/components/instructions/InstructionsHomeCard"
 import { cn } from "@/lib/utils"
 import { isEngineerOrAdmin } from "@/lib/roles"
+import { OperatorHome } from "@/components/home/OperatorHome"
 
 // Home (CONTEXT.md): an Engineer's inbox of decisions waiting today, plus a
 // small Knowledge health snapshot. Every inbox row has one obvious action.
@@ -37,6 +38,8 @@ export function HomePage() {
   const { person } = useCheckIn()
   // "Your" only when we know who is reading: a checked-in Engineer.
   const engineer = isEngineerOrAdmin(person)
+  // A checked-in Operator gets their own Home: the decisions inbox is not theirs.
+  const operator = !!person && !engineer
   const [, navigate] = useLocation()
   const [newOpen, setNewOpen] = useState(false)
   const inboxCount = data ? data.approvals.length + data.reviews.length : 0
@@ -47,9 +50,15 @@ export function HomePage() {
       <PageHeader
         icon={Home}
         title={person ? `Good to see you, ${person.name.split(" ")[0]}` : "Home"}
-        subtitle="What needs a decision today, and how the knowledge base is doing."
+        subtitle={
+          operator
+            ? "Your Trainings and Rounds, and the quickest way to the machine, Ask and the documents."
+            : person
+              ? "What needs a decision today, and how the knowledge base is doing."
+              : "You are not checked in, so this is the Engineer view of the plant. Check in (top right) to see your own Home: an Operator sees their own Trainings, Rounds and machines."
+        }
         actions={
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setNewOpen(true)} data-tour="home-new-document">
+          operator ? undefined : <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setNewOpen(true)} data-tour="home-new-document">
             <Plus className="h-3.5 w-3.5" />
             New document
           </Button>
@@ -57,6 +66,9 @@ export function HomePage() {
       />
 
       <div className="mx-auto grid w-full max-w-6xl gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+        {operator ? (
+          <OperatorHome personId={person._id} />
+        ) : (
         <section className="space-y-3" data-tour="home-work">
           <div className="space-y-3" data-tour="home-inbox">
             <div className="flex items-center gap-2">
@@ -92,22 +104,31 @@ export function HomePage() {
             ) : (
               <Card>
                 <CardContent className="divide-y p-0">
-                  {data.approvals.map((d) => (
-                    <InboxRow
-                      key={`a-${d._id}`}
-                      icon={FileCheck2}
-                      tone="primary"
-                      title={d.title}
-                      code={`${d.namingCode} · v${d.version}${d.isRevision ? " revision" : ""}`}
-                      note={
-                        d.status === "in_review"
-                          ? `Waiting for ${engineer ? "your" : "an Engineer's"} review. Open it to approve.`
-                          : "Approved. Open it to publish."
-                      }
-                      action={d.status === "in_review" ? "Review" : "Publish"}
-                      href={`/docs/${d._id}/edit`}
-                    />
-                  ))}
+                  {data.approvals.map((d) => {
+                    // Only the person whose turn it is gets the action verb.
+                    const mine = !!person && d.nextPersonId === person._id
+                    const step = d.status === "in_review" ? "review" : "approval to publish"
+                    const who = d.nextPersonName ?? (d.status === "in_review" ? "the reviewer" : "the approver")
+                    return (
+                      <InboxRow
+                        key={`a-${d._id}`}
+                        icon={FileCheck2}
+                        tone="primary"
+                        muted={!mine}
+                        title={d.title}
+                        code={`${d.namingCode} · v${d.version}${d.isRevision ? " revision" : ""}`}
+                        note={
+                          mine
+                            ? d.status === "in_review"
+                              ? "Your turn: review it, then approve or send it back."
+                              : "Your turn: approved, open it to publish."
+                            : `Waiting for ${who}'s ${step}.`
+                        }
+                        action={mine ? (d.status === "in_review" ? "Review" : "Publish") : "Open"}
+                        href={`/docs/${d._id}/edit`}
+                      />
+                    )
+                  })}
                   {data.reviews.map((d) => (
                     <InboxRow
                       key={`r-${d._id}`}
@@ -134,18 +155,20 @@ export function HomePage() {
           </div>
 
           {/* Other work for Engineers, one section per pillar. Each renders
-              nothing when it has nothing to show. */}
+              nothing when it has nothing to show. People waiting for a
+              try-out or sign-off come first: someone is standing at the line. */}
+          <HomeSkillRows />
           <HomeFindingsRows />
           <HomeRevisionRows />
           <HomeTrainingRows />
-          <HomeSkillRows />
         </section>
+        )}
 
         <aside className="space-y-5">
           <div data-tour="home-instructions">
             <InstructionsHomeCard />
           </div>
-          {person && (
+          {person && !operator && (
             <div data-tour="home-shift-cover">
               <ShiftCoverCard engineer={engineer} />
             </div>
@@ -155,6 +178,7 @@ export function HomePage() {
               <ThisWeekCard />
             </div>
           )}
+          {!operator && (
           <div className="space-y-3" data-tour="home-health">
           <div className="flex items-center gap-2">
             <BookOpenText className="h-4 w-4 text-primary" />
@@ -176,10 +200,11 @@ export function HomePage() {
           <HomeInsightsPanel />
           <TrainingSignalsHealth compact />
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Only published documents count as knowledge. Ask and every Wiki
-            use the published version, never a draft.
+            Only Published documents count as Knowledge. Ask and every Wiki
+            use the Published version, never a Draft.
           </p>
           </div>
+          )}
         </aside>
       </div>
       <NewDocumentChooserDialog open={newOpen} onOpenChange={setNewOpen} />
@@ -190,6 +215,7 @@ export function HomePage() {
 function InboxRow({
   icon: Icon,
   tone,
+  muted,
   title,
   code,
   note,
@@ -198,6 +224,7 @@ function InboxRow({
 }: {
   icon: typeof Inbox
   tone: "primary" | "warning" | "danger"
+  muted?: boolean
   title: string
   code: string
   note: string
@@ -212,7 +239,8 @@ function InboxRow({
       <span
         className={cn(
           "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
-          tone === "primary" && "bg-primary/10 text-primary",
+          tone === "primary" && !muted && "bg-primary/10 text-primary",
+          muted && "bg-muted text-muted-foreground",
           tone === "warning" && "bg-amber-500/10 text-amber-600",
           tone === "danger" && "bg-red-500/10 text-red-600",
         )}
@@ -225,7 +253,12 @@ function InboxRow({
           <span className="font-mono">{code}</span> · {note}
         </span>
       </span>
-      <Button size="sm" variant="outline" className="h-7 shrink-0 text-xs group-hover:border-primary/50" tabIndex={-1}>
+      <Button
+        size="sm"
+        variant={muted ? "ghost" : "outline"}
+        className="h-7 shrink-0 text-xs group-hover:border-primary/50"
+        tabIndex={-1}
+      >
         {action}
       </Button>
     </Link>

@@ -44,22 +44,40 @@ export function ShiftCoverCard({ engineer }: { engineer: boolean }) {
           )}
         </p>
       ) : (
-        profiles.map((p) => <ProfileCover key={p.profileId} profileId={p.profileId} name={p.name} />)
+        profiles.map((p) => <ProfileCover key={p.profileId} profileId={p.profileId} name={p.name} engineer={engineer} />)
       )}
     </section>
   )
 }
 
-function ProfileCover({ profileId, name }: { profileId: Id<"skillProfiles">; name: string }) {
+function ProfileCover({ profileId, name, engineer }: { profileId: Id<"skillProfiles">; name: string; engineer: boolean }) {
   const coverage = useQuery(api.skills.coverage, { profileId })
   const shifts = useShifts()
   const next = shifts.next()
+  // One line per Training, even when it proves several required Skills.
+  const stuck = [...new Map((coverage?.onHold ?? []).map((h) => [h.trainingId, h])).values()]
   return (
     <Card>
       <CardContent className="p-0">
         <div className="border-b px-3 py-2 text-xs font-medium">
           Who can run <span className="text-foreground">{name}</span>
         </div>
+        {stuck.length > 0 && (
+          // The cause first: a cover of 0 after a change is not a staffing
+          // problem but a Training that waits for an update (LD2).
+          <p className="border-b bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-200" data-testid="cover-on-hold">
+            Cover is paused by a document change: people who must re-train cannot until{" "}
+            {stuck.map((h, i) => (
+              <span key={h.trainingId}>
+                {i > 0 && ", "}
+                <Link href={`/learn/trainings/${h.trainingId}`} className="font-medium underline underline-offset-2">
+                  {h.title}
+                </Link>
+              </span>
+            ))}{" "}
+            {stuck.length === 1 ? "is" : "are"} updated. {engineer ? "Open it to update the Training." : "An Engineer updates it."}
+          </p>
+        )}
         {coverage === undefined ? (
           <div className="space-y-1.5 p-3">
             <Skeleton className="h-6 w-full" />

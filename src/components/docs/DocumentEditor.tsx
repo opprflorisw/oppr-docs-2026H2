@@ -327,12 +327,15 @@ function ToolbarButton({
   active,
   disabled,
   title,
+  label,
   children,
 }: {
   onClick: () => void
   active?: boolean
   disabled?: boolean
   title: string
+  /** A short visible word next to the icon, for the less obvious tools. */
+  label?: string
   children: ReactNode
 }) {
   return (
@@ -340,12 +343,14 @@ function ToolbarButton({
       type="button"
       variant={active ? "secondary" : "ghost"}
       size="sm"
-      className={cn("h-8 w-8 p-0", active && "bg-secondary")}
+      className={cn(label ? "h-8 gap-1 px-2 text-xs" : "h-8 w-8 p-0", active && "bg-secondary")}
       onClick={onClick}
       disabled={disabled}
       title={title}
+      aria-label={label ? undefined : title}
     >
       {children}
+      {label}
     </Button>
   )
 }
@@ -426,6 +431,7 @@ export function DocumentEditor({
     ],
     content: content as object | string,
     editable,
+    editorProps: { attributes: { role: "textbox", "aria-label": "Document body", "aria-multiline": "true" } },
     onUpdate: ({ editor: ed }) => {
       onChange(ed.getJSON())
       // If the slash menu is open, update its query from the text after `/`.
@@ -969,7 +975,8 @@ export function DocumentEditor({
                   <ImageIcon className="h-4 w-4" />
                 </ToolbarButton>
                 <ToolbarButton
-                  title="Diagram"
+                  title="Insert a diagram: a process line or a decision flow, with machines linked"
+                  label="Diagram"
                   onClick={() => setDiagramPickerOpen(true)}
                 >
                   <DiagramIcon className="h-4 w-4 text-purple-600" />
@@ -979,7 +986,8 @@ export function DocumentEditor({
               {/* Group: Links — assets + reference documents */}
               <ToolbarGroup>
                 <ToolbarButton
-                  title="Assets"
+                  title="Link a machine (Asset)"
+                  label="Asset"
                   onClick={() => setAssetPickerOpen(true)}
                 >
                   <Factory className="h-4 w-4 text-emerald-600" />

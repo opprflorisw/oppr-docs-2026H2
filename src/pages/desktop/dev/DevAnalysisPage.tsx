@@ -21,7 +21,7 @@ const STATUS_LABEL: Record<AnalysisStatus, string> = {
 
 const STATUS_CLASS: Record<AnalysisStatus, string> = {
   done: "bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300",
-  in_progress: "bg-amber-500/15 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300",
+  in_progress: "bg-amber-500/15 text-amber-800 hover:bg-amber-500/20 dark:text-amber-300",
   outstanding: "bg-red-500/15 text-red-700 hover:bg-red-500/20 dark:text-red-300",
 }
 

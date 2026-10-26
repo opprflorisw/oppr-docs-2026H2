@@ -128,6 +128,20 @@ export function PlantPage() {
             </Button>
           </div>
         )}
+        {editor && data && data.pendingProposals === 0 && tab !== "assets" && tab !== "overview" && (
+          <p className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+            <Sparkles className="h-4 w-4 text-primary" aria-hidden />
+            Oppr can read your Published documents and propose Areas, lines, processes and terms for you to accept.
+            <button
+              type="button"
+              className="font-medium text-primary underline-offset-2 hover:underline disabled:opacity-60"
+              disabled={propose.busy}
+              onClick={() => void propose.run(() => setProposalsOpen(true), 0)}
+            >
+              {propose.busy ? "Reading documents..." : "Propose from documents"}
+            </button>
+          </p>
+        )}
 
         {tab === "assets" ? (
           <TabsContent value="assets" className="mt-0">

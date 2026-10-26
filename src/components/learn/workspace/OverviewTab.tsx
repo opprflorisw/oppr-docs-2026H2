@@ -227,7 +227,7 @@ function GapCard({
   const n = items.length
   const shown = items.slice(0, 5)
   return (
-    <Card className={cn(n === 0 && "order-last opacity-70")}>
+    <Card className={cn(n === 0 && "order-last bg-muted/30 shadow-none")}>
       <CardContent className="space-y-2 p-4">
         <div className="flex items-start gap-2">
           <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", n > 0 ? "text-amber-600" : "text-emerald-600")} aria-hidden />

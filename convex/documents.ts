@@ -670,6 +670,10 @@ export const saveContent = mutation({
   },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
+    // Authoring is an Engineer's job, and four-eyes compares the reviewer and
+    // approver with every author by person. A save without a checked-in
+    // Engineer would leave no author on the version, so it is refused.
+    await requireEngineerOrAdmin(ctx, args.personId, "Check in as an Engineer to save changes to a document.")
     const doc = await ctx.db.get(args.id)
     if (!doc) throw new Error("Document not found")
 
@@ -932,6 +936,8 @@ export const submitForReview = mutation({
     reviewerPersonId: v.optional(v.id("people")),
     approverPersonId: v.optional(v.id("people")),
     changeNote: v.optional(v.string()),
+    // The author's view of the kind of change (new versions only).
+    significantChange: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
@@ -963,6 +969,9 @@ export const submitForReview = mutation({
         args.personId && !signoffs.some((s) => s.role === "author" && s.personId === args.personId)
       await ctx.db.patch(row._id, {
         ...(note ? { changeNote: note } : {}),
+        ...(doc.liveVersion != null && args.significantChange !== undefined
+          ? { proposedSignificantChange: args.significantChange }
+          : {}),
         ...(addAuthor
           ? { signoffs: [...signoffs, { role: "author" as const, userId, at: now, personId: args.personId! }] }
           : {}),
@@ -1206,6 +1215,8 @@ async function computeImpact(ctx: QueryCtx, doc: Doc<"documents">) {
     wikis,
     forcedSignificant,
     suggestedSignificant: forcedSignificant || reasons.length > 0,
+    // What the author marked at Submit for review, or null.
+    proposedSignificant: isNewVersion ? ((await workingRow(ctx, doc))?.proposedSignificantChange ?? null) : null,
     reasons,
   }
 }
@@ -1328,12 +1339,19 @@ export async function publishApproved(
 
   // Everything else that follows a publish: stamping a Wrapped manual,
   // Findings, the Consistency check, Trainings and Skills.
-  await afterPublish(ctx, {
+  const effective = await afterPublish(ctx, {
     documentId: doc._id,
     version: doc.currentVersion,
     previousVersion: previousLive,
     significantChange,
   })
+  // A removed passage that a Training cites counts as Significant whatever the
+  // author chose; record that on the version so every screen agrees.
+  if (versionRow && effective.significantChange !== significantChange)
+    await ctx.db.patch(versionRow._id, {
+      significantChange: effective.significantChange,
+      changeNote: change?.changeNote ?? "A passage that a Training cites was removed or changed.",
+    })
 }
 
 // Periodic review outcome "still valid": the Published version is confirmed
@@ -1342,12 +1360,13 @@ export async function publishApproved(
 export const confirmReview = mutation({
   // Confirming a review is a sign-off, so it produces proof: the person must be
   // checked in, and must be an Engineer (CONTEXT.md: Checked in, Engineer).
-  args: { id: v.id("documents"), personId: v.id("people") },
+  args: { id: v.id("documents"), personId: v.id("people"), note: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
     const person = await ctx.db.get(args.personId)
     if (!isEngineerOrAdmin(person))
       throw new Error("Check in as an Engineer to confirm a periodic review.")
+    const note = args.note?.trim().slice(0, 500) || null
     const doc = await ctx.db.get(args.id)
     if (!doc) throw new Error("Document not found")
     const live = publishedVersion(doc)
@@ -1369,7 +1388,7 @@ export const confirmReview = mutation({
       await ctx.db.patch(row._id, {
         reviewConfirmations: [
           ...(row.reviewConfirmations ?? []),
-          { userId, at: now, personId: args.personId },
+          { userId, at: now, personId: args.personId, note },
         ],
       })
     }
@@ -1398,11 +1417,17 @@ export const reviewRecord = query({
     const resolve = signerResolver(ctx)
     const byLine = (s: SignerView) => (s.name && s.title ? `${s.name} (${s.title})` : s.name)
     const approval = [...(row.signoffs ?? [])].reverse().find((s) => s.role === "approver")
-    const events: { kind: "published" | "confirmed"; at: number; by: string | null }[] = [
+    const events: {
+      kind: "published" | "confirmed" | "interval"
+      at: number
+      by: string | null
+      note: string | null
+    }[] = [
       {
         kind: "published",
         at: approval?.at ?? row.publishedAt,
         by: approval ? byLine(await resolve(approval)) : null,
+        note: null,
       },
     ]
     for (const c of row.reviewConfirmations ?? []) {
@@ -1410,7 +1435,15 @@ export const reviewRecord = query({
         kind: "confirmed",
         at: c.at,
         by: byLine(await resolve({ ...c, role: "reviewer" })),
+        note: c.note ?? null,
       })
+    }
+    // Interval changes since this version was published, so a shorter or
+    // longer cycle is never a silent change.
+    for (const h of doc.history ?? []) {
+      if (h.kind !== "review_interval" || h.at < (approval?.at ?? row.publishedAt)) continue
+      const p = h.personId ? await ctx.db.get(h.personId) : null
+      events.push({ kind: "interval", at: h.at, by: p?.name ?? null, note: h.note })
     }
     events.sort((a, b) => b.at - a.at)
     return { version: live, events }
@@ -1418,20 +1451,35 @@ export const reviewRecord = query({
 })
 
 export const setReviewInterval = mutation({
-  args: { id: v.id("documents"), months: v.number() },
+  // Changing how often a Document is reviewed changes its control, so it is an
+  // Engineer's decision and lands in the Document's history.
+  args: { id: v.id("documents"), months: v.number(), personId: v.id("people") },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId, "Check in as an Engineer to change the review interval.")
     const doc = await ctx.db.get(args.id)
     if (!doc) throw new Error("Document not found")
     const months = Math.round(args.months)
     if (months < 1 || months > 60)
       throw new Error("The review interval must be between 1 and 60 months.")
+    const before = await reviewMonths(ctx, doc)
     // The due date counts from the last review (publish or confirmation), so
     // shortening the interval can make a review due or overdue at once. That
     // is intended: the new interval applies to the version in use today.
     const base = doc.lastReviewedAt ?? null
+    if (months === before && doc.reviewIntervalMonths === months) return
     await ctx.db.patch(args.id, {
       reviewIntervalMonths: months,
+      history: [
+        ...(doc.history ?? []),
+        {
+          kind: "review_interval" as const,
+          at: Date.now(),
+          personId: args.personId,
+          version: publishedVersion(doc) ?? doc.currentVersion,
+          note: `Review every ${before} to ${months} months`,
+        },
+      ],
       nextReviewAt:
         isPublished(doc) && base != null ? addMonths(base, months) : doc.nextReviewAt ?? null,
     })
@@ -1446,6 +1494,7 @@ export const createNewVersion = mutation({
   args: { id: v.id("documents"), personId: v.optional(v.id("people")) },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
+    await requireEngineerOrAdmin(ctx, args.personId, "Check in as an Engineer to start a new version.")
     const doc = await ctx.db.get(args.id)
     if (!doc) throw new Error("Document not found")
     if (doc.status !== "published")

@@ -11,6 +11,7 @@
 //   published  -> read-only; this page redirects to the reader. Editing a
 //                published doc forks a new draft via documents.createNewVersion.
 
+import { errorText } from "@/lib/errorText"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useRoute, useSearch } from "wouter"
 import { toast } from "sonner"
@@ -303,6 +304,10 @@ export function DocumentEditPage() {
   // metadata is invalid.
   async function persist(roles?: { reviewerPersonId: string; approverPersonId: string }): Promise<boolean> {
     if (!meta || !docResult) return false
+    if (!engineer) {
+      toast.error("Check in as an Engineer (top right) to save. Every change is signed with a name.")
+      return false
+    }
     const m = roles ? { ...meta, ...roles } : meta
     const validation = validateMetadata(m)
     if (!validation.ok) {
@@ -322,7 +327,7 @@ export function DocumentEditPage() {
       ownerPersonId: (m.ownerPersonId || null) as Id<"people"> | null,
       reviewerPersonId: (m.reviewerPersonId || null) as Id<"people"> | null,
       approverPersonId: (m.approverPersonId || null) as Id<"people"> | null,
-      ...(person ? { personId: person._id } : {}),
+      personId: engineer._id,
       body,
       chunks: raw.map((r) => ({ text: r.text, section: r.section })),
     })
@@ -343,7 +348,7 @@ export function DocumentEditPage() {
       toast.success("Template created. Trim the specifics and save.")
       setLocation(`/templates/${id}/edit`)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't create template")
+      toast.error(errorText(err, "The template could not be made. Try again."))
     } finally {
       setSavingTemplate(false)
     }
@@ -361,7 +366,7 @@ export function DocumentEditPage() {
         setPdfOpen(true)
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Save failed")
+      toast.error(errorText(err, "Not saved. Try again."))
     } finally {
       setRunning(null)
     }
@@ -471,6 +476,14 @@ export function DocumentEditPage() {
             <TypeBadge type={meta.type} />
             <StatusBadge status={status} />
             <span className="font-mono text-xs">v{doc.currentVersion}</span>
+            {!engineer && (
+              <span
+                className="whitespace-nowrap text-xs text-amber-700 dark:text-amber-300"
+                title="Every save signs you in as an author of this version."
+              >
+                Check in as an Engineer to save
+              </span>
+            )}
           </span>
         }
         actions={
@@ -548,7 +561,7 @@ export function DocumentEditPage() {
             <Button
               variant="outline"
               size="sm"
-              disabled={busy}
+              disabled={busy || !engineer}
               onClick={() => void run("save")}
               data-tour="documents-edit-save"
             >

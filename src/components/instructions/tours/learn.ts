@@ -201,7 +201,7 @@ export const LEARN_TOURS: Tour[] = [
       {
         id: "my-records",
         title: "Your Training records",
-        body: "Each Training you finish leaves a record here: which version, your score and when.",
+        body: "One line per Training: the pass that counts as your proof, or your tries so far. Open one to see every question with its source.",
         target: "learn-my-records",
         placement: "left",
       },
@@ -278,7 +278,7 @@ export const LEARN_TOURS: Tour[] = [
       {
         id: "coverage",
         title: "Coverage questions",
-        body: "The questions a shift lead asks every day, one click each. Pick one to see who can do that profile on that shift.",
+        body: "The questions a shift lead asks every day, one click each. Pick one to see who can do that profile on that shift, why the others cannot yet, and what unblocks them.",
         target: "learn-matrix-coverage",
         placement: "bottom",
       },
