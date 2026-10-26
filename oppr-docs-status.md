@@ -33,7 +33,7 @@ Surfaces:
 | Routing | `wouter` 3 | `/m/*` renders the mobile shell |
 | Editor | TipTap 2.10 + custom nodes | Editor, read view and `buildPrintDoc.ts` must stay in step |
 | PDF | `react-pdf` (view, extract), `pdf-lib` (import, stamping Wrapped manuals) | |
-| AI | Gemini (`gemini-embedding-2` 768-dim, `gemini-3.1-flash-lite`, image model) and Claude via `convex/ai/llm.ts` when `ANTHROPIC_API_KEY` is set (Wiki generation, Guided creation) | Server-side only, every call metered in `aiUsage` with prices in `aiPrices`, budgets and kill switch in Settings |
+| AI | Gemini (`gemini-embedding-2` 768-dim, `gemini-3.1-flash-lite`, image model) and Claude via `convex/ai/llm.ts` (`ANTHROPIC_API_KEY`): Consistency check, Captures, Trainings, insights, Proposed revisions; Wikis and Guided creation fall back to Gemini without it | Server-side only, every call metered in `aiUsage` with prices in `aiPrices`, budgets and kill switch in Settings |
 | Hosting | Vercel (static bundle) + Convex | Vercel build runs `npx convex deploy`, so a push to `main` updates both |
 
 ---
@@ -141,7 +141,7 @@ npx vite build          # production build (must exit 0)
 npx convex dev --once   # push convex/ changes to dev if the watcher isn't running
 ```
 
-Production: push to `main` → Vercel builds with `npx convex deploy --cmd 'tsc -b && vite build'`, which deploys Convex prod first. Branch deploys are off for `feature/knowledge-polish`. Prod Convex env needs `GEMINI_API_KEY`, `AUTH_RESEND_KEY`, `AUTH_EMAIL`, `SITE_URL`, `JWT_PRIVATE_KEY`, `JWKS`, and optionally `ANTHROPIC_API_KEY` / `ANTHROPIC_WORKSPACE_ID` (Claude for Wikis and Guided creation; Gemini otherwise).
+Production: push to `main` → Vercel builds with `npx convex deploy --cmd 'tsc -b && vite build'`, which deploys Convex prod first. Branch deploys are off for `feature/knowledge-polish`. Prod Convex env needs `GEMINI_API_KEY`, `AUTH_RESEND_KEY`, `AUTH_EMAIL`, `SITE_URL`, `JWT_PRIVATE_KEY`, `JWKS`, `ANTHROPIC_API_KEY` (Consistency check, Captures, Trainings and other Claude features fail without it) and optionally `ANTHROPIC_WORKSPACE_ID`. Never run `devChecks:run` on prod: it publishes a draft as part of its test.
 
 ---
 

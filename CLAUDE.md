@@ -38,7 +38,7 @@ The 8-week paid POC frame in the business doc converts at €75–100K/year. Eve
 - **`@convex-dev/auth`** — provisioned password accounts (`npx convex run accounts:create`, CLI only) plus magic link for `@oppr.ai`; `AuthGate`/`SignInForm` in `src/auth/`. Floor identity is check-in (`useCheckIn`), a picked person
 - **TipTap 2.10** for authoring; custom nodes: `ImageWithRef`, `LaunchLog`, `LinkedAsset`, `ReferenceDoc`, `Callout`, `Ppe`, `Diagram`, `StepList`/`StepItem`, `PdfAttachment`
 - **`react-pdf`** (bundles pdfjs) for PDF viewing + text extraction; **`pdf-lib`** for import-side handling
-- **Gemini server-side** in `convex/ai/*` — `gemini-embedding-2` (768-dim, vector index on `chunkVectors`) + `gemini-3.1-flash-lite`; Claude (`convex/ai/llm.ts`) for Wikis and Guided creation when `ANTHROPIC_API_KEY` is set; streaming via the `/ai/askStream` HTTP action on the `.convex.site` host
+- **Gemini server-side** in `convex/ai/*` — `gemini-embedding-2` (768-dim, vector index on `chunkVectors`) + `gemini-3.1-flash-lite`; Claude (`convex/ai/llm.ts`, `ANTHROPIC_API_KEY`) for the Consistency check, Captures, Trainings, insights and Proposed revisions, and for Wikis and Guided creation when set; streaming via the `/ai/askStream` HTTP action on the `.convex.site` host
 - **`wouter`** for routing — top-level switch on `/m/*` toggles desktop vs mobile shell
 - **`react-hook-form` + `zod`**, **`sonner`** toasts, **`next-themes`**
 
