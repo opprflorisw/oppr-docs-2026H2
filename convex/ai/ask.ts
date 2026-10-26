@@ -12,6 +12,7 @@ import { embedText, geminiStream } from "./gemini"
 import type { MeterSpec } from "../lib/aiMeter"
 import { isPublished, publishedVersion } from "../lib/published"
 import { normaliseContent } from "../lib/wikiTypes"
+import { searchChunks } from "./vectorSearch"
 
 /** Score added to excerpts from the plant's own Documents (not supplier manuals). */
 const OWN_DOCUMENT_BOOST = 0.03
@@ -392,7 +393,7 @@ async function prepareAskContext(
   let vectorResults: { _id: Id<"chunks">; _score: number }[] = []
   if (args.scope.kind === "doc") {
     const docScopeId = args.scope.id
-    vectorResults = await ctx.vectorSearch("chunks", "by_embedding", {
+    vectorResults = await searchChunks(ctx, {
       vector: queryVec,
       limit: overFetch,
       filter: (q) => q.eq("documentId", docScopeId),
@@ -400,14 +401,14 @@ async function prepareAskContext(
   } else if (linkedDocIds) {
     if (linkedDocIds.length > 0) {
       const ids = linkedDocIds.slice(0, MAX_FILTER_DOCS)
-      vectorResults = await ctx.vectorSearch("chunks", "by_embedding", {
+      vectorResults = await searchChunks(ctx, {
         vector: queryVec,
         limit: overFetch,
         filter: (q) => q.or(...ids.map((id) => q.eq("documentId", id))),
       })
     }
   } else {
-    vectorResults = await ctx.vectorSearch("chunks", "by_embedding", {
+    vectorResults = await searchChunks(ctx, {
       vector: queryVec,
       limit: overFetch,
     })
@@ -465,7 +466,7 @@ async function prepareAskContext(
   // the UI shows the "Not linked" badge instead of silently dropping context.
   const crossLinkChunkIds = new Set<string>()
   if (args.scope.kind === "asset" && top.length < k) {
-    const fallbackResults = await ctx.vectorSearch("chunks", "by_embedding", {
+    const fallbackResults = await searchChunks(ctx, {
       vector: queryVec,
       limit: overFetch,
     })

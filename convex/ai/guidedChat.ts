@@ -28,6 +28,7 @@ import { aiStubEnabled } from "./wiki"
 import { embedText, geminiKey, geminiSchemaJson } from "./gemini"
 import type { AiFeature, MeterSpec, MeterTarget } from "../lib/aiMeter"
 import type { Passage } from "../mcp/data"
+import { searchChunks } from "./vectorSearch"
 
 // ---- Shapes -------------------------------------------------------------------
 
@@ -288,12 +289,12 @@ async function vectorPassages(
 ): Promise<FoundPassage[]> {
   let results: { _id: Id<"chunks">; _score: number }[]
   if (areas.length === 0) {
-    results = await ctx.vectorSearch("chunks", "by_embedding", { vector, limit: Math.min(limit * 3, 64) })
+    results = await searchChunks(ctx, { vector, limit: Math.min(limit * 3, 64) })
   } else {
     const ids: Id<"documents">[] = await ctx.runQuery(internal.mcp.data.publishedDocIds, { areas })
     if (ids.length === 0) return []
     const slice = ids.slice(0, 64)
-    results = await ctx.vectorSearch("chunks", "by_embedding", {
+    results = await searchChunks(ctx, {
       vector,
       limit: Math.min(limit * 3, 64),
       filter: (q) => q.or(...slice.map((id) => q.eq("documentId", id))),

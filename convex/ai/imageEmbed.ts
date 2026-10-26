@@ -21,6 +21,7 @@ import { requireUser } from "../lib/auth"
 import { requireEngineerOrAdmin } from "../lib/roles"
 import { IMAGE_EMBEDDING_MODEL, IMAGE_EMBEDDING_MODEL_VERSION } from "./constants"
 import { usageTally, type MeterSpec } from "../lib/aiMeter"
+import { setImageVector } from "../lib/vectors"
 import { embedText, geminiConfigured, geminiEmbed, geminiKey, toBase64 } from "./gemini"
 
 // Larger images are sent as their caption; the API limit for inline data is ~20 MB.
@@ -95,11 +96,11 @@ export const writeImageEmbedding = internalMutation({
   handler: async (ctx, args) => {
     if (!(await ctx.db.get(args.imageId))) return
     await ctx.db.patch(args.imageId, {
-      embedding: args.embedding,
       embeddingModel: IMAGE_EMBEDDING_MODEL_VERSION,
       embeddedAt: Date.now(),
       embedSource: args.source,
     })
+    await setImageVector(ctx, (await ctx.db.get(args.imageId))!, args.embedding)
   },
 })
 
@@ -140,7 +141,7 @@ export const listUnembedded = internalQuery({
   handler: async (ctx, { limit }) => {
     const out: Id<"images">[] = []
     for await (const row of ctx.db.query("images")) {
-      if (row.embeddingModel !== IMAGE_EMBEDDING_MODEL_VERSION || !row.embedding) out.push(row._id)
+      if (row.embeddingModel !== IMAGE_EMBEDDING_MODEL_VERSION || !row.vectorId) out.push(row._id)
       if (out.length >= limit) break
     }
     return out
@@ -148,31 +149,51 @@ export const listUnembedded = internalQuery({
 })
 
 const BATCH = 8
+// Work through batches inside one run for up to this long, then hand over to
+// a fresh run, instead of scheduling a new run for every batch.
+const RUN_BUDGET_MS = 4 * 60_000
 
-/** Embeds a batch of missing images, then schedules itself until none are left. */
+/** Embeds missing images batch by batch until none are left. */
 export const backfill = internalAction({
   args: { round: v.optional(v.number()) },
   handler: async (ctx, { round = 0 }): Promise<{ embedded: number; image: number; caption: number; failed: number; more: boolean }> => {
     geminiKey()
+    const started = Date.now()
     const tally = usageTally(ctx, { feature: "embed.image", personId: null, provider: "google", model: IMAGE_EMBEDDING_MODEL })
-    const ids: Id<"images">[] = await ctx.runQuery(internal.ai.imageEmbed.listUnembedded, { limit: BATCH })
     let image = 0
     let caption = 0
     let failed = 0
-    for (const id of ids) {
-      try {
-        const s = await embedOneImage(ctx, id, tally)
-        if (s === "image") image++
-        else if (s === "caption") caption++
-      } catch (e) {
-        failed++
-        console.error(`image embed ${id} failed:`, e instanceof Error ? e.message : e)
+    let more = false
+    const failedIds = new Set<string>()
+    try {
+      while (true) {
+        const ids: Id<"images">[] = (
+          await ctx.runQuery(internal.ai.imageEmbed.listUnembedded, { limit: BATCH + failedIds.size })
+        ).filter((id: Id<"images">) => !failedIds.has(id)).slice(0, BATCH)
+        let batchFailed = 0
+        for (const id of ids) {
+          try {
+            const s = await embedOneImage(ctx, id, tally)
+            if (s === "image") image++
+            else if (s === "caption") caption++
+          } catch (e) {
+            failed++
+            batchFailed++
+            failedIds.add(id)
+            console.error(`image embed ${id} failed:`, e instanceof Error ? e.message : e)
+          }
+        }
+        // Stop when a whole batch failed (API down) so the job cannot loop forever.
+        if (ids.length < BATCH || batchFailed === ids.length) break
+        if (Date.now() - started > RUN_BUDGET_MS) {
+          more = round < 20
+          break
+        }
       }
+    } finally {
+      await tally.flush()
     }
-    await tally.flush()
-    // Stop when a whole batch failed (API down) so the job cannot loop forever.
-    const more = ids.length === BATCH && failed < ids.length && round < 200
-    if (more) await ctx.scheduler.runAfter(1000, internal.ai.imageEmbed.backfill, { round: round + 1 })
+    if (more) await ctx.scheduler.runAfter(0, internal.ai.imageEmbed.backfill, { round: round + 1 })
     return { embedded: image + caption, image, caption, failed, more }
   },
 })
@@ -203,7 +224,7 @@ export const embedStatus = query({
     let lastEmbeddedAt: number | null = null
     for await (const row of ctx.db.query("images")) {
       total++
-      if (row.embedding && row.embeddingModel === IMAGE_EMBEDDING_MODEL_VERSION) {
+      if (row.vectorId && row.embeddingModel === IMAGE_EMBEDDING_MODEL_VERSION) {
         if (row.embedSource === "caption") byCaption++
         else byImage++
         if (row.embeddedAt && (lastEmbeddedAt === null || row.embeddedAt > lastEmbeddedAt)) lastEmbeddedAt = row.embeddedAt

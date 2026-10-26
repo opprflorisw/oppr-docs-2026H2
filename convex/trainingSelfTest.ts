@@ -5,6 +5,7 @@
 import { ConvexError, v } from "convex/values"
 import { internalAction, internalMutation, internalQuery, MutationCtx } from "./_generated/server"
 import { internal } from "./_generated/api"
+import { deleteChunk } from "./lib/vectors"
 import { Doc, Id } from "./_generated/dataModel"
 import * as trainings from "./trainings"
 import * as attempts from "./attempts"
@@ -214,7 +215,7 @@ export const run = internalMutation({
       let removed = 0
       for (const c of chunks)
         if (c._id === s2.chunkId || trainings.quoteIn(s2.quote, c.text)) {
-          await ctx.db.delete(c._id)
+          await deleteChunk(ctx, c)
           removed++
         }
       const forced = await trainings.markAffectedByPublish(ctx, { documentId: doc._id, version: live, previousVersion: live - 1, significantChange: false })

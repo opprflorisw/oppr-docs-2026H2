@@ -14,6 +14,8 @@ import { requireUser, requireUserId } from "./lib/auth"
 import { requireEngineerOrAdmin } from "./lib/roles"
 import { walkBodyDiagrams, walkBodyImages } from "./lib/imageWalker"
 import { imageKindValidator as kindValidator, normTag } from "./ai/imageDescribe"
+import { searchImages } from "./ai/vectorSearch"
+import { deleteImageVector, syncImageVectorFilters } from "./lib/vectors"
 
 const sourceValidator = v.union(v.literal("upload"), v.literal("url"))
 const personArg = { personId: v.optional(v.id("people")) }
@@ -28,8 +30,8 @@ type ImageDocRef = {
 
 /** The row without its embedding (768 numbers nobody on the client needs). */
 function publicRow(img: Doc<"images">) {
-  const { embedding, ...rest } = img
-  return { ...rest, embedded: Boolean(embedding) }
+  const { vectorId, ...rest } = img
+  return { ...rest, embedded: Boolean(vectorId) }
 }
 type LibraryImage = ReturnType<typeof publicRow> & {
   usageCount: number
@@ -142,7 +144,7 @@ export const facets = query({
       for (const a of r.assetIds ?? []) bump(assets, a)
       for (const c of r.collectionIds ?? []) bump(collections, c)
       if (r.favorite) favorites++
-      if (!r.embedding) unembedded++
+      if (!r.vectorId) unembedded++
       if (!r.description) undescribed++
     }
     const collectionRows = await ctx.db.query("imageCollections").take(200)
@@ -467,6 +469,7 @@ export const update = mutation({
     if (args.favorite !== undefined) patch.favorite = args.favorite
     if (Object.keys(patch).length === 0) return
     await ctx.db.patch(args.id, patch)
+    if (patch.kind !== img.kind) await syncImageVectorFilters(ctx, args.id)
     // A caption-embedded image must be re-embedded when its words change.
     const captionChanged = args.altText !== undefined || args.description !== undefined || args.tags !== undefined
     if (captionChanged && img.embedSource !== "image") {
@@ -513,6 +516,7 @@ export const bulkUpdate = mutation({
       }
       if (Object.keys(patch).length) {
         await ctx.db.patch(id, patch)
+        if (patch.kind !== undefined && patch.kind !== img.kind) await syncImageVectorFilters(ctx, id)
         changed++
       }
     }
@@ -558,10 +562,11 @@ export const replace = mutation({
       width: args.width,
       height: args.height,
       sha256: args.sha256,
-      embedding: undefined,
       embeddingModel: undefined,
       embedSource: undefined,
+      vectorId: undefined,
     })
+    await deleteImageVector(ctx, img)
     if (oldStorage) await ctx.storage.delete(oldStorage)
     await ctx.scheduler.runAfter(0, internal.ai.imageEmbed.embedImage, { imageId: args.id })
   },
@@ -581,6 +586,7 @@ async function deleteIfUnused(
     return `used in ${usages.length} document${usages.length === 1 ? "" : "s"}`
   }
   if (img.storageId && !(await blobShared(ctx, img.storageId))) await ctx.storage.delete(img.storageId)
+  await deleteImageVector(ctx, img)
   await ctx.db.delete(id)
   return null
 }
@@ -671,7 +677,9 @@ export const embeddedIds = internalQuery({
   handler: async (ctx) => {
     const out: { id: Id<"images">; embedding: number[] }[] = []
     for await (const r of ctx.db.query("images")) {
-      if (r.embedding && r.embedSource === "image") out.push({ id: r._id, embedding: r.embedding })
+      if (!r.vectorId || r.embedSource !== "image") continue
+      const vec = await ctx.db.get(r.vectorId)
+      if (vec) out.push({ id: r._id, embedding: vec.embedding })
     }
     return out
   },
@@ -690,7 +698,7 @@ export const possibleDuplicates = action({
     const rows: { id: Id<"images">; embedding: number[] }[] = await ctx.runQuery(internal.images.embeddedIds, {})
     const pairs = new Map<string, { a: Id<"images">; b: Id<"images">; score: number }>()
     for (const row of rows.slice(0, 400)) {
-      const hits = await ctx.vectorSearch("images", "by_embedding", {
+      const hits = await searchImages(ctx, {
         vector: row.embedding,
         limit: 4,
         filter: (q) => q.eq("embedSource", "image"),

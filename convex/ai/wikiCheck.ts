@@ -55,6 +55,7 @@ import { factConflict, features, judgeClaims, type Features, type JudgeClaimInpu
 import { searchPassages } from "./guidedChat"
 import { CLAUDE_MODEL, claudeConfigured, claudeJson, describeClaudeError } from "./llm"
 import { embedText, geminiConfigured } from "./gemini"
+import { searchChunks } from "./vectorSearch"
 
 // ---- Tuning ------------------------------------------------------------------------
 
@@ -560,7 +561,7 @@ async function retrieve(
   }
   const perClaim = await Promise.all(
     vectors.map(async (vector) => {
-      const hits = await ctx.vectorSearch("chunks", "by_embedding", { vector, limit: VECTOR_LIMIT })
+      const hits = await searchChunks(ctx, { vector, limit: VECTOR_LIMIT })
       const live: (Omit<Passage, "version"> & { score: number })[] = await ctx.runQuery(
         internal.captures.sets.publishedPassages,
         { hits: hits.filter((h) => h._score >= MIN_SCORE).map((h) => ({ id: h._id, score: h._score })) },

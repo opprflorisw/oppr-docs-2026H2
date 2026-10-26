@@ -1,302 +1,182 @@
-# Oppr DOCS — Build Status
+# Oppr Knowledge (formerly Oppr DOCS): Build Status
 
-**Snapshot:** 2026-06-10
+**Snapshot:** 2026-10-26
 **Build state:** Green. `npx tsc -b` and `npx vite build` both exit 0.
 **Dev:** `npx convex dev` (terminal 1) + `npm run dev` (terminal 2) → http://localhost:5173
-**Backend:** Convex dev deployment `dev:different-newt-869`, project `oppr-docs-2026h2`
+**Backend:** Convex, project `oppr-docs-2026h2`. Dev deployment `dev:different-newt-869`; prod deployment behind https://oppr-docs-2026-h2.vercel.app. Paid Convex plan since 2026-10-26.
 
-This file is a living record of what's actually shipped in `oppr-docs/`. Update it whenever work lands. For requirements, read [`prd.md`](./prd.md). For business context, read [`../oppr_business.md`](../oppr_business.md). For Claude orientation, read [`CLAUDE.md`](./CLAUDE.md).
-
----
-
-## What Oppr DOCS is
-
-A showcase build of the DOCS module from the Oppr v1.0 platform — the standardize half of the LOGS → IDA → DOCS continuous-improvement loop. A Vite/React frontend on a **Convex** backend (database, file storage, vector search, auth, server-side AI). Production-shaped, demo-sized.
-
-Three visible surfaces:
-
-1. **Desktop knowledge-worker app** — author SOPs, manage assets/templates/images, import external PDFs, browse the library, ask IDA across documents.
-2. **Mobile-window operator app** — sidebar "Mobile" link opens a popup at `/m`. Resize manually to phone size. Simulated QR scan → asset → linked docs → ask IDA.
-3. **Settings** — AI/embedding status + re-embed tools, naming vocabulary management at `/settings/naming`, theme.
+The living record of what is built. For language and scope read [`CONTEXT.md`](./CONTEXT.md) (the glossary is the law for names and UI copy) and `docs/adr/`. For what to sell first read [`docs/product/function-map.md`](./docs/product/function-map.md). For Claude orientation read [`CLAUDE.md`](./CLAUDE.md). [`prd.md`](./prd.md) is the original May 2026 DOCS PRD, kept for history.
 
 ---
 
-## Tech stack (concrete versions)
+## What it is
 
-| Layer | Choice | Why |
+An internal technical showcase of **Oppr Knowledge**: a factory's controlled knowledge base. Content is authored, reviewed and Published under ISO 9001-style control; only Published content counts as Knowledge, and Ask, Wikis and Trainings use only Published content. Four pillars: **Documents, Trainings, Skills, Wikis**. One small seeded plant (Pijpwerk Noord, 20 documents) shows every pillar end to end.
+
+Surfaces:
+
+1. **Desktop**: six nav places, Home, Documents, Learn, Wiki, Plant, Settings (ADR 0006: never a seventh). Below them **Try it** (Floor simulator, Phone) and **Developer** (Engineers and Admins only).
+2. **Phone app** at `/m` (also framed inside the Floor simulator): Scan, Find, read, Ask, Capture, Rounds, Attempts, Try-outs, Wikis, Me.
+3. **MCP server** for outside models (ADR 0004), keys and activity under Developer.
+
+---
+
+## Tech stack
+
+| Layer | Choice | Notes |
 |---|---|---|
-| Runtime | React 19 + TypeScript 5.8 | strict-off TS per `tsconfig.app.json` |
-| Build | Vite 7 | Fast dev, native ESM |
-| Backend | Convex 1.37 | DB + file storage + vector index + server functions + live queries in one |
-| Auth | `@convex-dev/auth` 0.0.92 | Magic-link via Resend, gated to `@oppr.ai`; `AuthGate`/`SignInForm` in `src/auth/` |
-| Styling | Tailwind 3 + shadcn/ui (Radix) + CSS custom-property tokens | Light/dark theme |
-| Routing | `wouter` 3 | `/m/*` branch renders mobile shell, everything else desktop |
-| Editor | TipTap 2.10 (StarterKit + Link + Placeholder + Table family + 9 custom nodes) | Open source, React-native, extensible |
-| PDF view | `react-pdf` 10 (bundles pdfjs) | Viewing + text extraction; `pdf-lib` assists the importer |
-| PDF export | `src/lib/pdf-export/*` | Print-window pipeline; no server rendering |
-| AI | Gemini via `convex/ai/*` — `gemini-embedding-2` (768-dim) + `gemini-3.1-flash-lite` | Server-side only; key lives in Convex env (`GEMINI_API_KEY`); streaming over the `/ai/askStream` HTTP action |
-| Markdown | `react-markdown` 10 + `remark-gfm` 4 | AI chat panel; throttled re-parse during streaming |
-| Forms | `react-hook-form` 7 + `zod` 4 | MetadataPanel and dialogs |
-| Toasts | `sonner` 2 | Used everywhere |
-| Theming | `next-themes` 0.4 | Defaults light |
+| Runtime | React 19 + TypeScript 5.8, Vite 7 | strict-off TS per `tsconfig.app.json` |
+| Backend | Convex 1.37 | DB, file storage, vector search, crons, HTTP actions, live queries |
+| Auth | `@convex-dev/auth` | Provisioned password accounts (`accounts:create`, CLI only) plus magic link for `@oppr.ai` via Resend |
+| Floor identity | Check-in (`useCheckIn`) | A picked person on a shared login; server checks the person's kind for sign-offs. Not authenticated (gate DC1) |
+| Styling | Tailwind 3 + shadcn/ui (Radix) | Light/dark tokens in `src/index.css` |
+| Routing | `wouter` 3 | `/m/*` renders the mobile shell |
+| Editor | TipTap 2.10 + custom nodes | Editor, read view and `buildPrintDoc.ts` must stay in step |
+| PDF | `react-pdf` (view, extract), `pdf-lib` (import, stamping Wrapped manuals) | |
+| AI | Gemini (`gemini-embedding-2` 768-dim, `gemini-3.1-flash-lite`, image model) and Claude via `convex/ai/llm.ts` when `ANTHROPIC_API_KEY` is set (Wiki generation, Guided creation) | Server-side only, every call metered in `aiUsage` with prices in `aiPrices`, budgets and kill switch in Settings |
+| Hosting | Vercel (static bundle) + Convex | Vercel build runs `npx convex deploy`, so a push to `main` updates both |
 
 ---
 
 ## What's shipped
 
-### Core document lifecycle
-- **Statuses:** `pre_draft → draft → in_review → approved → published → archived`, gated transitions in `convex/documents.ts` (`submitForReview`, `approve`, `publish`, `revertToDraft`, `archive`) with per-version signoff trail (author/reviewer/approver) on `documentVersions`.
-- **Versioning:** `currentVersion` (working edition) vs `liveVersion` (what operators/QR/RAG are served). **Saving never bumps a version.** Publish pins `liveVersion`. Editing a published doc forks via `documents.createNewVersion`; published versions are read-only. Readers use `getServingVersion`.
-- **Chunks are reconciled on save** (delete + reinsert per version) and superseded editions' chunks are dropped on publish — only the live version feeds RAG.
+### Documents (document control)
+- Lifecycle `pre_draft → draft → in_review → approved → published → archived`, sign-offs by checked-in Engineers, review record, true publish dates, Significant change flag stored on the version.
+- `currentVersion` (working) vs `liveVersion` (served). Saving never bumps; editing a Published doc forks a new version.
+- Immutable server-allocated naming codes, `refile` for re-filing, editable vocabulary (locations, disciplines, types).
+- New Document dialog, Guided creation (AI drafts, shows what changed, undo), Convert a PDF (importer), **Wrap a supplier manual** (stamps code, version and status onto the supplier PDF).
+- Periodic review, PDF and print export, Safety icons (ISO 7010 PPE), Templates, ISO 9001 view (`/iso-9001`).
+- **Captures**: Operators record voice/photo on the phone, AI organizes, an Engineer turns it into a Draft (ADR 0005). Capture sets group them.
+- **Findings and Consistency check**: contradictions between Published Documents, on every publish and weekly. **Knowledge health** and **Document insights** with AI-prepared **Proposed revisions** (ADR 0003: AI prepares, humans publish).
 
-### Naming codes (immutable, server-allocated)
-- Format `{LOCATION}-{DISCIPLINE}-{TYPE}-{NNNN}` (e.g. `HOL-OPS-SOP-0001`). Allocated atomically from `namingCounters` per (location, discipline, type) triplet in `convex/naming.ts`; `peekNextCode` previews in the metadata panel.
-- The code is **immutable once allocated**; location/discipline/type are locked in the editor. Changing filing goes through `documents.refile` — mints a NEW document with a fresh code, copies content + roles, optionally archives the old (`RefileDocumentDialog`).
-- Vocabulary (locations, disciplines) managed at `/settings/naming`. Older docs missing location/discipline are backfilled by parsing the code (`parseNamingCode` in `convex/naming.ts`, client mirror in `src/lib/namingCode.ts`).
+### Learn (Trainings and Skills)
+- Trainings are controlled documents built from Published passages; Attempts generate fresh questions that cite their source (ADR 0002). Training builder with open questions, Rounds (floor treasure hunt), Try-outs and sign-off, Training records naming the version.
+- Skill matrix, Skill levels and profiles, Coverage questions ("who can run line 2 tonight"), refresher assignments, Skills workspace.
 
-### Authoring
-- `DocumentEditor` — toolbar + slash menu, StarterKit + Link + Table family + custom nodes: `ImageWithRef`, `LaunchLog`, `LinkedAsset`, `ReferenceDoc`, `Callout`, `Ppe`, `Diagram` (preset + builder, curved connectors), `StepList`/`StepItem`, `PdfAttachment`. `TiptapReadOnly` mirrors the list exactly.
-- `MetadataPanel` — sticky right rail with title, filing (locked once coded), roles, tags, plus **derived** cards: Linked machines, Reference documents, and **Linked logs** — all computed from body pills (`src/lib/bodyAssets.ts`, `bodyRefs.ts`, `bodyLogs.ts`); no manual linking.
-- **Launch-log pills** — `launchLog` node carries `logId`/`anchorId`/`label`/`code`; pills show the log code; the Linked logs card aggregates them.
-- **Keyboard shortcuts hint** (`ShortcutsHint` popover in the editor header).
-- Templates are **DB-backed** (`templates` table) and managed at `/templates` (create/edit/duplicate/delete); `templates.seedIfEmpty` + `seedTemplates:seedBestPracticeSop` seed defaults.
+### Wiki
+- Short Wikis per job or machine, built from Published Documents, rebuilt (coalesced) when a source publishes and daily as a safety net; people shape a Wiki, Published Knowledge states it (ADR 0007). Points withheld from outdated sources; version provenance shown.
 
-### Images
-- `images` + `imageUsages` tables; uploads deduped by sha256; usages recomputed per document version (`images.recomputeUsagesForVersion`).
-- **Image library at `/images`** — flat view, group-by-document view, and a **diagrams tab** (diagram SVGs cached to storage); usage/status surfaced per image; detail modal with replace/alt-text/delete.
-- `ImageWithRef` node — `data-image-id` round-trip, `width` percent attr with on-canvas resize + alignment, drag-to-move handled by ProseMirror (wrapper `draggable` + `data-drag-handle`; inner `<img draggable={false}>` so the browser doesn't start a native drag).
-- `InsertImageDialog` — library pick / upload / URL.
+### Plant
+- Plant model and glossary (floor words), Assets with QR codes and floorplan, Propose Plant from Documents.
 
-### External Document Importer
-- `convex/importer/*` + `src/pages/desktop/ImportPage.tsx` (`/import`, `/import/:jobId`).
-- Multi-stage `importJobs` pipeline: `uploaded → extracted → mapped → linksResolved → finalized` (or `failed`). Client extraction in `src/lib/import/*` (pdf text + image extraction, StructuredDoc, render to TipTap); server mapping via Gemini (`importer/map.ts`); link resolution against existing docs/assets/logs; finalize creates a real document.
-- Imported figures insert at **width 35%, centered**.
+### Ask
+- One side panel on desktop (`AskDock`/`AskPanel`), full screen on the phone. Scopes: doc, asset, wiki, training, skills, library. Answers only from Published passages, with sources; grounding checks for units, ranges and polarity.
 
-### PDF export
-- `src/lib/pdf-export/*` (`buildPrintDoc`, `openPrintWindow`, `printStyles`) + `PublishToPdfDialog`.
-- Compact **title page** with prominent code badge and PPE band; **"Document overview" front-matter page** with revision history, Linked machines (always on), Linked logs, References; then the body. Watermark support (e.g. drafts).
-- Self-contained output: diagram backgrounds (Convex storage URLs inside cached SVGs) are pre-fetched and inlined as data URLs; `pdfAttachment` pages are rasterised to data URLs.
-
-### Assets + logs
-- Asset registry with QR tokens, floorplan pins, optional photo (`imageStorageId`), per-asset logs (`assetLogs`).
-- `logs` table now has an optional `code` (placeholders `AMS-OPS-LOG-0001`..`0005` seeded). Write defensively — older rows may lack it.
-
-### AI / RAG (server-side)
-- `convex/ai/embed.ts` — embeddings written onto `chunks.embedding` (768-dim Convex `vectorIndex`, filterable by `documentId`), idempotent on `chunkId + modelVersion`, auto-scheduled on publish; `embedStatus` drives the Search index tab of Developer, AI models and jobs; `embedMissing` / `reembedAll` actions.
-- `convex/ai/ask.ts` — `askStream` HTTP action (NDJSON streaming) registered in `convex/http.ts` at `/ai/askStream` (browser hits `VITE_CONVEX_SITE_URL`). The non-streaming `askQuestion` action was removed (no callers).
-- Scopes: doc / asset / library. Q&A persists per-user in `qaSessions` + `qaMessages` with typed citations.
-- Chat UI: `AskPanel` inside `AskDock`, one side panel docked on the right (pushes the page, resizable, follows the page scope; overlay below 1024px free width); markdown rendering, citation pills, `SourcesBlock`, `RelatedRail`, `ScopeChip`, starter prompts, copy/regenerate/stop. Mobile parity via `/m/ask`.
-
-### Mobile
-- `MobileShell` with bottom nav; home, simulated QR scan, asset list/detail, doc list/reader, ask. Global search, doc summary with PPE + asset chips above the fold.
-
-### Seeding / reset
-- `convex/seedMinimal.ts` — internalAction `run`: **`npx convex run seedMinimal:run`** wipes all app tables (templates + auth users preserved) and seeds the minimal test set: assets EXT-201 / MIX-101, logs AMS-OPS-LOG-0001..0005, docs **AMS-OPS-MAN-0001** (published) + **AMS-OPS-SOP-0001** (draft that exercises every authoring primitive), 2 stored SVG images.
-- `convex/admin.ts` `wipeAll` — CLI-only full wipe (also deletes storage blobs), no reseed.
-- There is no in-app "Reset demo" button anymore.
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────┐        ┌──────────────────────────────────────┐
-│  Browser                    │        │  Convex deployment                    │
-│                             │        │  (dev:different-newt-869)             │
-│  Desktop window  /          │ live   │                                       │
-│  Mobile popup    /m         │◀──────▶│  schema.ts tables + authTables        │
-│  (useQuery subscriptions)   │ queries│  queries/mutations/actions            │
-│                             │        │  file storage (PDFs, images, SVGs)    │
-│  AskPanel ── POST NDJSON ───┼───────▶│  http.ts /ai/askStream ── Gemini      │
-│  (VITE_CONVEX_SITE_URL)     │        │  vectorIndex on chunks (768-dim)      │
-└─────────────────────────────┘        └──────────────────────────────────────┘
-```
-
-Single source of truth: the Convex database. Every open window (desktop + mobile popup) subscribes via `useQuery` and live-updates on writes — no client persistence, no cross-tab sync code. Auth wraps the whole app (`AuthGate`); every Convex function calls `requireUser`/`requireUserId`.
-
----
-
-## Folder structure
-
-```
-oppr-docs/
-├── prd.md                       ← requirements (PRD + checklist)
-├── oppr-docs-status.md          ← THIS FILE
-├── CLAUDE.md                    ← Claude orientation
-├── README.md
-├── package.json
-├── vite.config.ts
-├── vercel.json                  ← Vite framework + SPA rewrite
-├── .env.example                 ← VITE_CONVEX_URL / VITE_CONVEX_SITE_URL notes
-├── .env.local                   ← gitignored; CONVEX_DEPLOYMENT + URLs
-├── convex/                      ← backend
-│   ├── schema.ts                ← schema source of truth
-│   ├── auth.ts, auth.config.ts  ← @convex-dev/auth (magic link, @oppr.ai gate)
-│   ├── http.ts                  ← /ai/askStream routes
-│   ├── documents.ts             ← lifecycle, versioning, refile, archive
-│   ├── naming.ts                ← code allocation, vocabulary, parseNamingCode
-│   ├── assets.ts, logs.ts, qa.ts, files.ts, users.ts
-│   ├── images.ts                ← image library + usage reconciliation
-│   ├── templates.ts, seedTemplates.ts
-│   ├── seedMinimal.ts           ← npx convex run seedMinimal:run
-│   ├── admin.ts                 ← wipeAll (CLI-only)
-│   ├── ai/                      ← constants, embed, ask (+ askStream)
-│   ├── importer/                ← jobs, map (Gemini), templates
-│   └── lib/                     ← auth guards, assetWalker, imageWalker
-└── src/
-    ├── main.tsx                 ← ConvexAuthProvider wiring
-    ├── App.tsx                  ← route switch (desktop vs mobile) inside AuthGate
-    ├── index.css                ← Tailwind + tokens + .tiptap-content
-    ├── auth/                    ← AuthGate, SignInForm
-    ├── components/
-    │   ├── ui/                  ← shadcn primitives (cherry-picked)
-    │   ├── layout/              ← DesktopShell, TopBar, PageHeader, UserMenu
-    │   ├── mobile/              ← MobileShell + mobile widgets
-    │   ├── docs/                ← editor, read view, custom nodes, dialogs, chunking.ts
-    │   └── ai/                  ← AskPanel, AskDock, SourcesBlock, …
-    ├── pages/
-    │   ├── desktop/             ← dashboard, library, assets, docs, templates,
-    │   │                          images, import, settings, naming, analysis/
-    │   └── mobile/              ← /m pages
-    ├── lib/
-    │   ├── utils.ts             ← cn()
-    │   ├── convex-adapters.ts   ← Convex doc → legacy domain types
-    │   ├── namingCode.ts        ← client-side parse/format mirror
-    │   ├── bodyAssets/bodyLogs/bodyRefs.ts  ← derived metadata from body pills
-    │   ├── pdf-export/          ← buildPrintDoc, openPrintWindow, printStyles
-    │   └── import/              ← extractPdf, structuredDoc, renderToTiptap, …
-    ├── types/                   ← shared domain types
-    └── hooks/
-```
-
-### Folder ownership rules (for parallel agent work)
-- `convex/**` — backend only. Schema, functions, importer, AI. Auth check in every function.
-- `convex/ai/**` — Gemini lives here; never in the browser.
-- `src/components/ui/**` — shadcn primitives. Don't edit; replace if needed.
-- `src/components/{layout,mobile,docs,ai}/**` — feature components.
-- `src/pages/desktop/**` and `src/pages/mobile/**` — route components only.
-- `src/lib/**` — pure helpers/adapters; no server logic.
+### Settings and Developer
+- Settings in five groups (Company, People and roles, Documents, Training, Floor) plus My preferences.
+- Developer: Embeddings lab (EmbeddingGemma in the browser vs Gemini), MCP (keys, tools, test console, activity), AI models and jobs (models, search index, schedules, usage and cost), Analysis case files.
+- Instructions: an introduction page and a guided tour for every function.
 
 ---
 
 ## Data model
 
-Schema source of truth: `convex/schema.ts` (plus `authTables` from `@convex-dev/auth`).
+Schema source of truth: `convex/schema.ts` (plus `authTables`). Tables by area:
 
-| Table | Purpose |
+| Area | Tables |
 |---|---|
-| `meta` | key/value flags |
-| `assets` | registry: code, name, site, location, qrToken, floorplan pin, optional photo |
-| `assetLogs` | per-asset log placeholders |
-| `documents` | namingCode (immutable), location/discipline, title, type (sop/manual/work_instruction/lmra), status (pre_draft→archived), currentVersion, liveVersion, owner + author/reviewer/approver roles, tags |
-| `documentVersions` | per-version body (tiptap or pdf), pdfStorageId, signoffs trail |
-| `templates` | DB-backed document templates (managed at /templates) |
-| `namingLocations` / `namingDisciplines` | naming vocabulary (managed at /settings/naming) |
-| `namingCounters` | last allocated sequence per (location, discipline, type) triplet |
-| `documentAssets` | doc ↔ asset links |
-| `logs` | LOGS-module placeholders; optional `code` (AMS-OPS-LOG-…) |
-| `documentLogRefs` | launchLog anchors per doc version |
-| `chunks` | RAG chunks per doc version; `embedding` (768-dim vectorIndex, filter by documentId), embeddingModel, embeddedAt |
-| `qaSessions` / `qaMessages` | per-user Q&A with typed citations; scope doc/asset/library |
-| `images` / `imageUsages` | image library + per-version usage tracking |
-| `importJobs` | importer pipeline state (stage, classification, extraction, mapping, link resolutions, finalized doc) |
+| Documents | `documents`, `documentVersions`, `documentAssets`, `documentLogRefs`, `templates`, `coverSettings`, `ppeItems`, `namingLocations`, `namingDisciplines`, `namingTypes`, `namingCounters`, `importJobs` |
+| Search | `chunks` (passages per version), `chunkVectors` (768-dim vector per chunk, vector index filtered by `documentId`) |
+| Images | `images`, `imageVectors` (vector index filtered by `kind`, `embedSource`), `imageCollections`, `imageUsages`, `seedMedia` (seed image cache) |
+| Plant and people | `assets`, `assetLogs`, `logs`, `people`, plus shifts, skill level names, plant and capture tables from the `convex/*/schema.ts` lanes |
+| Wikis | `wikis`, `wikiBuilds`, `wikiBlocks`, `wikiChecks`, `wikiEvents`, `wikiReads` |
+| Learn | `trainings`, `trainingVersions`, `trainingAttempts`, `trainingRecords`, `trainingAssignments`, `trainingSignals`, `tryOutRequests`, `skills`, `skillLevels`, `skillEvents`, `skillProfiles`, `coverageQuestions` |
+| Quality signals | `findings`, `consistencyRuns`, `proposedRevisions`, `askEvents`, `usageEvents`, `contentFlags`, `insightReports` |
+| Ask | `qaSessions`, `qaMessages` |
+| AI and MCP | `aiUsage`, `aiPrices`, `aiSettings`, `mcpKeys`, `mcpCalls` |
+| Misc | `meta` |
+
+Vectors are stored apart from the rows they describe; `chunks.vectorId` and `images.vectorId` point at them. Write and delete them only through `convex/lib/vectors.ts`, search only through `convex/ai/vectorSearch.ts`.
 
 ---
 
 ## Routes
 
 ### Desktop
-| Path | Component | Purpose |
-|---|---|---|
-| `/` | DashboardPage | Overview + entry points |
-| `/library` | LibraryPage | Doc library + filters + Ask IDA (library scope) |
-| `/assets` | AssetsPage | Asset registry |
-| `/assets/:id` | AssetDetailPage | Asset + linked docs |
-| `/docs/new` | DocumentNewChooserPage | Compose vs import chooser |
-| `/docs/new/compose` | DocumentNewPage | New TipTap doc from template |
-| `/docs/new/import` | DocumentNewPage | Import entry |
-| `/docs/:id` | DocumentReadPage | Read view (serving version) + Ask IDA + history + PDF export |
-| `/docs/:id/edit` | DocumentEditPage | Editor + MetadataPanel |
-| `/templates` | TemplatesPage | DB-backed templates |
-| `/templates/new`, `/templates/:id/edit` | TemplateEditPage | Template editor |
-| `/images` | ImageLibraryPage | Flat / by-document / diagrams views |
-| `/import`, `/import/:jobId` | ImportPage | Importer pipeline |
-| `/settings` | SettingsPage | Setup in five groups plus My preferences (`?tab=`); `?tab=ai` and `?tab=mcp` redirect to the Developer section |
-| `/settings/naming` | NamingSettingsPage | Locations + disciplines vocabulary |
-| `/dev` | DevHomePage | Developer section home (Engineers and Admins only; others see a notice) |
-| `/dev/embeddings/:tab?` | EmbeddingsLabPage | Embeddings lab: compare, images (multimodal, WebGPU), test set, models |
-| `/dev/mcp/:tab?` | DevMcpPage | MCP: overview and connection, keys, tools and test console, activity (`/mcp` redirects) |
-| `/dev/ai/:tab?` | DevAiPage | AI models and jobs: models, search index, schedules, usage |
-| `/dev/analysis` | DevAnalysisPage | All case files, newest first (`/analysis` redirects) |
-| `/analysis/:slug` | Analysis pages | Case files for bugs/UX deep-dives (Developer only) |
-
-### Mobile (popup window)
-| Path | Component |
+| Path | Purpose |
 |---|---|
-| `/m` | MobileHomePage |
-| `/m/scan` | MobileScanPage |
-| `/m/assets`, `/m/assets/:id` | MobileAssetsPage / MobileAssetPage |
-| `/m/docs`, `/m/docs/:id` | MobileDocsPage / MobileDocPage |
-| `/m/ask` | MobileAskPage (`?scope=doc:id` / `asset:id` / library) |
+| `/` | Home: inbox, This week, shift cover |
+| `/library`, `/documents` | Documents list |
+| `/library/findings`, `/library/health`, `/library/captures`, `/library/captures/:id`, `/library/capture-sets/:id`, `/library/images` | Under Documents |
+| `/docs/new`, `/docs/new/compose`, `/docs/new/import`, `/docs/:id`, `/docs/:id/edit` | Create, read, edit |
+| `/templates`, `/templates/new`, `/templates/:id/edit`, `/images`, `/import`, `/import/:jobId` | Document tools |
+| `/learn`, `/learn/trainings/:id`, `/learn/attempts/:id`, `/learn/people/:id`, `/learn/skills/:tab?` | Learn |
+| `/wiki`, `/wiki/:id` | Wikis |
+| `/plant/:tab?`, `/assets`, `/assets/:id` | Plant and Assets |
+| `/floor` | Floor simulator (Try it) |
+| `/instructions`, `/instructions/:tourId` | Introduction and tours |
+| `/iso-9001` | ISO 9001 view |
+| `/settings`, `/settings/naming` | Settings |
+| `/dev`, `/dev/embeddings/:tab?`, `/dev/mcp/:tab?`, `/dev/ai/:tab?`, `/dev/analysis`, `/analysis/:slug` | Developer |
+
+### Phone (`/m`)
+Home, Scan, Assets, Docs, Ask, Capture (+ detail), Rounds, Attempts, Try-outs, Wikis, Me (`src/pages/mobile/`).
 
 ---
 
-## AI / RAG flow
+## AI and search flow
 
-1. **Chunking** — client-side (`src/components/docs/chunking.ts`): `chunksFromTipTap` (per paragraph/list item/heading, section-labelled) or `chunksFromPdfPages`. Chunks passed into create/save mutations and reconciled per version.
-2. **Embedding** — `gemini-embedding-2` at 768 dims, server-side, idempotent on `chunkId + modelVersion`. Auto-scheduled on publish; manual `embedMissing` / `reembedAll` from Developer, AI models and jobs, Search index.
-3. **Retrieval** — Convex `vectorSearch` on `chunks.by_embedding`. Doc scope filters by `documentId`; **asset scope resolves linked documents from `documentAssets` first and filters the search to them** (`q.or(eq(documentId,…))`, capped 64) with a flagged library-wide fallback when they don't fill `k`; library is unfiltered. `lookupAfterSearch` then keeps only the served version (live, or working for never-published) and drops archived docs for asset/library scope.
-4. **Generation** — `gemini-3.1-flash-lite` via the `askStream` HTTP action (NDJSON streaming) — the only chat path. Citations carry `origin` (`asset-link` / `cross-link` / `log`); `cross-link` marks library-wide fallback sources and drives the "Not linked" badge.
-5. **Persistence** — all scopes persist per-user (`qaSessions.scopeKind`: doc/asset/library; library uses `scopeId = 'library'`).
+1. **Chunking**: client-side `chunksFromTipTap` / PDF pages; saved through the document mutations. `reconcileChunks` keeps unchanged passages (same id, same vector), so a save re-embeds only edited passages.
+2. **Embedding**: `embedMissingInternal` embeds passages without a current vector, four at a time, and writes them 20 per mutation into `chunkVectors`. Images: `ai/imageEmbed:backfill` works through batches inside one run.
+3. **Retrieval**: `searchChunks` / `searchImages` run the vector search and map hits back through the `by_vectorId` index. Published-only filtering happens after (`convex/lib/published.ts`).
+4. **Generation**: Ask streams NDJSON from `/ai/askStream`. Wikis, Trainings, Captures, Findings and Proposed revisions run as background actions; each is metered.
+5. **Crons** (`convex/crons.ts`, names in `convex/settings/schedules.ts`): Wiki safety-net rebuild (skips up-to-date Wikis), weekly Consistency check, refreshers, capture media retention, AI usage rollup.
 
 ---
 
-## Build & verification
+## Seeding and accounts
+
+- `npx convex run seedKnowledge:run`: wipes app tables (templates, auth, seed media kept) and seeds Pijpwerk Noord: people, Assets, 20 documents with images and supplier manuals, Trainings, Skills, insights, coverage questions, captures, plant, Wikis; then schedules embeddings, the image backfill and a Consistency check. On a deployment without cached seed media it first generates 67 images (one-off AI cost).
+- `npx convex run devChecks:run`: the invariant checks (Published-only, sentinels never leak).
+- Accounts: `npx convex run accounts:create '{"email":"…","password":"…","name":"…"}'` (add `--prod` for production). Minimum 10 characters.
+- `npx convex run admin:wipeAll`: CLI-only full wipe, no reseed.
+
+---
+
+## Build and deploy
 
 ```bash
 npx tsc -b              # type-check (must exit 0)
 npx vite build          # production build (must exit 0)
-npx convex dev --once   # push convex/ changes if the watcher isn't running
+npx convex dev --once   # push convex/ changes to dev if the watcher isn't running
 ```
 
-Production: Vercel (static Vite bundle) + Convex prod deployment. See README for deploy steps.
+Production: push to `main` → Vercel builds with `npx convex deploy --cmd 'tsc -b && vite build'`, which deploys Convex prod first. Branch deploys are off for `feature/knowledge-polish`. Prod Convex env needs `GEMINI_API_KEY`, `AUTH_RESEND_KEY`, `AUTH_EMAIL`, `SITE_URL`, `JWT_PRIVATE_KEY`, `JWKS`, and optionally `ANTHROPIC_API_KEY` / `ANTHROPIC_WORKSPACE_ID` (Claude for Wikis and Guided creation; Gemini otherwise).
 
 ---
 
-## Known issues / quirks
+## Known issues and gates
 
-- **Editor/read-view/PDF-export must stay in sync.** A node added to `DocumentEditor` but not `TiptapReadOnly` is silently stripped; `buildPrintDoc.ts` needs a renderer too.
-- **`logs.code` is optional** — older rows lack it; render defensively.
-- **Embedding-model swap requires re-embed** (Developer → AI models and jobs → Search index → "Rebuild everything"); embeddings are keyed on `chunkId + modelVersion` so stale vectors are detectable but not auto-fixed.
-- **Diagram SVG backgrounds are storage URLs** — fine in-app, but anything that snapshots the SVG (PDF export) must inline them as data URLs (export already does).
-- **`peekNextCode` can be stale by one** if a concurrent create lands first — cosmetic only; the real code is allocated inside the create mutation.
-- **Naming code immutability** means a mis-filed document can't be renamed — `documents.refile` creates a new document (new Convex id, new code). Inbound links to the old id keep pointing at the archived doc.
-- **Analysis pages** under `/analysis/:slug` are dev-facing case files, listed at `/dev/analysis` in the Developer section, not product surface.
-- **Convex Free plan limits exceeded (2026-10-25).** Throughput (function calls, database I/O), not data size. See `/analysis/backend-gcp-and-gemma` and `docs/research/backend-gcp-and-gemma.md`.
+From `docs/product/function-map.md` (26 Oct):
+
+- **F1**: QR labels hold a token, not a link, so a phone camera cannot open the app.
+- **DC1**: sign-offs use a picked name on one shared login, not a personal sign-in or PIN.
+- **CD3**: Ask answers in Dutch while the interface is English.
+- **LD1 / LD2**: re-train deadlock. One Significant change empties shift cover (Home shows 0 people per shift on the seeded plant after the standard checks). Do not demo the Skill matrix until fixed.
+- Ask on how-to questions can still cite the supplier manual instead of the SOP step.
+- Main JS bundle is 4.5 MB (1.3 MB gzip); no code splitting yet.
+- Editor, read view and PDF export must stay in sync for every TipTap node.
+- Naming codes are immutable; `refile` makes a new document and inbound links keep pointing at the archived one.
+- Agent test runs on the shared dev deployment drove most of the Free plan overrun (page loads and test sign-ins). Run them against `npx convex dev --local`.
 
 ## Later
 
-- **Backend on Google Cloud and EmbeddingGemma**: investigation only. Recommendation is to stay on Convex (upgrade now, cut waste; spend caps are documented for Pro only) and set up a GCP project only if the browser lab and a Dutch eval show EmbeddingGemma is worth hosting (then CPU-only Cloud Run first). The lab embeds in a Web Worker; its WebGPU route is still untested. Follow-ups are in `docs/todo.md` (2026-10-25). The in-browser Embeddings lab lives at `/dev/embeddings` (Developer section; text and, with the vision encoder, image search) and uses the read-only `convex/lab/embeddings.ts`.
+See `docs/todo.md`: backend on Google Cloud and EmbeddingGemma (research only, recommendation is to stay on Convex), remaining Convex usage follow-ups.
 
 ---
 
 ## Recent diffs worth knowing about
 
-- **2026-06-11 (pm)** — Four-workstream batch. (1) **Senior status counts**: `effectiveStatus()` (`src/lib/docStatus.ts` + mirror in `convex/documents.ts`) counts a published doc with a draft fork as published; applied to the dashboard, Recently-published, and the library status filter. (2) **Document types are an editable vocabulary** (`namingTypes` table; `convex/namingTypes.ts`): `documents.type`/`templates.type` widened to `v.string()`; tokens resolve from the table with a legacy fallback (`resolveTypeToken`); `TypeBadge` is data-driven via `useDocTypes` (`src/lib/typeMeta.ts` — icon registry + 10 color tones); third card on `/settings/naming` with icon/color pickers; factory set of 6 (SOP/MAN/WI/LMRA/TBOX/POL), built-ins deactivatable not deletable. Self-seeds on first settings visit; in `seedMinimal`. (3) **PDF document overview rework**: revision history moved onto the title page (no pill, capped 3); machines/logs/references tables dropped the code-pills and tinted section chips — headers are now Linked machine/Name, Linked log/Name, Reference/Title with plain monospace codes. (4) **PPE configurator**: `ppeItems` table (`convex/ppe.ts`) + Safety tab on `/templates`; 20 self-drawn ISO-7010-style blue pictograms (`src/lib/ppePictograms.ts`); editor/read/mobile/PDF all render pictogram + label via `usePpeCatalog` (`src/lib/ppeCatalog.ts`); the original 8 PPE ids are kept as factory slugs so existing docs render unchanged. New schema needs a push; `npx convex dev --once` already applied to dev.
-- **2026-06-11** — Ask IDA scope verification + cleanup. Asset scope now slices the vector search to the asset's linked documents at the index level (was a library-wide search post-filtered, which lost recall and made the cross-link badge dead UI); added a flagged library-wide fallback and archived-doc exclusion. Chat text-size dial fixed (was overridden three layers down — now inherits; small step 11px); citation `[N]` anchors explained in the Sources header + tooltips; cross-link popover copy de-staled. Dead code removed: `askQuestion` action, `documents.attachPdf`, 20 unused shadcn/UI files (incl. the toast cluster — app uses sonner), and 6 npm deps (`tippy.js`, `input-otp`, `vaul`, `react-resizable-panels`, plus orphaned Radix). New schema: `assets`/`logs` gain optional `source`/`externalId` provenance + `by_externalId` index for the shared platform registry (ADR `docs/adr/0001-shared-asset-and-log-registries.md`). Two new analysis pages: **Ask IDA scoping** and **How Oppr DOCS works (colleague guide)**.
-- **2026-06-10** — Image library: group-by-document view + diagrams tab + per-image status. Importer figures now insert at 35% width centered. Image drag-drop fixed (ProseMirror owns the drag; inner img `draggable=false`). Launch-log pills carry log codes; derived "Linked logs" card in MetadataPanel. Editor keyboard-shortcuts hint. Naming lifecycle hardened (immutable codes, locked filing, `refile` flow, parse-based backfill). PDF export overhaul (compact title page, Document overview front-matter, inlined diagram backgrounds). `seedMinimal` replaces all previous seed/reset paths.
-- **2026-06 (earlier)** — Versioning model landed: `liveVersion` vs `currentVersion`, signoffs, read-only published versions, `createNewVersion` fork. Chat model moved to `gemini-3.1-flash-lite`.
-- **2026-05 → 2026-06** — Migration off sql.js/IndexedDB to Convex: auth, server-side AI, file storage, importer, templates, image library. `src/db/**`, `src/ai/**`, `src/admin/**`, `convex/seed.ts`, `convex/reset.ts`, `convex/seedAssets.ts`, and the in-app "Reset demo" flow were all deleted.
+- **2026-10-26**: Lightweight pass before going live. Vectors moved out of `chunks` and `images` into `chunkVectors` / `imageVectors` (every passage and image read used to carry about 6 KB of vector); search hits map back through `vectorId` indexes. Embeddings written 20 per mutation instead of one call per passage. Saves keep unchanged passages and their vectors instead of re-embedding the whole document. Image backfill loops within one run. Paid Convex plan; prod wiped and reseeded with the Knowledge seed.
+- **2026-10-26**: Polish from persona walks, five expert lenses and two outside-judge rounds; personas and function map (`docs/product/`); Instructions with a tour per function.
+- **2026-10-25**: Developer section, AI usage and cost tracker, Wiki upgrade MVP (`docs/specs/wiki-upgrade.md`), Skills workspace, one Ask side panel, Settings in six groups, People and roles, Plant, image library search, ISO 9001 page, GCP/EmbeddingGemma research.
+- **2026-10-24**: Full showcase built (`docs/build/full-showcase-plan.md`): all Knowledge pillars, 20-document Pijpwerk Noord seed, MCP server, Captures, phone preview, coverage questions.
+- **2026-10-23**: Rebrand to Oppr Knowledge: glossary and ADRs 0002–0003, six-item nav, Home inbox, check-in, Published-only Ask, people, periodic review, Wikis with Guided creation, password login.
+- **2026-06**: DOCS v1.0 on Convex: versioning, naming codes, importer, image library, PDF export, PPE configurator, editable type vocabulary, Ask scopes.
+- **2026-05 → 06**: Migration off sql.js/IndexedDB to Convex.
 
 ---
 
 ## How to update this file
 
-When you ship work that materially changes:
-- a tech choice → update the **Tech stack** table
-- a feature → update **What's shipped**
-- a folder or contract → update **Folder structure** / **Folder ownership rules**
-- a schema → update **Data model**
-- a route → update **Routes**
-
-Append a row to **Recent diffs worth knowing about** for anything that would surprise a future Claude or future you.
+When work materially changes a tech choice, a feature, a schema, a route or a known issue, update that section and add a line to **Recent diffs**.

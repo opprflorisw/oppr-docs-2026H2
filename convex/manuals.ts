@@ -22,6 +22,7 @@ import {
   QueryCtx,
 } from "./_generated/server"
 import { internal } from "./_generated/api"
+import { reconcileChunks } from "./lib/vectors"
 import { Doc, Id } from "./_generated/dataModel"
 import { requireUser, requireUserId } from "./lib/auth"
 import { pdfPageChunks } from "./lib/chunking"
@@ -133,25 +134,8 @@ async function replaceChunks(
   version: number,
   pageTexts: string[],
 ) {
-  const old = await ctx.db
-    .query("chunks")
-    .withIndex("by_documentId_and_version", (q) =>
-      q.eq("documentId", documentId).eq("version", version),
-    )
-    .collect()
-  for (const c of old) await ctx.db.delete(c._id)
   const chunks = pdfPageChunks(pageTexts)
-  for (const [i, c] of chunks.entries()) {
-    await ctx.db.insert("chunks", {
-      documentId,
-      version,
-      seq: i + 1,
-      text: c.text,
-      pageOrSection: c.section,
-      embedding: null,
-      embeddingModel: null,
-    })
-  }
+  await reconcileChunks(ctx, documentId, version, chunks)
   return chunks.length
 }
 

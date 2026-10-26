@@ -7,11 +7,11 @@ Context: `/analysis/backend-gcp-and-gemma` and `docs/research/backend-gcp-and-ge
 ### Reduce Convex usage now
 - [ ] Check the Convex dashboard Usage page: which metric is exceeded (function calls, database I/O, egress), which functions use the most, and is prod on the same team as DEV (all deployments share the team quota)?
 - [ ] Reply to Convex's message: what exactly is over; ask about startup credits or a plan review.
-- [ ] Upgrade the Convex team to Starter (pay as you go) now; upgrading, not cutting waste, is what keeps a Free team from being cut off this month.
+- [x] (2026-10-26, done by Floris) Upgrade the Convex team to Starter (pay as you go) now; upgrading, not cutting waste, is what keeps a Free team from being cut off this month.
 - [ ] Check whether the billing page offers a spend limit on Starter. Convex documents warning/disable spend limits for Pro only; if a hard cap matters, go to Professional.
-- [ ] First fix, likely the biggest saving: move the 768-dim embeddings out of `chunks` and `images` rows into their own tables, so lists, facets, `imageSearch:rank` and `insights:homeStats` stop reading about 6 KB per row.
-- [ ] Debounce the publish fan-out (embedMissingInternal, wiki regenerate, consistency checkDocument, findings.resolveStale).
-- [ ] Stop `ai/imageEmbed:backfill` rescheduling itself every second; batch it instead.
+- [x] (2026-10-26: `chunkVectors` / `imageVectors`, `convex/lib/vectors.ts`) First fix, likely the biggest saving: move the 768-dim embeddings out of `chunks` and `images` rows into their own tables, so lists, facets, `imageSearch:rank` and `insights:homeStats` stop reading about 6 KB per row.
+- [x] (2026-10-26: saves now keep unchanged passages and their vectors, embeddings are written 20 per mutation; Wiki rebuilds already coalesce; the per-publish Consistency check stays) Debounce the publish fan-out (embedMissingInternal, wiki regenerate, consistency checkDocument, findings.resolveStale).
+- [x] (2026-10-26: loops within one run for up to 4 minutes) Stop `ai/imageEmbed:backfill` rescheduling itself every second; batch it instead.
 - [ ] Review what the crons scan (wiki rebuild daily, consistency weekly, refreshers daily, capture media retention daily) and what a reseed triggers (re-embed everything plus consistency.runAll at 90 s).
 - [ ] Run agent tests and reseeds against a local Convex (`npx convex dev --local`) or a separate Free team, not the team prod uses; stop repeated test sign-ins.
 - [ ] Re-measure per function on the Usage page after each fix.

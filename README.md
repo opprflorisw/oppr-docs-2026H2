@@ -92,6 +92,7 @@ Set the prod env on the new deployment:
 
 ```bash
 npx convex env set GEMINI_API_KEY <key>          --prod
+npx convex env set ANTHROPIC_API_KEY <key>       --prod   # optional: Claude for Wikis and Guided creation
 npx convex env set AUTH_RESEND_KEY <key>         --prod
 npx convex env set AUTH_EMAIL "Oppr DOCS <noreply@yourdomain>" --prod
 npx convex env set SITE_URL https://<vercel-prod-url> --prod

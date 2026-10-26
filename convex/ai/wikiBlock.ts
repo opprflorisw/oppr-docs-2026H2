@@ -41,6 +41,7 @@ import {
   type PageBlock,
   type RawItem,
 } from "./wiki"
+import { searchChunks } from "./vectorSearch"
 
 const ENGINEER_ONLY = "You are no longer checked in as an Engineer."
 /** Passages one block generation reads (spec 6.4). */
@@ -178,7 +179,7 @@ async function runBlock(
       try {
         const vector = await embedText({ ctx, feature: "wiki.block", personId: args.personId, target }, topicText)
         const ids = docs.map((d) => d.documentId).slice(0, MAX_FILTER_DOCS)
-        const hits = await ctx.vectorSearch("chunks", "by_embedding", {
+        const hits = await searchChunks(ctx, {
           vector,
           limit: VECTOR_LIMIT,
           filter: (q) => q.or(...ids.map((id) => q.eq("documentId", id))),

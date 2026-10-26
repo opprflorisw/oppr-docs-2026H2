@@ -7,6 +7,7 @@ import { internalAction, internalMutation, internalQuery, mutation } from "../_g
 import { internal } from "../_generated/api"
 import { requireUser } from "../lib/auth"
 import { requireEngineerOrAdmin } from "../lib/roles"
+import { syncImageVectorFilters } from "../lib/vectors"
 import { embeddableMime, loadImageBytes } from "./imageEmbed"
 import { geminiConfigured, geminiText, toBase64 } from "./gemini"
 
@@ -67,6 +68,7 @@ export const applyDescription = internalMutation({
       ...(args.kind && (!row.kind || args.overwrite) && row.kind !== "generated" ? { kind: args.kind } : {}),
       describedAt: Date.now(),
     })
+    await syncImageVectorFilters(ctx, args.imageId)
   },
 })
 

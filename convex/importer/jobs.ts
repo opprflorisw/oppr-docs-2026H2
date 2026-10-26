@@ -478,7 +478,6 @@ export const finalizeDocument = mutation({
         seq: i + 1,
         text: c.text,
         pageOrSection: c.section,
-        embedding: null,
         embeddingModel: null,
       })
     }

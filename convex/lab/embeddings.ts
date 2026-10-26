@@ -18,6 +18,7 @@ import { requireUser } from "../lib/auth"
 import { isPublished, publishedVersion } from "../lib/published"
 import { embedText } from "../ai/gemini"
 import { EMBEDDING_MODEL_VERSION } from "../ai/constants"
+import { searchChunks } from "../ai/vectorSearch"
 
 const MAX_SAMPLE = 300
 
@@ -105,7 +106,7 @@ export const geminiSearch = action({
     const t0 = Date.now()
     const vector = await embedText({ ctx, feature: "embed.query" }, query)
     const t1 = Date.now()
-    const results = await ctx.vectorSearch("chunks", "by_embedding", { vector, limit: 256 })
+    const results = await searchChunks(ctx, { vector, limit: 256 })
     const score = new Map(results.map((r) => [String(r._id), r._score]))
     const rows: {
       chunkId: Id<"chunks">

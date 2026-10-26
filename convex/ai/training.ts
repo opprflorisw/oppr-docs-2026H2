@@ -18,6 +18,7 @@ import { aiStubEnabled } from "./wiki"
 import { embedText, geminiText, toBase64, type GeminiPart } from "./gemini"
 import type { MeterSpec } from "../lib/aiMeter"
 import { getVersion, makeDocCache, resolveObjective, type SampleQuestion } from "../trainings"
+import { searchChunks } from "./vectorSearch"
 
 const MAX_GUIDE_DOCS = 5
 const MAX_PASSAGES_PER_DOC = 70
@@ -218,7 +219,7 @@ export const guide = action({
       if (apiKey) {
         try {
           const vector = await embedText({ ctx, feature: "training" }, `${draft.title}\n${latest.text}`)
-          const hits = await ctx.vectorSearch("chunks", "by_embedding", { vector, limit: 40 })
+          const hits = await searchChunks(ctx, { vector, limit: 40 })
           const docIds: Id<"documents">[] = await ctx.runQuery(internal.trainings.docsForChunks, {
             chunkIds: hits.map((h) => h._id),
           })

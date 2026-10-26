@@ -242,7 +242,7 @@ async function liveChunks(ctx: QueryCtx, doc: Doc<"documents">): Promise<CorpusD
       raw: c.text,
       text: headed[i],
       section: c.pageOrSection,
-      embedded: c.embedding != null,
+      embedded: !!c.vectorId,
     })),
   }
 }
@@ -274,7 +274,7 @@ export const versionState = internalQuery({
         q.eq("documentId", args.documentId).eq("version", args.version),
       )
       .take(1000)
-    const missing = rows.filter((c) => c.embedding == null).length
+    const missing = rows.filter((c) => !c.vectorId).length
     return { state: "live" as const, chunks: rows.length, missing }
   },
 })
@@ -289,9 +289,12 @@ export const chunkEmbeddings = internalQuery({
         q.eq("documentId", args.documentId).eq("version", args.version),
       )
       .take(1000)
-    return rows
-      .filter((c) => c.embedding != null)
-      .map((c) => ({ chunkId: c._id, embedding: c.embedding as number[] }))
+    const out: { chunkId: Id<"chunks">; embedding: number[] }[] = []
+    for (const c of rows) {
+      const vec = c.vectorId ? await ctx.db.get(c.vectorId) : null
+      if (vec) out.push({ chunkId: c._id, embedding: vec.embedding })
+    }
+    return out
   },
 })
 

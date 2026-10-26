@@ -30,6 +30,7 @@ import { claudeConfigured, claudeJson, describeClaudeError } from "./llm"
 import type { MeterSpec } from "../lib/aiMeter"
 import { contentStems, factTokens, normalise } from "./grounding"
 import type { CorpusChunk, CorpusDoc } from "../findings"
+import { searchChunks } from "./vectorSearch"
 
 // ---- Tuning ------------------------------------------------------------------------
 
@@ -274,7 +275,7 @@ async function semanticPairs(
     for (let i = 0; i < work.length; i += 8) {
       await Promise.all(
         work.slice(i, i + 8).map(async (c) => {
-          const hits = await ctx.vectorSearch("chunks", "by_embedding", {
+          const hits = await searchChunks(ctx, {
             vector: byId.get(c.chunkId)!,
             limit: VECTOR_LIMIT,
           })

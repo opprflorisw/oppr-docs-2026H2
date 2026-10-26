@@ -102,8 +102,10 @@ const WIPE_TABLES: TableNames[] = [
   "qaMessages",
   "qaSessions",
   "wikis",
+  "chunkVectors",
   "chunks",
   "imageUsages",
+  "imageVectors",
   "images",
   "imageCollections",
   "documentLogRefs",
@@ -484,7 +486,6 @@ async function insertChunks(
       seq: seq + 1,
       text: c.text,
       pageOrSection: c.section,
-      embedding: null,
       embeddingModel: null,
     })
   }

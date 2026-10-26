@@ -27,6 +27,7 @@ import { claudeConfigured, claudeJson, describeClaudeError } from "./llm"
 import { aiStubEnabled } from "./wiki"
 import { embedText, geminiText, toBase64 } from "./gemini"
 import type { MeterSpec } from "../lib/aiMeter"
+import { searchChunks } from "./vectorSearch"
 
 /** Largest file sent inline to Gemini (the request limit is 20 MB after base64). */
 export const INLINE_MAX_BYTES = 14 * 1024 * 1024
@@ -402,7 +403,7 @@ export const combine = internalAction({
           let hits
           try {
             const vector = await embedText(m, query)
-            hits = await ctx.vectorSearch("chunks", "by_embedding", { vector, limit: 8 })
+            hits = await searchChunks(ctx, { vector, limit: 8 })
           } catch (e) {
             console.warn(`Capture set ${args.setId}: search failed for step ${i + 1}:`, e)
             continue

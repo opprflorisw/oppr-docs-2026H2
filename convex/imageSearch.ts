@@ -17,6 +17,7 @@ import type { Doc, Id } from "./_generated/dataModel"
 import { requireUserId } from "./lib/auth"
 import { embedImageBytes } from "./ai/imageEmbed"
 import { embedText, geminiConfigured } from "./ai/gemini"
+import { searchImages } from "./ai/vectorSearch"
 
 export type ImageHit = {
   imageId: Id<"images">
@@ -79,7 +80,7 @@ export const search = action({
         console.warn("image search embed failed, words only:", e instanceof Error ? e.message : e)
       }
       for (const vector of vectors) {
-        const results = await ctx.vectorSearch("images", "by_embedding", { vector, limit: Math.min(limit * 3, 64) })
+        const results = await searchImages(ctx, { vector, limit: Math.min(limit * 3, 64) })
         for (const r of results) {
           if (r._score < MIN_VECTOR_SCORE) continue
           const prev = vectorScores.get(r._id) ?? 0

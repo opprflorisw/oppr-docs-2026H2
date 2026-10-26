@@ -13,6 +13,7 @@ import { requireEngineerOrAdmin } from "../lib/roles"
 import { usageTally } from "../lib/aiMeter"
 import { EMBEDDING_MODEL, EMBEDDING_MODEL_VERSION } from "./constants"
 import { embedText, geminiKey } from "./gemini"
+import { clearChunkVector, setChunkVector } from "../lib/vectors"
 
 export const listMissingChunks = internalQuery({
   args: { documentId: v.optional(v.id("documents")) },
@@ -26,29 +27,22 @@ export const listMissingChunks = internalQuery({
           .take(2000)
       : await ctx.db.query("chunks").take(2000)
     return all
-      .filter(
-        (c) =>
-          c.embedding === null ||
-          c.embeddingModel !== EMBEDDING_MODEL_VERSION,
-      )
+      .filter((c) => !c.vectorId || c.embeddingModel !== EMBEDDING_MODEL_VERSION)
       .map((c) => ({ _id: c._id, text: c.text }))
   },
 })
 
-export const writeEmbedding = internalMutation({
+export const writeEmbeddings = internalMutation({
   args: {
-    chunkId: v.id("chunks"),
-    embedding: v.array(v.float64()),
+    rows: v.array(v.object({ chunkId: v.id("chunks"), embedding: v.array(v.float64()) })),
   },
   handler: async (ctx, args) => {
-    // The chunk may have been deleted meanwhile (a new version published, or
-    // a reseed on dev); then there is nothing to write.
-    if (!(await ctx.db.get(args.chunkId))) return
-    await ctx.db.patch(args.chunkId, {
-      embedding: args.embedding,
-      embeddingModel: EMBEDDING_MODEL_VERSION,
-      embeddedAt: Date.now(),
-    })
+    for (const row of args.rows) {
+      // The chunk may have been deleted meanwhile (a new version published, or
+      // a reseed on dev); then there is nothing to write.
+      const chunk = await ctx.db.get(row.chunkId)
+      if (chunk) await setChunkVector(ctx, chunk, row.embedding, EMBEDDING_MODEL_VERSION)
+    }
   },
 })
 
@@ -64,8 +58,7 @@ export const embedStatus = query({
     let outstanding = 0
     let lastEmbeddedAt: number | null = null
     for (const c of all) {
-      const isCurrent =
-        c.embedding !== null && c.embeddingModel === EMBEDDING_MODEL_VERSION
+      const isCurrent = !!c.vectorId && c.embeddingModel === EMBEDDING_MODEL_VERSION
       if (isCurrent) {
         embedded += 1
         if (c.embeddedAt != null && (lastEmbeddedAt === null || c.embeddedAt > lastEmbeddedAt)) {
@@ -91,8 +84,8 @@ export const clearAllEmbeddings = internalMutation({
     let cleared = 0
     const all = await ctx.db.query("chunks").take(5000)
     for (const c of all) {
-      if (c.embedding !== null) {
-        await ctx.db.patch(c._id, { embedding: null, embeddingModel: null })
+      if (c.vectorId || c.embeddingModel !== null) {
+        await clearChunkVector(ctx, c)
         cleared += 1
       }
     }
@@ -157,31 +150,26 @@ export const embedMissingInternal = internalAction({
     }
     const tally = usageTally(ctx, { ...spec, provider: "google", model: EMBEDDING_MODEL })
 
+    // Embed four at a time, write in batches: one mutation per BATCH passages
+    // instead of one per passage.
     const CONCURRENCY = 4
-    let next = 0
+    const BATCH = 20
     let done = 0
-
-    async function worker() {
-      while (true) {
-        const i = next++
-        if (i >= missing.length) return
-        const row = missing[i]
-        const vector = await embedText(spec, row.text, { tally })
-        await ctx.runMutation(internal.ai.embed.writeEmbedding, {
-          chunkId: row._id,
-          embedding: vector,
-        })
-        done += 1
-      }
-    }
-
     try {
-      await Promise.all(
-        Array.from(
-          { length: Math.min(CONCURRENCY, missing.length) },
-          () => worker(),
-        ),
-      )
+      for (let start = 0; start < missing.length; start += BATCH) {
+        const slice = missing.slice(start, start + BATCH)
+        const rows: { chunkId: Id<"chunks">; embedding: number[] }[] = []
+        let next = 0
+        const worker = async () => {
+          while (next < slice.length) {
+            const row = slice[next++]
+            rows.push({ chunkId: row._id, embedding: await embedText(spec, row.text, { tally }) })
+          }
+        }
+        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, slice.length) }, worker))
+        await ctx.runMutation(internal.ai.embed.writeEmbeddings, { rows })
+        done += rows.length
+      }
     } finally {
       await tally.flush()
     }

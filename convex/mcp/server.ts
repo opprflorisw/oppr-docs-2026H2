@@ -28,6 +28,7 @@ import { validate } from "./validate"
 import { embedText } from "../ai/gemini"
 import type { Passage } from "./data"
 import type { ImportBlock } from "./render"
+import { searchChunks } from "../ai/vectorSearch"
 
 type Key = Doc<"mcpKeys">
 type Args = Record<string, unknown>
@@ -99,12 +100,12 @@ function areasFor(key: Key, requested: unknown): { areas: string[] } | { refusal
 /** Vector search over chunks, sliced to the area's Published documents when the key or call is area-limited. */
 async function vectorChunks(ctx: ActionCtx, vector: number[], areas: string[], limit: number) {
   if (areas.length === 0) {
-    return await ctx.vectorSearch("chunks", "by_embedding", { vector, limit })
+    return await searchChunks(ctx, { vector, limit })
   }
   const ids: Id<"documents">[] = await ctx.runQuery(internal.mcp.data.publishedDocIds, { areas })
   if (ids.length === 0) return []
   const slice = ids.slice(0, 64)
-  return await ctx.vectorSearch("chunks", "by_embedding", {
+  return await searchChunks(ctx, {
     vector,
     limit,
     filter: (q) => q.or(...slice.map((id) => q.eq("documentId", id))),

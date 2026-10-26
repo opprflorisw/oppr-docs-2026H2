@@ -7,7 +7,9 @@
 **Design system source:** `../oppr-design-showcase`
 **Build target folder:** `./` (this folder, `oppr-docs`)
 
-This PRD is also the progress tracker. Tick boxes as work lands.
+> **Status (2026-10-26): historical.** This is the original DOCS v1.0 PRD from May 2026. All of section 3 shipped, but on Convex instead of sql.js (backend database, file storage, vector index, server-side Gemini, real auth), so sections 2, 7, 9 (cross-window sync) and 12 no longer describe the build. Since October the app is **Oppr Knowledge** (Documents, Trainings, Skills, Wikis). Current sources of truth: [`CONTEXT.md`](./CONTEXT.md) (language and scope), [`oppr-docs-status.md`](./oppr-docs-status.md) (what is built), [`docs/product/function-map.md`](./docs/product/function-map.md) (what to sell first), `docs/adr/`. Section 3 is ticked; the checkboxes after it were not maintained and are left as written.
+
+This PRD was also the progress tracker for the May build.
 
 ---
 
@@ -47,16 +49,16 @@ This is a **demo/showcase build**, not the production system. It must be runnabl
 
 Mirrors business doc §8 rows 25–29 plus the §6 asset/QR registry dependency.
 
-- [ ] **PDF upload & storage** (cap #25) — drop-zone, metadata form, BLOB stored in SQLite.
-- [ ] **RAG Q&A over documents** (cap #26) — chat panel scoped to one doc or to all docs of an asset.
-- [ ] **Desktop authoring** (cap #27) — TipTap editor, metadata sidebar, naming convention, save/version.
-- [ ] **QR scan → asset-linked documents (mobile sim)** (cap #28) — pick asset, list docs, open or ask.
-- [ ] **SOP → Log clickable launch reference** (cap #29) — custom TipTap block bound to a log id.
-- [ ] **Platform-scoped asset/QR registry** (§6) — assets are first-class, docs link many-to-many.
-- [ ] **Document metadata** — naming convention `{SITE}-{DEPT}-{TYPE}-{NNNN}` (e.g., `HOL-OPS-MAN-0001`), title, type, status, version, owner, linked assets, tags.
-- [ ] **Document statuses** — Draft / In review / Published / Archived.
-- [ ] **Version history** — every publish creates a new immutable version.
-- [ ] **Search & filter** — across the doc library by title, naming code, type, asset, status, tag.
+- [x] **PDF upload & storage** (cap #25) — drop-zone, metadata form, BLOB stored in SQLite.
+- [x] **RAG Q&A over documents** (cap #26) — chat panel scoped to one doc or to all docs of an asset.
+- [x] **Desktop authoring** (cap #27) — TipTap editor, metadata sidebar, naming convention, save/version.
+- [x] **QR scan → asset-linked documents (mobile sim)** (cap #28) — pick asset, list docs, open or ask.
+- [x] **SOP → Log clickable launch reference** (cap #29) — custom TipTap block bound to a log id.
+- [x] **Platform-scoped asset/QR registry** (§6) — assets are first-class, docs link many-to-many.
+- [x] **Document metadata** — naming convention `{SITE}-{DEPT}-{TYPE}-{NNNN}` (e.g., `HOL-OPS-MAN-0001`), title, type, status, version, owner, linked assets, tags.
+- [x] **Document statuses** — Draft / In review / Published / Archived.
+- [x] **Version history** — every publish creates a new immutable version.
+- [x] **Search & filter** — across the doc library by title, naming code, type, asset, status, tag.
 
 ---
 

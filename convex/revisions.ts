@@ -13,6 +13,7 @@ import {
   QueryCtx,
 } from "./_generated/server"
 import { internal } from "./_generated/api"
+import { deleteChunk } from "./lib/vectors"
 import { Doc, Id } from "./_generated/dataModel"
 import { requireUser, requireUserId } from "./lib/auth"
 import { isPublished } from "./lib/published"
@@ -881,7 +882,6 @@ export const applyProposal = internalMutation({
         seq: i,
         text: chunks[i].text,
         pageOrSection: chunks[i].section,
-        embedding: null,
         embeddingModel: null,
       })
     }
@@ -924,7 +924,7 @@ async function removeDraftVersion(ctx: MutationCtx, doc: Doc<"documents">, versi
     .query("chunks")
     .withIndex("by_documentId_and_version", (q) => q.eq("documentId", doc._id).eq("version", version))
     .collect()
-  for (const c of chunks) await ctx.db.delete(c._id)
+  for (const c of chunks) await deleteChunk(ctx, c)
   const usages = await ctx.db
     .query("imageUsages")
     .withIndex("by_documentId_and_version", (q) => q.eq("documentId", doc._id).eq("documentVersion", version))

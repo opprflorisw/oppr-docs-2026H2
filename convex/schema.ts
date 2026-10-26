@@ -365,13 +365,23 @@ export default defineSchema({
     seq: v.number(),
     text: v.string(),
     pageOrSection: v.union(v.string(), v.null()),
-    embedding: v.union(v.array(v.float64()), v.null()),
+    // Model version of the vector in chunkVectors; null means not embedded.
     embeddingModel: v.union(v.string(), v.null()),
     // When this chunk's embedding was last written. Drives the AI status panel.
     embeddedAt: v.optional(v.number()),
+    // The row in chunkVectors, so a search hit maps back without reading it.
+    vectorId: v.optional(v.id("chunkVectors")),
   })
     .index("by_documentId_and_version", ["documentId", "version"])
-    .vectorIndex("by_embedding", {
+    .index("by_vectorId", ["vectorId"]),
+
+  // The 768 numbers per chunk live apart from the chunk, so every read of a
+  // passage does not also read about 6 KB of vector.
+  chunkVectors: defineTable({
+    chunkId: v.id("chunks"),
+    documentId: v.id("documents"),
+    embedding: v.array(v.float64()),
+  }).vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 768,
       filterFields: ["documentId"],
@@ -425,12 +435,13 @@ export default defineSchema({
     generatedPrompt: v.optional(v.string()),
     // When the AI last wrote the description and tags.
     describedAt: v.optional(v.number()),
-    // Multimodal embedding (IMAGE_EMBEDDING_MODEL), same vector space as chunks.
-    // embedSource says whether the image itself or its caption was embedded.
-    embedding: v.optional(v.array(v.float64())),
+    // Model of the vector in imageVectors (IMAGE_EMBEDDING_MODEL, same space as
+    // chunks). embedSource says whether the image or its caption was embedded.
     embeddingModel: v.optional(v.string()),
     embeddedAt: v.optional(v.number()),
     embedSource: v.optional(v.union(v.literal("image"), v.literal("caption"))),
+    // The row in imageVectors (see chunks.vectorId).
+    vectorId: v.optional(v.id("imageVectors")),
     lastUsedAt: v.optional(v.number()),
     useCount: v.optional(v.number()),
     favorite: v.optional(v.boolean()),
@@ -439,7 +450,24 @@ export default defineSchema({
     .index("by_uploadedBy", ["uploadedBy"])
     .index("by_lastUsedAt", ["lastUsedAt"])
     .index("by_favorite", ["favorite"])
-    .vectorIndex("by_embedding", {
+    .index("by_vectorId", ["vectorId"]),
+
+  // One row per embedded image; kind and embedSource are copied from the image
+  // so searches can filter on them.
+  imageVectors: defineTable({
+    imageId: v.id("images"),
+    embedding: v.array(v.float64()),
+    kind: v.optional(
+      v.union(
+        v.literal("photo"),
+        v.literal("illustration"),
+        v.literal("diagram"),
+        v.literal("safety"),
+        v.literal("generated"),
+      ),
+    ),
+    embedSource: v.optional(v.union(v.literal("image"), v.literal("caption"))),
+  }).vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 768,
       filterFields: ["kind", "embedSource"],

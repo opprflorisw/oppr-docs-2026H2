@@ -1,6 +1,6 @@
-# CLAUDE.md — Oppr DOCS
+# CLAUDE.md — Oppr Knowledge (formerly Oppr DOCS)
 
-You are working on **Oppr DOCS v1.0 showcase**, a React + Convex app at `oppr-docs/`. This file is your orientation. Read it first, then dip into the docs it points to as needed.
+You are working on the **Oppr Knowledge showcase**, a React + Convex app at `oppr-docs/`. This file is your orientation. Read it first, then dip into the docs it points to as needed.
 
 ---
 
@@ -8,10 +8,11 @@ You are working on **Oppr DOCS v1.0 showcase**, a React + Convex app at `oppr-do
 
 1. **This file** — orientation, conventions, common tasks (≤250 lines)
 2. **[`oppr-docs-status.md`](./oppr-docs-status.md)** — current build state: what's shipped, folder structure, data model, routes, known issues. Always check here before assuming what exists
-3. **[`prd.md`](./prd.md)** — full requirements + milestone checklist. The source of truth for scope
-4. **[`../oppr_business.md`](../oppr_business.md)** — the parent business doc. Read §3, §6, §7 (UC4), §8 (rows 25–29), §10 for DOCS-specific context
+3. **[`CONTEXT.md`](./CONTEXT.md)** — the glossary and scope of Oppr Knowledge. The law for names and UI copy. ADRs in `docs/adr/`
+4. **[`docs/product/function-map.md`](./docs/product/function-map.md)** — every function, its maturity and what to sell first
+5. **[`../oppr_business.md`](../oppr_business.md)** — the parent business doc. [`prd.md`](./prd.md) is the original May DOCS PRD, historical only
 
-You don't need to read all four every turn. For most tasks: this file + a targeted look at the status doc is enough.
+You don't need to read all of them every turn. For most tasks: this file + a targeted look at the status doc is enough.
 
 ---
 
@@ -21,7 +22,9 @@ You don't need to read all four every turn. For most tasks: this file + a target
 
 **Oppr DOCS** is the standardize half. It lets process engineers author SOPs in a rich-text editor, link them to assets, and lets operators retrieve them via QR scan and ask questions through IDA (RAG over docs).
 
-**This codebase** is a Vite/React frontend on a **Convex** backend (database, file storage, vector search, auth, server-side AI). Built to demonstrate the full DOCS experience for sales demos and engineering alignment, not as the final production system.
+**Oppr Knowledge** (October 2026) widens DOCS into a controlled knowledge base with four pillars: Documents, Trainings, Skills, Wikis. Only Published content counts; Ask, Wikis and Trainings read Published content only. See `CONTEXT.md`.
+
+**This codebase** is a Vite/React frontend on a **Convex** backend (database, file storage, vector search, auth, server-side AI). An internal technical showcase, seeded with one plant (Pijpwerk Noord), not the final production system.
 
 The 8-week paid POC frame in the business doc converts at €75–100K/year. Every visible feature here is sized to defend that conversation.
 
@@ -32,10 +35,10 @@ The 8-week paid POC frame in the business doc converts at €75–100K/year. Eve
 - **React 19 + TypeScript 5.8 + Vite 7**, strict-off TS (per `tsconfig.app.json`)
 - **Tailwind 3** + **shadcn/ui** (Radix primitives) — design tokens in `src/index.css`
 - **Convex** backend — dev deployment `dev:different-newt-869`, project `oppr-docs-2026h2`. Schema source of truth: `convex/schema.ts`
-- **`@convex-dev/auth`** — magic-link sign-in via Resend, gated to `@oppr.ai`; `AuthGate`/`SignInForm` in `src/auth/`
+- **`@convex-dev/auth`** — provisioned password accounts (`npx convex run accounts:create`, CLI only) plus magic link for `@oppr.ai`; `AuthGate`/`SignInForm` in `src/auth/`. Floor identity is check-in (`useCheckIn`), a picked person
 - **TipTap 2.10** for authoring; custom nodes: `ImageWithRef`, `LaunchLog`, `LinkedAsset`, `ReferenceDoc`, `Callout`, `Ppe`, `Diagram`, `StepList`/`StepItem`, `PdfAttachment`
 - **`react-pdf`** (bundles pdfjs) for PDF viewing + text extraction; **`pdf-lib`** for import-side handling
-- **Gemini server-side** in `convex/ai/*` — `gemini-embedding-2` (768-dim, Convex `vectorIndex` on `chunks`) + `gemini-3.1-flash-lite`; streaming via the `/ai/askStream` HTTP action on the `.convex.site` host
+- **Gemini server-side** in `convex/ai/*` — `gemini-embedding-2` (768-dim, vector index on `chunkVectors`) + `gemini-3.1-flash-lite`; Claude (`convex/ai/llm.ts`) for Wikis and Guided creation when `ANTHROPIC_API_KEY` is set; streaming via the `/ai/askStream` HTTP action on the `.convex.site` host
 - **`wouter`** for routing — top-level switch on `/m/*` toggles desktop vs mobile shell
 - **`react-hook-form` + `zod`**, **`sonner`** toasts, **`next-themes`**
 
@@ -66,7 +69,7 @@ npx convex dev --once        # push functions/schema to the dev deployment
 
 The dev server may already be running in the background — check `http://localhost:5173` before starting another.
 
-To reset data to the minimal test set: `npx convex run seedMinimal:run` (wipes app tables, preserves templates + auth users).
+To reset dev data: `npx convex run seedKnowledge:run` (wipes app tables, keeps templates, auth users and the seed image cache; reseeds Pijpwerk Noord and re-embeds, which costs AI calls).
 
 ---
 
@@ -75,7 +78,7 @@ To reset data to the minimal test set: `npx convex run seedMinimal:run` (wipes a
 1. One Vite app. Same code serves desktop (`/`) and mobile (`/m/*`). The desktop sidebar's **Mobile** button calls `window.open('/m', …)` to launch a popup the user resizes to phone size.
 2. All data lives in **Convex**. Components subscribe via `useQuery(api.…)` — every open window live-updates on writes; there is no client-side persistence layer.
 3. Functions in `convex/*.ts` are the only legitimate way to touch data. Every function calls `requireUser`/`requireUserId` (`convex/lib/auth.ts`). The schema lives in `convex/schema.ts`.
-4. AI runs **server-side** in `convex/ai/*` — embeddings land in a 768-dim `vectorIndex` on `chunks` (auto-scheduled on publish); Ask IDA streams NDJSON from the `/ai/askStream` HTTP action. The Gemini key never reaches the browser.
+4. AI runs **server-side** in `convex/ai/*` — embeddings land in `chunkVectors` (768-dim vector index), images in `imageVectors`; Ask IDA streams NDJSON from the `/ai/askStream` HTTP action. The Gemini key never reaches the browser.
 5. The **Ask** side panel (`AskDock`, mounted once in the desktop shell, rendering `AskPanel`) is the one desktop Q&A surface; open it with `openAsk(question?, scope?)`. Scopes: `doc`, `asset`, `wiki`, `training`, `skills` (the Skill matrix as background), `library`. The phone keeps its own full-screen Ask (`MobileAskPage`).
 
 ---
@@ -121,6 +124,8 @@ When unsure, look at the existing import graph and copy the pattern.
 - **Diagram backgrounds embed Convex storage URLs** inside the cached SVG. PDF export pre-fetches and inlines them as data URLs so the print document is self-contained — keep that substitution working if you touch diagrams or export.
 - **`logs.code` is optional.** Placeholder logs (`AMS-OPS-LOG-0001`…) carry codes, older rows may not. Write defensively wherever a log code is displayed.
 - **PDF bytes** — `react-pdf` and `pdfjs.getDocument` detach the buffer. Always pass a fresh copy: `bytes.slice()`.
+- **Vectors live apart from their rows.** `chunks.vectorId` / `images.vectorId` point into `chunkVectors` / `imageVectors`. Never `ctx.db.delete` a chunk directly: use `deleteChunk` or `reconcileChunks` from `convex/lib/vectors.ts`, and run vector searches through `searchChunks` / `searchImages` (`convex/ai/vectorSearch.ts`). Reading the vector rows costs about 6 KB each, so only do it where the numbers are needed.
+- **Convex usage is billed.** Agent test runs (Playwright walks, repeated sign-ins, reseeds) on the shared dev deployment caused the October Free plan overrun. Run them against `npx convex dev --local`, and don't reseed casually: `seedKnowledge:run` re-embeds everything and triggers Wiki builds and a Consistency check.
 - **Embedding-model swap requires re-embed.** Embeddings are keyed on `chunkId + modelVersion` (`convex/ai/constants.ts`). If you change `EMBEDDING_DIM` or model, Developer → AI models and jobs → Search index → "Rebuild everything" is mandatory or RAG returns garbage.
 - **Custom-node SVG content** — `DiagramBlock` renders SVG via `dangerouslySetInnerHTML`. Curated presets/builder output only; never accept user-pasted SVG without sanitising.
 - **Assets and logs are shared, platform-scoped registries.** They belong to the wider Oppr toolset (LOGS/IDA), not DOCS — this deployment keeps a local copy. Access them only through `convex/assets.ts` / `convex/logs.ts` (no component queries those tables directly); link documents to assets/logs by Convex id via the join tables, never by the human-readable code. Rows carry optional `source`/`externalId` provenance so the future swap to an imported registry is server-side only. See `docs/adr/0001-shared-asset-and-log-registries.md`.
@@ -134,7 +139,7 @@ When unsure, look at the existing import graph and copy the pattern.
 2. Push: `npx convex dev --once` (or let the watcher pick it up).
 3. Update the mutations that write it and any queries that shape return objects.
 4. Update the matching type in `src/types/index.ts` and `src/lib/convex-adapters.ts` if the field crosses into legacy domain types.
-5. Backfill or re-seed if the field needs a value on existing rows (`npx convex run seedMinimal:run` for dev data).
+5. Backfill or re-seed if the field needs a value on existing rows (`npx convex run seedKnowledge:run` for dev data).
 
 ### "Add a new page"
 1. Create the component in `src/pages/desktop/` or `src/pages/mobile/`.
@@ -156,7 +161,7 @@ Templates are DB-backed (`templates` table), managed at `/templates` (create/edi
 Add an SVG entry to `DIAGRAM_PRESETS` in `src/components/docs/diagramPresets.ts`. Use `viewBox` so it scales; prefer named hex over Tailwind classes since the SVG is rendered via `dangerouslySetInnerHTML`. The picker surfaces it automatically.
 
 ### "Reset / seed dev data"
-- `npx convex run seedMinimal:run` — wipes app tables (templates + auth preserved) and seeds the minimal set: assets EXT-201/MIX-101, logs AMS-OPS-LOG-0001..0005, AMS-OPS-MAN-0001 (published) + AMS-OPS-SOP-0001 (draft exercising every primitive), 2 stored SVG images.
+- `npx convex run seedKnowledge:run` — wipes app tables (templates, auth, seed media kept) and seeds Pijpwerk Noord: people, Assets, 20 documents, Trainings, Skills, Wikis, captures, plant. `npx convex run devChecks:run` checks the Published-only invariants afterwards.
 - `npx convex run admin:wipeAll` — CLI-only full wipe (no reseed).
 
 ### "Add a new Ask IDA scope"

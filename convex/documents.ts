@@ -1,6 +1,7 @@
 import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server"
 import { ConvexError, v } from "convex/values"
 import { internal } from "./_generated/api"
+import { deleteChunk, reconcileChunks } from "./lib/vectors"
 import { Doc, Id } from "./_generated/dataModel"
 import { afterPublish } from "./lib/onPublish"
 import { requireUser, requireUserId } from "./lib/auth"
@@ -617,7 +618,6 @@ export const create = mutation({
         seq: i + 1,
         text: c.text,
         pageOrSection: c.section,
-        embedding: null,
         embeddingModel: null,
       })
     }
@@ -818,25 +818,8 @@ export const saveContent = mutation({
       })
     }
 
-    // Reconcile chunks for the target version (delete then reinsert).
-    const oldChunks = await ctx.db
-      .query("chunks")
-      .withIndex("by_documentId_and_version", (q) =>
-        q.eq("documentId", args.id).eq("version", targetVersion),
-      )
-      .collect()
-    for (const c of oldChunks) await ctx.db.delete(c._id)
-    for (const [i, c] of args.chunks.entries()) {
-      await ctx.db.insert("chunks", {
-        documentId: args.id,
-        version: targetVersion,
-        seq: i + 1,
-        text: c.text,
-        pageOrSection: c.section,
-        embedding: null,
-        embeddingModel: null,
-      })
-    }
+    // Reconcile chunks for the target version; unchanged passages keep their vector.
+    await reconcileChunks(ctx, args.id, targetVersion, args.chunks)
 
     // Asset links follow the Published version: while a Published document
     // has a draft edition, its links change only when that edition publishes.
@@ -1331,7 +1314,7 @@ export async function publishApproved(
     .withIndex("by_documentId_and_version", (q) => q.eq("documentId", doc._id))
     .collect()
   for (const c of staleChunks) {
-    if (c.version !== doc.currentVersion) await ctx.db.delete(c._id)
+    if (c.version !== doc.currentVersion) await deleteChunk(ctx, c)
   }
 
   // Wikis built on this Document must follow the new Published version.
@@ -1560,7 +1543,6 @@ export const createNewVersion = mutation({
         seq: c.seq,
         text: c.text,
         pageOrSection: c.pageOrSection,
-        embedding: null,
         embeddingModel: null,
       })
     }
@@ -1693,7 +1675,6 @@ export const refile = mutation({
         seq: c.seq,
         text: c.text,
         pageOrSection: c.pageOrSection,
-        embedding: null,
         embeddingModel: null,
       })
     }
@@ -2024,7 +2005,7 @@ export const remove = mutation({
         q.eq("documentId", args.id),
       )
       .take(5000)
-    for (const c of chunks) await ctx.db.delete(c._id)
+    for (const c of chunks) await deleteChunk(ctx, c)
 
     const links = await ctx.db
       .query("documentAssets")
